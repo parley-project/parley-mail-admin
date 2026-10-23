@@ -538,11 +538,12 @@
 				h('label.row', h('span', 'New password (empty: keep the current one)'), pw),
 				h('label.row', h('span', 'New password again'), pw2),
 				h('div.row', h('span', 'Permissions'), perms),
-				h('label.row', h('span', 'Maildrop'), drop),
+				h('label.row', h('span', 'Maildrop (empty: the default)'), drop),
 				h('p.faint', 'Changing the maildrop doesn\'t move existing mail.')), {
 				okLabel: 'Save', onOk: async () => {
 					if (pw.value !== pw2.value) throw new Error('The passwords are different');
-					return api('PUT', '/users/' + enc(u.name), { password: pw.value || null, permissions: perms.values(), maildrop: drop.value });
+					const md = drop.value.trim() === u.maildrop ? null : drop.value.trim();
+					return api('PUT', '/users/' + enc(u.name), { password: pw.value || null, permissions: perms.values(), maildrop: md });
 				}
 			});
 			if (r) { users = r; draw(); toast('Saved', 'ok'); }

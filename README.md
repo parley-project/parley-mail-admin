@@ -123,8 +123,18 @@ before users, and the full address before the local part.
 ## Logging in
 
 Administrators are mail users with the ADMIN permission (Users page). While no user has it, the
-first page creates one. After 10 failed logins from one address in 15 minutes, that address must
-wait. A user who loses ADMIN, or is deleted, is logged out at their next request.
+first page creates one. After 10 login attempts from one address in 15 minutes without success,
+that address must wait (behind a reverse proxy every client has the proxy's address, so they share
+that limit). A user who loses ADMIN, or is deleted, is logged out at their next request.
+
+## Known limits
+
+- Starting and stopping services is done one at a time: while a service stops (the SMTP queue
+  waits up to 30 seconds for a delivery under way) or starts (up to 15 seconds), the other pages'
+  requests wait for it.
+- Restarting the SMTP services while a slow remote delivery is still under way can leave the old
+  queue finishing that delivery while the new one starts; with `parley.mail.sharedStore` off the
+  two don't lock each other out, so that message could be tried by both.
 
 ## License
 

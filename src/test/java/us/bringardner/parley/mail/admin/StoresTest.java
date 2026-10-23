@@ -75,6 +75,13 @@ public class StoresTest {
 			assertThrows(IllegalArgumentException.class, () -> s.set("parley.mail.smtp.port", "70000"));
 			assertThrows(IllegalArgumentException.class, () -> s.set("parley.mail.smtp.requireTls", "yes"));
 			assertThrows(IllegalArgumentException.class, () -> s.set("bad name", "x"));
+			assertThrows(IllegalArgumentException.class, () -> s.set("user.home", "/x"), "only Parley settings");
+			System.setProperty("parley.test.fromCommandLine", "dash-D");
+			s.set("parley.test.fromCommandLine", "file");
+			assertEquals("file", System.getProperty("parley.test.fromCommandLine"));
+			s.set("parley.test.fromCommandLine", null);
+			assertEquals("dash-D", System.getProperty("parley.test.fromCommandLine"), "the -D value comes back");
+			System.clearProperty("parley.test.fromCommandLine");
 			Set<String> changed = s.set("parley.mail.smtp.port", "2526");
 			assertEquals(Set.of("parley.mail.smtp.port"), changed);
 			assertEquals("2526", System.getProperty("parley.mail.smtp.port"));
@@ -142,6 +149,10 @@ public class StoresTest {
 		assertTrue(p.authenticate("password1".getBytes(StandardCharsets.UTF_8)));
 		assertTrue(acl.supportsScram("SHA-256"), "every user can log in with SCRAM");
 
+		u.update("tony@a.test", null, null, "somewhere/else");
+		assertEquals("somewhere/else", u.get("tony@a.test").getMaildrop());
+		u.update("tony@a.test", null, null, "");
+		assertEquals("a.test/tony", u.get("tony@a.test").getMaildrop(), "empty: the default again");
 		u.update("old", "newpassword".toCharArray(), List.of("READ", "WRITE"), "elsewhere/old");
 		assertEquals("elsewhere/old", u.get("old").getMaildrop());
 		assertTrue(u.get("old").isHashed());

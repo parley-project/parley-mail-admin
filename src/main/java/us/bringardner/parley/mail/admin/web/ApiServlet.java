@@ -31,6 +31,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import us.bringardner.parley.mail.admin.AdminApp;
 import us.bringardner.parley.mail.admin.domains.DomainService;
+import us.bringardner.parley.mail.admin.history.HistoryStore;
 import us.bringardner.parley.mail.admin.log.LogBuffer;
 import us.bringardner.parley.mail.admin.settings.SettingDef;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
@@ -284,7 +285,7 @@ public class ApiServlet extends HttpServlet {
 		r.get("/history", this::history);
 		r.get("/history/{id}", q -> {
 			LocalDate to = LocalDate.now();
-			LocalDate from = to.minusDays(q.queryLong("days", 30));
+			LocalDate from = to.minusDays(Math.max(0, Math.min(HistoryStore.MAX_DAYS, q.queryLong("days", 30))));
 			List<Map<String, Object>> ret = new ArrayList<>();
 			for (Map<String, Object> m : app.getHistory().query(from, to, q.param(0), null, 10000)) {
 				if (q.param(0).equals(m.get("id"))) {
@@ -332,31 +333,37 @@ public class ApiServlet extends HttpServlet {
 	private Object login(Router.Request q) throws IOException {
 		String ip = q.http.getRemoteAddr();
 		long now = System.currentTimeMillis();
-		long[] f = failures.get(ip);
-		if (f != null && now - f[1] > FAILURE_WINDOW) {
-			failures.remove(ip);
-			f = null;
+		if (failures.size() > 10000) {
+			failures.values().removeIf(v -> now - v[1] > FAILURE_WINDOW);
 		}
-		if (f != null && f[0] >= MAX_FAILURES) {
+		// count the attempt before checking the password, so parallel requests can't get past the limit
+		long[] f = failures.compute(ip, (k, v) -> v == null || now - v[1] > FAILURE_WINDOW ? new long[] { 1, now } : new long[] { v[0] + 1, v[1] });
+		if (f[0] > MAX_FAILURES) {
 			throw new ApiException(429, "Too many failed logins; try again later");
 		}
 		String name = q.requiredText("user");
 		char[] password = q.password("password");
 		UserRecord u = app.getUsers().authenticate(name, password);
 		if (u == null || !u.hasPermission(UserRecord.ADMIN)) {
-			failures.compute(ip, (k, v) -> v == null || now - v[1] > FAILURE_WINDOW ? new long[] { 1, now } : new long[] { v[0] + 1, v[1] });
-			LOG.log(System.Logger.Level.WARNING, "Failed admin login for '" + name + "' from " + ip);
+			LOG.log(System.Logger.Level.WARNING, "Failed admin login for '" + printable(name) + "' from " + ip);
 			try {
-				Thread.sleep(1000);
+				Thread.sleep(500);
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
 			}
-			throw new ApiException(401, u == null ? "Wrong user name or password" : "That user isn't an administrator (needs ADMIN)");
+			// the same answer either way: this page doesn't confirm a mail user's password
+			throw new ApiException(401, "Wrong user name or password, or not an administrator");
 		}
 		failures.remove(ip);
 		AdminFilter.login(q.http, u.getName());
 		LOG.log(System.Logger.Level.INFO, u.getName() + " logged in to the admin pages from " + ip);
 		return session(q);
+	}
+
+	/** Text for the log: no control characters (no forged log lines), at most 100 characters. */
+	private static String printable(String s) {
+		String t = s.replaceAll("\\p{Cntrl}", "?");
+		return t.length() > 100 ? t.substring(0, 100) + "..." : t;
 	}
 
 	/** Make the first administrator (only while there is none). */

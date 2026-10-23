@@ -216,15 +216,21 @@ public final class DomainService {
 		return e;
 	}
 
+	/** Write a private key readable by its owner only (from the start, where the file system allows). */
 	private static void writePrivate(File f, String pem) throws IOException {
 		f.getAbsoluteFile().getParentFile().mkdirs();
-		Files.write(f.toPath(), pem.getBytes(StandardCharsets.US_ASCII));
+		java.nio.file.Path p = f.toPath();
+		Files.deleteIfExists(p);
 		try {
-			Files.setPosixFilePermissions(f.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
-		} catch (UnsupportedOperationException | IOException e) {
+			Files.createFile(p, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")));
+		} catch (UnsupportedOperationException e) {
+			Files.createFile(p);
 			f.setReadable(false, false);
+			f.setWritable(false, false);
 			f.setReadable(true, true);
+			f.setWritable(true, true);
 		}
+		Files.write(p, pem.getBytes(StandardCharsets.US_ASCII));
 	}
 
 	private static File dnsFile(File key) {
