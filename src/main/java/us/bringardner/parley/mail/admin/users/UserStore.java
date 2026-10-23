@@ -162,17 +162,17 @@ public final class UserStore {
 			}
 			UserRecord u = new UserRecord(name, FileBasedAcl.hashPasswordWithScram(password));
 			u.setPermissions(perms);
-			if (drop == null && u.getDomain() != null) {
-				drop = u.getDomain() + "/" + u.getLocalPart();
-			}
-			u.setParameter(UserRecord.MAILDROP, drop);
+			u.setParameter(UserRecord.MAILDROP, drop == null ? defaultMaildrop(u) : drop);
 			lines.add(new Line(null, u));
 			save();
 		}
 		fire();
 	}
 
-	/** Change a user's password, permissions or maildrop; null leaves that one as it is. */
+	/**
+	 * Change a user's password, permissions or maildrop; null leaves that one as it is, and an
+	 * empty maildrop means the default.
+	 */
 	public void update(String name, char[] password, Collection<String> permissions, String maildrop) throws IOException {
 		if (password != null) {
 			checkPassword(password);
@@ -194,7 +194,7 @@ public final class UserStore {
 				u.setPermissions(perms);
 			}
 			if (maildrop != null) {
-				u.setParameter(UserRecord.MAILDROP, drop);
+				u.setParameter(UserRecord.MAILDROP, drop == null ? defaultMaildrop(u) : drop);
 			}
 			save();
 		}
@@ -219,6 +219,11 @@ public final class UserStore {
 			save();
 		}
 		fire();
+	}
+
+	/** domain/name for a user of one domain; null (the name) for a user of every domain. */
+	private static String defaultMaildrop(UserRecord u) {
+		return u.getDomain() == null ? null : u.getDomain() + "/" + u.getLocalPart();
 	}
 
 	private int countAdmins() {

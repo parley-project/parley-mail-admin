@@ -3,10 +3,12 @@ package us.bringardner.parley.mail.admin.settings;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
@@ -15,7 +17,8 @@ import java.util.function.Consumer;
  * The suite's settings: one properties file whose every setting is also a system property, which
  * is where the Parley servers read their settings when they are created. Settings in the file win
  * over the same system properties set otherwise (-D), so what the Settings page shows is what
- * the servers get.
+ * the servers get; a setting removed from the file gets its -D value back. Only Parley settings
+ * ({@code parley.*}) can be set.
  */
 public final class SettingsService {
 
@@ -23,6 +26,7 @@ public final class SettingsService {
 	private final SettingsCatalog catalog;
 	/** The settings this service put into the system properties. */
 	private final Set<String> applied = new HashSet<>();
+	private final Map<String, Optional<String>> original = new HashMap<>();
 	private final List<Consumer<Set<String>>> listeners = new CopyOnWriteArrayList<>();
 
 	public SettingsService(PropertiesFile file, SettingsCatalog catalog) {
@@ -64,13 +68,26 @@ public final class SettingsService {
 		Map<String, String> values = file.getValues();
 		for (String k : new ArrayList<>(applied)) {
 			if (!values.containsKey(k)) {
-				System.clearProperty(k);
+				restore(k);
 				applied.remove(k);
 			}
 		}
 		for (Map.Entry<String, String> e : values.entrySet()) {
+			if (!applied.contains(e.getKey())) {
+				// the value it had before the file set it (-D), for when it leaves the file
+				original.put(e.getKey(), Optional.ofNullable(System.getProperty(e.getKey())));
+			}
 			System.setProperty(e.getKey(), e.getValue().trim());
 			applied.add(e.getKey());
+		}
+	}
+
+	private void restore(String key) {
+		Optional<String> o = original.remove(key);
+		if (o != null && o.isPresent()) {
+			System.setProperty(key, o.get());
+		} else {
+			System.clearProperty(key);
 		}
 	}
 
@@ -125,8 +142,8 @@ public final class SettingsService {
 			Map<String, String> clean = new LinkedHashMap<>();
 			for (Map.Entry<String, String> e : changes.entrySet()) {
 				String key = e.getKey() == null ? "" : e.getKey().trim();
-				if (key.isEmpty() || !key.matches("[A-Za-z0-9_.\\-]+")) {
-					errors.add("Invalid setting name '" + e.getKey() + "'");
+				if (!key.matches("parley\\.[A-Za-z0-9_.\\-]+")) {
+					errors.add("Invalid setting name '" + e.getKey() + "' (a Parley setting, parley.*)");
 					continue;
 				}
 				String value = e.getValue() == null ? null : e.getValue().trim();
@@ -184,7 +201,7 @@ public final class SettingsService {
 	/** Remove the system properties this service set (when the application stops). */
 	public synchronized void clear() {
 		for (String k : applied) {
-			System.clearProperty(k);
+			restore(k);
 		}
 		applied.clear();
 	}
