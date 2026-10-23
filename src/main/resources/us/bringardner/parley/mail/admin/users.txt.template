@@ -1,0 +1,6 @@
+# Parley mail users: name , password , permissions , parameters
+# Managed by parley-mail-admin (the Users page). One user per line:
+#   tony@example.com , {PBKDF2}... , READ|WRITE , maildrop=example.com/tony
+# READ: log in and read mail. WRITE: delete and file mail, and send it. ADMIN: use parley-mail-admin.
+# A name with a domain (tony@example.com) gets mail for that domain only; a name without one
+# gets mail for every local domain.

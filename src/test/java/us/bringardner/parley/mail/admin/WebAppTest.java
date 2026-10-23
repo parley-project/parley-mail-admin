@@ -1,0 +1,401 @@
+package us.bringardner.parley.mail.admin;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.CookieManager;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Map;
+import java.util.function.BooleanSupplier;
+
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+/**
+ * The whole application in an embedded Tomcat, as a browser uses it: the first administrator,
+ * domains, users, the services, mail through SMTP into POP3, the queue's history, the logs and
+ * the settings. The mail servers run on free ports with a scratch home.
+ */
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+public class WebAppTest {
+
+	private static DevServer server;
+	private static File home;
+	private static String base;
+	private static final HttpClient http = HttpClient.newBuilder().cookieHandler(new CookieManager()).build();
+	private static final ObjectMapper json = new ObjectMapper();
+	private static String csrf = "none";
+	private static int smtpPort;
+	private static int submissionPort;
+	private static int pop3Port;
+	private static int imapPort;
+
+	private static int freePort() throws IOException {
+		try (ServerSocket s = new ServerSocket(0)) {
+			return s.getLocalPort();
+		}
+	}
+
+	@BeforeAll
+	public static void start() throws Exception {
+		home = Files.createTempDirectory(new File(System.getProperty("java.io.tmpdir")).toPath(), "mail-admin-home").toFile();
+		smtpPort = freePort();
+		submissionPort = freePort();
+		pop3Port = freePort();
+		imapPort = freePort();
+		String root = new File(home, "mail").getAbsolutePath().replace('\\', '/');
+		Files.write(new File(home, "parley-mail.properties").toPath(), ("# test settings\n"
+				+ "parley.mail.root=" + root + "\n"
+				+ "parley.mail.smtp.hostname=mx.a.test\n"
+				+ "parley.mail.smtp.domains=a.test\n"
+				+ "parley.mail.smtp.relayNetworks=127.0.0.1/32\n"
+				+ "parley.mail.smtp.port=" + smtpPort + "\n"
+				+ "parley.mail.submission.port=" + submissionPort + "\n"
+				+ "parley.mail.submissions.port=0\n"
+				+ "parley.mail.imap.port=" + imapPort + "\n"
+				+ "parley.mail.imaps.port=0\n"
+				+ "parley.mail.pop3.port=" + pop3Port + "\n"
+				+ "parley.mail.pop3s.port=0\n"
+				+ "parley.mail.admin.autoStart=true\n").getBytes(StandardCharsets.UTF_8));
+		System.setProperty(AdminHome.HOME_PROPERTY, home.getAbsolutePath());
+		server = new DevServer(0, "/admin", DevServer.webappDirectory(), new File(home, "tomcat"));
+		server.start();
+		base = "http://localhost:" + server.getPort() + "/admin/";
+	}
+
+	@AfterAll
+	public static void stop() throws Exception {
+		if (server != null) {
+			server.stop();
+		}
+		System.clearProperty(AdminHome.HOME_PROPERTY);
+	}
+
+	private static HttpResponse<String> call(String method, String path, Object body) throws Exception {
+		HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + "api" + path)).header("X-CSRF-Token", csrf);
+		if (body != null) {
+			b.header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
+		} else {
+			b.method(method, HttpRequest.BodyPublishers.noBody());
+		}
+		return http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private static JsonNode ok(String method, String path, Object body) throws Exception {
+		HttpResponse<String> r = call(method, path, body);
+		assertTrue(r.statusCode() / 100 == 2, method + " " + path + ": " + r.statusCode() + " " + r.body());
+		return r.body().isEmpty() ? null : json.readTree(r.body());
+	}
+
+	private static void waitFor(BooleanSupplier test, String what) throws InterruptedException {
+		long end = System.currentTimeMillis() + 20000;
+		while (!test.getAsBoolean()) {
+			if (System.currentTimeMillis() > end) {
+				throw new AssertionError("Timed out waiting for " + what);
+			}
+			Thread.sleep(100);
+		}
+	}
+
+	@Test
+	@Order(1)
+	public void pagesAndSecurity() throws Exception {
+		HttpResponse<String> page = http.send(HttpRequest.newBuilder(URI.create(base)).build(), HttpResponse.BodyHandlers.ofString());
+		assertEquals(200, page.statusCode());
+		assertTrue(page.body().contains("js/app.js"));
+		assertTrue(page.headers().firstValue("Content-Security-Policy").isPresent());
+		HttpResponse<String> logo = http.send(HttpRequest.newBuilder(URI.create(base + "brand/margot-smtp.svg")).build(), HttpResponse.BodyHandlers.ofString());
+		assertEquals(200, logo.statusCode());
+		assertEquals(404, http.send(HttpRequest.newBuilder(URI.create(base + "brand/secret.txt")).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+
+		assertEquals(401, call("GET", "/status", null).statusCode(), "not logged in");
+		JsonNode s = ok("GET", "/session", null);
+		assertTrue(s.get("setupRequired").asBoolean(), "no administrator yet");
+		assertFalse(s.get("authenticated").asBoolean());
+	}
+
+	@Test
+	@Order(2)
+	public void setupAndLogin() throws Exception {
+		HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(base + "api/setup")).header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString("{\"user\":\"admin@a.test\",\"password\":\"adminpass1\"}")).build(), HttpResponse.BodyHandlers.ofString());
+		assertEquals(403, r.statusCode(), "no CSRF header");
+		JsonNode s = ok("POST", "/setup", Map.of("user", "admin@a.test", "password", "adminpass1"));
+		assertTrue(s.get("authenticated").asBoolean());
+		csrf = s.get("csrf").asText();
+		assertEquals(409, call("POST", "/setup", Map.of("user", "x", "password", "adminpass2")).statusCode(), "only once");
+
+		ok("POST", "/logout", null);
+		csrf = "none";
+		assertEquals(401, call("POST", "/login", Map.of("user", "admin@a.test", "password", "wrong-one")).statusCode());
+		s = ok("POST", "/login", Map.of("user", "admin@a.test", "password", "adminpass1"));
+		csrf = s.get("csrf").asText();
+		String good = csrf;
+		csrf = "forged";
+		assertEquals(403, call("POST", "/services/all/stop", null).statusCode(), "wrong CSRF token");
+		csrf = good;
+	}
+
+	@Test
+	@Order(3)
+	public void servicesStarted() throws Exception {
+		JsonNode st = ok("GET", "/status", null);
+		for (JsonNode svc : st.get("services")) {
+			String id = svc.get("id").asText();
+			boolean enabled = svc.get("enabled").asBoolean();
+			assertEquals(enabled ? "RUNNING" : "STOPPED", svc.get("state").asText(), id + ": " + svc);
+		}
+		assertTrue(st.get("queue").get("running").asBoolean());
+	}
+
+	@Test
+	@Order(4)
+	public void domainsUsersAndMail() throws Exception {
+		JsonNode domains = ok("POST", "/domains", Map.of("domain", "B.test"));
+		assertEquals(2, domains.size());
+		assertEquals(400, call("POST", "/domains", Map.of("domain", "not a domain")).statusCode());
+		JsonNode b = ok("POST", "/domains/b.test/dkim", Map.of("selector", "sel1", "type", "rsa"));
+		assertEquals("sel1", b.get("dkim").get("selector").asText());
+		boolean dkimRecord = false;
+		for (JsonNode r : b.get("dns")) {
+			dkimRecord |= r.get("name").asText().equals("sel1._domainkey.b.test.") && r.get("value").asText().startsWith("v=DKIM1; k=rsa; p=");
+		}
+		assertTrue(dkimRecord, b.toString());
+
+		ok("POST", "/users", Map.of("name", "tony@b.test", "password", "tonypass1", "permissions", java.util.List.of("READ", "WRITE")));
+		assertEquals(400, call("POST", "/users", Map.of("name", "x@c.test", "password", "xxxxxxxx1")).statusCode(), "not a local domain");
+		ok("PUT", "/aliases/sales@b.test", Map.of("members", java.util.List.of("tony")));
+
+		// SMTP settings changed (domains, DKIM, aliases): the SMTP services say they need a restart
+		JsonNode services = ok("GET", "/services", null);
+		boolean restart = false;
+		for (JsonNode s : services) {
+			if (s.get("id").asText().equals("smtp")) {
+				restart = s.get("restartNeeded").asBoolean();
+			}
+			if (s.get("id").asText().equals("pop3")) {
+				assertFalse(s.get("restartNeeded").asBoolean(), "POP3 isn't affected");
+			}
+		}
+		assertTrue(restart);
+		ok("POST", "/services/all/restart-changed", null);
+		for (JsonNode s : ok("GET", "/services", null)) {
+			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+		}
+
+		// mail to the alias of the new domain, through SMTP, reaches tony@b.test's maildrop
+		smtp(smtpPort, "x@far.test", "sales@b.test", "Subject: hello\r\n\r\nHi Tony\r\n");
+		waitFor(() -> {
+			try {
+				JsonNode h = ok("GET", "/history?q=tony%40b.test&type=DELIVERED", null);
+				return h.size() > 0;
+			} catch (Exception e) {
+				return false;
+			}
+		}, "the delivery in the history");
+		JsonNode hist = ok("GET", "/history?type=DELIVERED,EXPANDED,QUEUED,COMPLETED", null);
+		String id = null;
+		for (JsonNode e : hist) {
+			if (e.get("type").asText().equals("DELIVERED")) {
+				id = e.get("id").asText();
+				assertEquals("delivered to tony@b.test", e.get("result").asText());
+			}
+		}
+		assertNotNull(id);
+		JsonNode timeline = ok("GET", "/history/" + id, null);
+		assertEquals("QUEUED", timeline.get(0).get("type").asText());
+		assertEquals("COMPLETED", timeline.get(timeline.size() - 1).get("type").asText());
+		assertTrue(new File(home, "mail/b.test/tony").isDirectory());
+
+		assertEquals(1, pop3Count("tony@b.test", "tonypass1"));
+		JsonNode usage = ok("GET", "/users/" + URLEncoder.encode("tony@b.test", StandardCharsets.UTF_8) + "/usage", null);
+		assertTrue(usage.get("exists").asBoolean());
+		assertTrue(usage.get("bytes").asLong() > 0);
+	}
+
+	@Test
+	@Order(5)
+	public void queueActions() throws Exception {
+		// to a smart host that refuses connections, with a retry schedule far away: it stays in the queue
+		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.smtp.queue.retry", "600", "parley.mail.smtp.relayHost", "127.0.0.1:" + freePort(),
+				"parley.mail.smtp.relayTls", "none")));
+		ok("POST", "/services/smtp/restart", null);
+		smtp(smtpPort, "admin@a.test", "someone@remote.invalid", "Subject: stuck\r\n\r\nbody\r\n");
+		waitFor(() -> {
+			try {
+				return ok("GET", "/queue", null).get("entries").size() == 1;
+			} catch (Exception e) {
+				return false;
+			}
+		}, "the message in the queue");
+		JsonNode e = ok("GET", "/queue", null).get("entries").get(0);
+		String id = e.get("id").asText();
+		HttpResponse<String> message = call("GET", "/queue/" + id + "/message", null);
+		assertTrue(message.body().contains("Subject: stuck"), message.body());
+		waitFor(() -> {
+			try {
+				JsonNode q = ok("GET", "/queue", null).get("entries");
+				return q.size() == 1 && q.get(0).get("recipients").get(0).get("attempts").asInt() > 0;
+			} catch (Exception ex) {
+				return false;
+			}
+		}, "the first attempt");
+		ok("POST", "/queue/" + id + "/retry", null);
+		// the retry may be under way: then delete says 409 until it's done
+		waitFor(() -> {
+			try {
+				return call("DELETE", "/queue/" + id, null).statusCode() == 200;
+			} catch (Exception ex) {
+				return false;
+			}
+		}, "the delete");
+		assertEquals(0, ok("GET", "/queue", null).get("entries").size());
+		waitFor(() -> {
+			try {
+				return ok("GET", "/history?type=DELETED", null).size() == 1;
+			} catch (Exception ex) {
+				return false;
+			}
+		}, "DELETED in the history");
+		assertEquals(404, call("DELETE", "/queue/" + id, null).statusCode());
+	}
+
+	@Test
+	@Order(6)
+	public void logsAndLevels() throws Exception {
+		JsonNode logs = ok("GET", "/logs?source=ADMIN", null);
+		assertTrue(logs.get("entries").size() > 0, "the admin application's entries");
+		boolean smtpSeen = false;
+		for (JsonNode e : ok("GET", "/logs?source=SMTP", null).get("entries")) {
+			smtpSeen = true;
+			assertEquals("SMTP", e.get("source").asText());
+		}
+		assertTrue(smtpSeen, "the SMTP server's entries (Parley loggers)");
+		ok("PUT", "/logs/levels", Map.of("source", "POP3", "level", "DEBUG"));
+		assertEquals("DEBUG", ok("GET", "/logs/levels", null).get("POP3").asText());
+		pop3Count("tony@b.test", "tonypass1");
+		long debug = 0;
+		for (JsonNode e : ok("GET", "/logs?source=POP3&level=DEBUG", null).get("entries")) {
+			if (e.get("level").asText().equals("DEBUG")) {
+				debug++;
+			}
+		}
+		assertTrue(debug > 0, "POP3 logs at DEBUG now");
+		HttpResponse<String> file = call("GET", "/logs/download", null);
+		assertEquals(200, file.statusCode());
+		assertTrue(file.body().contains("Parley mail admin starting"));
+	}
+
+	@Test
+	@Order(7)
+	public void settingsPage() throws Exception {
+		JsonNode s = ok("GET", "/settings", null);
+		assertTrue(s.get("groups").size() > 5);
+		HttpResponse<String> bad = call("PUT", "/settings", Map.of("changes", Map.of("parley.mail.pop3.port", "abc")));
+		assertEquals(400, bad.statusCode());
+		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.tls.keyStorePassword", "s3cret")));
+		String text = ok("GET", "/settings", null).toString();
+		assertFalse(text.contains("s3cret"), "secrets aren't sent to the browser");
+		ok("POST", "/queue/flush", null);
+		ok("POST", "/services/pop3/stop", null);
+		for (JsonNode svc : ok("GET", "/services", null)) {
+			if (svc.get("id").asText().equals("pop3")) {
+				assertEquals("STOPPED", svc.get("state").asText());
+			}
+		}
+		ok("POST", "/services/all/stop", null);
+		assertEquals(409, call("POST", "/queue/flush", null).statusCode(), "no queue without SMTP");
+	}
+
+	// ------------------------------------------------------------------ tiny clients
+
+	private static String line(BufferedReader in) throws IOException {
+		String l = in.readLine();
+		if (l == null) {
+			throw new IOException("closed");
+		}
+		return l;
+	}
+
+	/** Read a reply (multi-line ones too); fail unless it starts with the code's first digit. */
+	private static String reply(BufferedReader in, char ok) throws IOException {
+		String l;
+		do {
+			l = line(in);
+		} while (l.length() > 3 && l.charAt(3) == '-');
+		if (l.charAt(0) != ok) {
+			throw new IOException("Unexpected reply: " + l);
+		}
+		return l;
+	}
+
+	private static void smtp(int port, String from, String to, String message) throws IOException {
+		try (Socket s = new Socket("localhost", port)) {
+			BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+			OutputStream out = s.getOutputStream();
+			reply(in, '2');
+			send(out, "EHLO client.test");
+			reply(in, '2');
+			send(out, "MAIL FROM:<" + from + ">");
+			reply(in, '2');
+			send(out, "RCPT TO:<" + to + ">");
+			reply(in, '2');
+			send(out, "DATA");
+			reply(in, '3');
+			out.write((message + ".\r\n").getBytes(StandardCharsets.UTF_8));
+			reply(in, '2');
+			send(out, "QUIT");
+		}
+	}
+
+	private static void send(OutputStream out, String cmd) throws IOException {
+		out.write((cmd + "\r\n").getBytes(StandardCharsets.UTF_8));
+		out.flush();
+	}
+
+	/** Log in with POP3 and return the number of messages (STAT). */
+	private static int pop3Count(String user, String password) throws IOException {
+		try (Socket s = new Socket("localhost", pop3Port)) {
+			BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+			OutputStream out = s.getOutputStream();
+			expectOk(line(in));
+			send(out, "USER " + user);
+			expectOk(line(in));
+			send(out, "PASS " + password);
+			expectOk(line(in));
+			send(out, "STAT");
+			String stat = line(in);
+			expectOk(stat);
+			send(out, "QUIT");
+			return Integer.parseInt(stat.split(" ")[1]);
+		}
+	}
+
+	private static void expectOk(String l) throws IOException {
+		if (!l.startsWith("+OK")) {
+			throw new IOException("POP3: " + l);
+		}
+	}
+}

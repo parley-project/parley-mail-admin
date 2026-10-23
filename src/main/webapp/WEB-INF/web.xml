@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd"
+	version="6.0" metadata-complete="true">
+
+	<display-name>Parley Mail Admin</display-name>
+
+	<!-- Where the settings, users, aliases, history, logs and DKIM keys go. Empty: the
+	     parley.mail.admin.home system property, the PARLEY_MAIL_ADMIN_HOME environment variable,
+	     or ~/.parley/mail-admin. -->
+	<context-param>
+		<param-name>parley.mail.admin.home</param-name>
+		<param-value></param-value>
+	</context-param>
+
+	<listener>
+		<listener-class>us.bringardner.parley.mail.admin.web.AdminContextListener</listener-class>
+	</listener>
+
+	<filter>
+		<filter-name>admin</filter-name>
+		<filter-class>us.bringardner.parley.mail.admin.web.AdminFilter</filter-class>
+	</filter>
+	<filter-mapping>
+		<filter-name>admin</filter-name>
+		<url-pattern>/*</url-pattern>
+	</filter-mapping>
+
+	<servlet>
+		<servlet-name>api</servlet-name>
+		<servlet-class>us.bringardner.parley.mail.admin.web.ApiServlet</servlet-class>
+		<load-on-startup>1</load-on-startup>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>api</servlet-name>
+		<url-pattern>/api/*</url-pattern>
+	</servlet-mapping>
+
+	<servlet>
+		<servlet-name>brand</servlet-name>
+		<servlet-class>us.bringardner.parley.mail.admin.web.BrandServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>brand</servlet-name>
+		<url-pattern>/brand/*</url-pattern>
+	</servlet-mapping>
+
+	<session-config>
+		<session-timeout>30</session-timeout>
+		<cookie-config>
+			<http-only>true</http-only>
+			<!-- set to true when the pages are served over HTTPS (they should be, outside development) -->
+			<secure>false</secure>
+			<attribute>
+				<attribute-name>SameSite</attribute-name>
+				<attribute-value>Strict</attribute-value>
+			</attribute>
+		</cookie-config>
+		<tracking-mode>COOKIE</tracking-mode>
+	</session-config>
+
+	<welcome-file-list>
+		<welcome-file>index.html</welcome-file>
+	</welcome-file-list>
+</web-app>
