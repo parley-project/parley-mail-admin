@@ -1,0 +1,139 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<!-- License, developer, SCM, URL, Java level and plugin versions come from parley-parent. -->
+	<parent>
+		<groupId>us.bringardner.parley</groupId>
+		<artifactId>parley-parent</artifactId>
+		<version>2.0.0-SNAPSHOT</version>
+		<relativePath>../parley-parent/pom.xml</relativePath>
+	</parent>
+
+	<artifactId>parley-mail-admin</artifactId>
+	<packaging>war</packaging>
+	<name>Parley Mail Admin</name>
+	<description>A web application that runs the Parley mail suite (parley-smtp, parley-imap and
+		parley-pop3 in one process, serving one mail store) and manages it from a browser: settings,
+		domains, users, aliases, the servers' status, start and stop, logs, and the SMTP queue and
+		its history.</description>
+	<inceptionYear>2026</inceptionYear>
+
+	<properties>
+		<parley.moduleName>us.bringardner.parley.mail.admin</parley.moduleName>
+		<jackson.version>2.18.2</jackson.version>
+		<junit.version>5.11.4</junit.version>
+		<!-- Tomcat 10.1: Jakarta Servlet 6.0, runs on Java 11 like the rest of Parley -->
+		<tomcat.version>10.1.34</tomcat.version>
+		<!-- the context path the war is deployed with by DevServer and Eclipse ("Run on Server") -->
+		<admin.contextPath>parley-mail-admin</admin.contextPath>
+	</properties>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.junit</groupId>
+				<artifactId>junit-bom</artifactId>
+				<version>${junit.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<dependencies>
+		<!-- The servers; each brings parley-mail, parley-net, parley-files and parley-core -->
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-smtp</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-imap</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-pop3</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<!-- Logo and Margot, served under /brand/ -->
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-brand</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>com.fasterxml.jackson.core</groupId>
+			<artifactId>jackson-databind</artifactId>
+			<version>${jackson.version}</version>
+		</dependency>
+
+		<!-- Provided by the servlet container (Tomcat 10.1 or later) -->
+		<dependency>
+			<groupId>jakarta.servlet</groupId>
+			<artifactId>jakarta.servlet-api</artifactId>
+			<version>6.0.0</version>
+			<scope>provided</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.junit.jupiter</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- DevServer (Run As > Java Application in Eclipse) and the web tests run an embedded Tomcat -->
+		<dependency>
+			<groupId>org.apache.tomcat.embed</groupId>
+			<artifactId>tomcat-embed-core</artifactId>
+			<version>${tomcat.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.tomcat.embed</groupId>
+			<artifactId>tomcat-embed-jasper</artifactId>
+			<version>${tomcat.version}</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<finalName>${admin.contextPath}</finalName>
+		<resources>
+			<!-- version.properties gets the project version; nothing else is filtered (the templates use @HOME@) -->
+			<resource>
+				<directory>src/main/resources</directory>
+				<excludes>
+					<exclude>**/version.properties</exclude>
+				</excludes>
+			</resource>
+			<resource>
+				<directory>src/main/resources</directory>
+				<filtering>true</filtering>
+				<includes>
+					<include>**/version.properties</include>
+				</includes>
+			</resource>
+		</resources>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-war-plugin</artifactId>
+				<version>3.4.0</version>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!-- tests run the servers on free ports with a scratch home under target/ -->
+					<systemPropertyVariables>
+						<java.io.tmpdir>${project.build.directory}</java.io.tmpdir>
+					</systemPropertyVariables>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>

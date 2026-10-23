@@ -1,0 +1,48 @@
+# Parley mail suite settings, made by parley-mail-admin on its first start.
+# Edit them on the Settings page (or here, then restart the services). Every line becomes a system
+# property, so any parley.mail.* setting of the parley-smtp, parley-imap and parley-pop3 READMEs
+# can be used. The ports below are high ports so the suite runs without root while you try it out;
+# use 25, 587, 465, 143, 993, 110 and 995 on a real server. A port of 0 turns that service off.
+
+# ---------------------------------------------------------------- store, users, TLS
+
+# Where the mail lives: one directory per user, the SMTP queue (.smtp-queue) and DMARC report data
+parley.mail.root=@HOME@/mail
+
+# Users (name , password-hash , READ|WRITE|ADMIN , maildrop=...); managed on the Users page
+parley.mail.users=@HOME@/users.txt
+
+# TLS key store used by every service that has no key store of its own
+#parley.mail.tls.keyStore=@HOME@/tls/keystore.p12
+#parley.mail.tls.keyStorePassword=
+#parley.mail.tls.keyStoreType=PKCS12
+
+# ---------------------------------------------------------------- ports
+
+parley.mail.smtp.port=2525
+parley.mail.submission.port=2587
+# implicit TLS: needs a key store
+parley.mail.submissions.port=0
+parley.mail.imap.port=2143
+parley.mail.imaps.port=0
+parley.mail.pop3.port=2110
+parley.mail.pop3s.port=0
+
+# ---------------------------------------------------------------- SMTP
+
+# The name in the greeting, EHLO and Received fields (the PTR record of the server's address)
+parley.mail.smtp.hostname=localhost
+
+# Domains whose mail is delivered here (comma separated); managed on the Domains page
+parley.mail.smtp.domains=localhost
+
+# alias: member, member ...  ; managed on the Aliases page
+parley.mail.smtp.aliases=@HOME@/aliases.txt
+
+# Clients that may relay without logging in
+parley.mail.smtp.relayNetworks=127.0.0.1/32
+
+# ---------------------------------------------------------------- the admin application
+
+# Start the enabled services when the web application starts
+parley.mail.admin.autoStart=true
