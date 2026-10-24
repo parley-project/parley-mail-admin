@@ -715,7 +715,7 @@
 		const list = h('div');
 		const form = h('form.toolbar', h('span.muted', 'From'), from, h('span.muted', 'to'), to, type, q, h('button.primary', { type: 'submit' }, 'Search'));
 		form.addEventListener('submit', e => { e.preventDefault(); refresh(); });
-		root.appendChild(h('p.muted', 'Every message the SMTP queue took, each delivery attempt and its result, kept for the days set in Settings > Admin.'));
+		root.appendChild(h('p.muted', 'Every message the SMTP queue took, each delivery attempt and its result, kept for the days set in Settings > Delivery.'));
 		root.appendChild(panel('History', null, form, list));
 
 		async function refresh() {

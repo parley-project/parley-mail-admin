@@ -19,7 +19,7 @@
 - The users file is read again by the servers themselves (parley-mail's shared `FileBasedAcl`); `SuiteAcl` is gone.
 - The SMTP History page reads the history the SMTP servers write (`<mail root>/.smtp-history`); the application's
   own history listener and `history/` folder are gone, and "Keep SMTP history (days)" is now
-  `parley.mail.smtp.queue.historyDays` (30). The history's on/off and folder settings are on Settings > Admin.
+  `parley.mail.smtp.queue.historyDays` (30). It and the history's on/off and folder settings are on Settings > Delivery (it was on Settings > Admin).
 - The Logs page also shows log files: the application's, the servers' (`logFile` in a settings file, with its
   rotated copies) and those `parley.mail.admin.logFiles` names.
 - DKIM key files made on the Domains page get the process's usual permissions instead of owner-only ones, so
