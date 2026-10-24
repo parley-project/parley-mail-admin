@@ -122,6 +122,10 @@ public final class SettingsCatalog {
 		add(g, "parley.mail.smtp.queue.retry", "Retry schedule (minutes)", LIST, "1,5,15,30,60,120", "Minutes between attempts after a temporary failure; the last repeats.");
 		add(g, "parley.mail.smtp.queue.delayWarningHours", "Delay warning (hours)", NUMBER, "4", "The sender is told the message is delayed after this long.");
 		add(g, "parley.mail.smtp.queue.maxAgeHours", "Give up after (hours)", NUMBER, "120", "The message is returned to the sender after this long.");
+		add(g, SMTP_HISTORY_DAYS, "Keep SMTP history (days)", NUMBER, "30",
+				"The SMTP servers delete older history files (parley-smtp's queue history); 0 keeps every day.");
+		add(g, SMTP_HISTORY, "Keep SMTP history", BOOLEAN, "true", "The SMTP servers write the history the SMTP History page shows.");
+		add(g, SMTP_HISTORY_DIRECTORY, "SMTP history folder", PATH, "<mail root>/.smtp-history", "Where the SMTP servers write it.");
 
 		g = group("smtp-auth", "Authentication", "DKIM, SPF, DMARC and ARC: signing outgoing mail and checking incoming mail.");
 		add(g, SMTP_DKIM_KEYS, "DKIM keys", LIST, null, "domain:selector:keyfile, comma separated. Made on the Domains page.");
@@ -181,10 +185,6 @@ public final class SettingsCatalog {
 		add(g, ADMIN_JMX_PASSWORD, "JMX password", SECRET, null, "Its password.");
 		add(g, ADMIN_AUTO_START, "Start services with the application", BOOLEAN, "true",
 				"When the servers run in this application: start every service whose port isn't 0 when the web application starts.");
-		add(g, SMTP_HISTORY_DAYS, "Keep SMTP history (days)", NUMBER, "30",
-				"The SMTP servers delete older history files (parley-smtp's queue history); 0 keeps every day.");
-		add(g, SMTP_HISTORY, "Keep SMTP history", BOOLEAN, "true", "The SMTP servers write the history the SMTP History page shows.");
-		add(g, SMTP_HISTORY_DIRECTORY, "SMTP history folder", PATH, "<mail root>/.smtp-history", "Where the SMTP servers write it.");
 		add(g, ADMIN_LOG_BUFFER, "Log entries kept in memory", NUMBER, "5000", "The Logs page shows these.");
 		add(g, ADMIN_LOG_FILE_SIZE, "Log file size (bytes)", NUMBER, "10485760", "The log file (logs/parley-mail.log in the admin home) is rotated at this size; 5 old files are kept.");
 		add(g, ADMIN_LOG_FILES, "More log files", LIST, null,
