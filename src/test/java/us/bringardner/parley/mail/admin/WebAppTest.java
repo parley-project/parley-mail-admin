@@ -178,6 +178,12 @@ public class WebAppTest {
 		}
 		assertTrue(st.get("queue").get("running").asBoolean());
 		assertTrue(st.get("local").asBoolean(), "the servers run in the application");
+		try (Socket client = new Socket("localhost", pop3Port)) {
+			new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.US_ASCII)).readLine(); // +OK
+			JsonNode conns = ok("GET", "/services/pop3/connections", null);
+			assertEquals(1, conns.size(), conns.toString());
+			assertTrue(conns.get(0).get("user").isNull(), "not logged in");
+		}
 		assertEquals(home.getCanonicalPath(), st.get("settingsDirectory").asText());
 		assertEquals(new File(home, "mail/.smtp-history").getAbsolutePath(), st.get("historyDirectory").asText(), "from the SMTP queue's bean");
 		// the servers are parley-net's, with their JMX beans

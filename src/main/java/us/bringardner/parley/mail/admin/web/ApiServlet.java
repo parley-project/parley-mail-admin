@@ -169,6 +169,7 @@ public class ApiServlet extends HttpServlet {
 		r.get("/services", q -> services());
 		r.post("/services/all/{action}", this::allServices);
 		r.post("/services/{id}/{action}", this::serviceAction);
+		r.get("/services/{id}/connections", q -> app.getSuite().connections(service(q.param(0))));
 
 		// settings
 		r.get("/settings", q -> settings());

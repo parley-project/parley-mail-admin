@@ -14,7 +14,7 @@ It gives you pages to:
 
 | Page | What it does |
 |---|---|
-| Dashboard | Where the servers run. Each service (SMTP, Submission, Submission over TLS, IMAP, IMAP over TLS, POP3, POP3 over TLS): state, port, TLS, uptime, open connections; start, stop, restart; start or stop all. Recent warnings and errors. |
+| Dashboard | Where the servers run. Each service (SMTP, Submission, Submission over TLS, IMAP, IMAP over TLS, POP3, POP3 over TLS): state, port, TLS, uptime, open connections (with who is logged in); start, stop, restart; start or stop all. Recent warnings and errors. |
 | Domains | The local domains (the suite serves several): add and remove them, see each one's users and aliases, make its DKIM key, and get the DNS records to publish (MX, SPF, DKIM, DMARC). |
 | Users | Add, edit and delete users, per domain or for every domain: password, permissions (READ, WRITE, ADMIN), maildrop, and how much mail they keep. The servers read the users file again themselves: those in this application at once, services within `parley.net.acl.reloadSeconds` (15). |
 | Aliases | Aliases per domain or for every domain. |
@@ -172,7 +172,7 @@ before users, and the full address before the local part.
 - `AdminApp` makes everything and is usable without a servlet container; `web.AdminContextListener`
   makes it when the web application starts and closes it when it stops.
 - `suite.MailSuite` manages the servers through JMX: parley-net's `ParleyServerMBean` (state,
-  start, stop, restart, connections) and `ParleyLauncherMBean` (read the settings again), and
+  start, stop, restart, connections and who they are) and `ParleyLauncherMBean` (read the settings again), and
   parley-smtp's `MailQueueMXBean` for the Queue page; in this application's own launcher or over
   `parley.mail.admin.jmxUrl`. A running service whose settings (or, for SMTP, aliases file) changed
   since it started says "restart". The SMTP services of a process share one queue (made when the
@@ -207,8 +207,6 @@ that limit). A user who loses ADMIN, or is deleted, is logged out at their next 
   waits up to 30 seconds for a delivery under way) or starts (up to 60 seconds), the other pages'
   requests wait for it. An unreachable JMX address is tried again at most every 10 seconds, each
   try waiting up to 10 seconds.
-- The Dashboard shows how many connections a service has, not who they are: parley-net's
-  `ParleyServerMBean` gives only the count.
 - A service started before this application saw it is taken to need a restart if one of its
   settings files changed after it started (the application can't know which settings it read).
 - Restarting the SMTP services while a slow remote delivery is still under way can leave the old

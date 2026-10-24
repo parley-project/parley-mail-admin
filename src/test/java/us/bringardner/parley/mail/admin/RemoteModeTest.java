@@ -101,6 +101,14 @@ public class RemoteModeTest {
 			assertEquals(url, st.get("where"));
 			assertNotNull(suite.status(ServiceId.IMAP).get("error"));
 			assertThrows(IllegalStateException.class, () -> suite.start(ServiceId.IMAP));
+			// who is connected, over JMX
+			try (java.net.Socket client = new java.net.Socket("127.0.0.1", pop3Port)) {
+				new java.io.BufferedReader(new java.io.InputStreamReader(client.getInputStream(), StandardCharsets.US_ASCII)).readLine(); // +OK
+				List<Map<String, Object>> conns = suite.connections(ServiceId.POP3);
+				assertEquals(1, conns.size());
+				assertTrue(String.valueOf(conns.get(0).get("remote")).startsWith("127.0.0.1:"), conns.toString());
+				assertEquals(false, conns.get(0).get("tls"));
+			}
 			assertEquals(1, suite.describeTargets().size());
 			assertNull(suite.describeTargets().get(0).get("warning"), "it reads the files this application edits");
 
