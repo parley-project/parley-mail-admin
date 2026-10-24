@@ -15,6 +15,11 @@ serving one mail store with one user list, and gives you pages to:
 | Logs | The suite's log as it's written, filtered by level, source (SMTP, IMAP, POP3, store, network, admin) and text; download the log file; set each source's log level. |
 | Settings | Every setting: the ones every server shares (mail root, TLS key store, the users file) and each protocol's and each listener's own, with what they do and their defaults. Saving says which services need a restart and offers to do it. |
 
+The pages look like parley-files-viewer: swing-widgets' gradient look, with the same eight themes
+(Gold, the default, Dark, Light, Copper, Sage, Ocean, Slate and Plum), picked at the bottom of the
+side bar and remembered by the browser. Their colors are the `.theme` files' values, at the top of
+`src/main/webapp/css/app.css`.
+
 It's a Maven war project (`packaging war`, Jakarta Servlet 6.0), so it imports into Eclipse as a
 Dynamic Web Project and runs on Tomcat 10.1 or later.
 
