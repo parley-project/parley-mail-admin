@@ -5,12 +5,13 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+
+import us.bringardner.parley.mail.admin.FileRewrite;
 
 /**
  * A properties file that keeps its comments, blank lines and order when settings are changed: a
@@ -131,23 +132,13 @@ public final class PropertiesFile {
 		lines.add(new Line(text, key));
 	}
 
-	/** Write the file (through a temporary file, so a crash never leaves half a file). */
+	/** Write the file (through a temporary file, keeping its permissions and group: {@link FileRewrite}). */
 	public synchronized void save() throws IOException {
 		StringBuilder out = new StringBuilder();
 		for (Line l : lines) {
 			out.append(l.text).append('\n');
 		}
-		File dir = file.getAbsoluteFile().getParentFile();
-		if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
-			throw new IOException("Can't create " + dir);
-		}
-		File tmp = new File(dir, "." + file.getName() + ".tmp");
-		Files.write(tmp.toPath(), out.toString().getBytes(StandardCharsets.UTF_8));
-		try {
-			Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		} catch (IOException e) {
-			Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-		}
+		FileRewrite.write(file, out.toString().getBytes(StandardCharsets.UTF_8));
 	}
 
 	/** Escape a key or value as Properties.store does (but UTF-8 characters are kept). */

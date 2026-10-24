@@ -3,8 +3,9 @@ package us.bringardner.parley.mail.admin;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -24,19 +25,23 @@ import us.bringardner.parley.mail.admin.history.HistoryStore;
 import us.bringardner.parley.mail.admin.log.AdminLogger;
 import us.bringardner.parley.mail.admin.log.JulCapture;
 import us.bringardner.parley.mail.admin.log.LogBuffer;
+import us.bringardner.parley.mail.admin.log.LogFiles;
 import us.bringardner.parley.mail.admin.settings.PropertiesFile;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
 import us.bringardner.parley.mail.admin.users.AliasStore;
-import us.bringardner.parley.mail.admin.users.SuiteAcl;
 import us.bringardner.parley.mail.admin.users.UserStore;
-import us.bringardner.parley.smtp.queue.MailQueue;
+import us.bringardner.parley.mail.server.AbstractMailServer;
+import us.bringardner.parley.smtp.queue.MailQueueMXBean;
+import us.bringardner.parley.smtp.queue.QueueHistory;
+import us.bringardner.parley.smtp.queue.QueuedMessageInfo;
 
 /**
- * The mail suite and everything that manages it: settings, users, aliases, domains, the servers,
- * the logs and the SMTP history. Made by the web application when it starts ({@code
- * web.AdminContextListener}), and usable without a servlet container (the tests do).
+ * Everything that manages the mail suite: settings, users, aliases, domains, the servers (run in
+ * this application or as services, managed with JMX: {@link MailSuite}), the logs and the SMTP
+ * history. Made by the web application when it starts ({@code web.AdminContextListener}), and
+ * usable without a servlet container (the tests do).
  */
 public final class AdminApp implements AutoCloseable {
 
@@ -52,20 +57,22 @@ public final class AdminApp implements AutoCloseable {
 	private final LogBuffer logs;
 	private final JulCapture jul = new JulCapture();
 	private final UserStore users;
-	private final SuiteAcl acl;
 	private final AliasStore aliases;
 	private final DomainService domains;
 	private final HistoryStore history;
+	private final LogFiles logFiles;
 	private final MailSuite suite;
 	private final ScheduledExecutorService timer;
 	private final long startedAt = System.currentTimeMillis();
+	/** The last history folder the SMTP queue named (it's known only while SMTP runs). */
+	private volatile File lastHistoryDirectory;
 
-	private AdminApp(File homeDir) throws IOException {
+	private AdminApp(File homeDir, File settingsDir) throws IOException {
 		// before any Parley object logs: the Parley loggers write to the Logs page too
 		if (System.getProperty(BaseObject.PROPERTY_LOGGER) == null) {
 			System.setProperty(BaseObject.PROPERTY_LOGGER, AdminLogger.class.getName());
 		}
-		home = new AdminHome(homeDir);
+		home = new AdminHome(homeDir, settingsDir);
 		home.createMissingFiles();
 		json = new ObjectMapper().disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
 
@@ -73,11 +80,11 @@ public final class AdminApp implements AutoCloseable {
 		LogBuffer.install(logs);
 		jul.install();
 
-		settings = new SettingsService(new PropertiesFile(home.settingsFile()), new SettingsCatalog());
+		settings = new SettingsService(home.getSettingsDirectory(), new SettingsCatalog());
 		settings.load();
 		logs.setCapacity((int) settings.getLong(SettingsCatalog.ADMIN_LOG_BUFFER, 5000));
 		logs.setFile(new File(home.logDirectory(), "parley-mail.log"), settings.getLong(SettingsCatalog.ADMIN_LOG_FILE_SIZE, 10L * 1024 * 1024));
-		LOG.log(System.Logger.Level.INFO, "Parley mail admin starting; home " + home.getDirectory());
+		LOG.log(System.Logger.Level.INFO, "Parley mail admin starting; home " + home.getDirectory() + ", settings in " + home.getSettingsDirectory());
 
 		// the pages edit these files, so the servers must read the same ones
 		if (isBlank(settings.get(SettingsCatalog.USERS))) {
@@ -88,17 +95,19 @@ public final class AdminApp implements AutoCloseable {
 		}
 		applyLogLevels();
 
+		// the servers read the users file again themselves when it changes (parley-net's FileBasedAcl)
 		users = new UserStore(new File(settings.get(SettingsCatalog.USERS)));
 		users.load();
-		acl = new SuiteAcl(users.getFile());
-		users.addListener(this::reloadAcl);
 		aliases = new AliasStore(new File(settings.get(SettingsCatalog.SMTP_ALIASES)));
 		aliases.load();
 		domains = new DomainService(settings, users, aliases, home.dkimDirectory());
 		users.setDomainCheck(domains::isLocal);
 
-		history = new HistoryStore(home.historyDirectory(), json);
-		suite = new MailSuite(settings, acl, history);
+		history = new HistoryStore(this::historyDirectory, json);
+		logFiles = new LogFiles(this::logFileSources);
+		suite = new MailSuite(settings);
+		suite.setServerCreated(this::applyLogLevels);
+		users.addListener(this::usersChanged);
 		settings.addListener(this::settingsChanged);
 
 		timer = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -106,14 +115,25 @@ public final class AdminApp implements AutoCloseable {
 			t.setDaemon(true);
 			return t;
 		});
-		timer.scheduleWithFixedDelay(this::checkUsersFile, 15, 15, TimeUnit.SECONDS);
-		timer.scheduleWithFixedDelay(() -> history.purge((int) settings.getLong(SettingsCatalog.ADMIN_HISTORY_DAYS, 90)), 1, 24 * 60, TimeUnit.MINUTES);
+		timer.scheduleWithFixedDelay(this::checkFiles, 15, 15, TimeUnit.SECONDS);
 	}
 
-	/** Start the application with its home directory (and the services, if the settings say so). */
+	/**
+	 * Start the application with its home directory, and the settings folder
+	 * {@link AdminHome#defaultSettingsDirectory} picks.
+	 */
 	public static AdminApp start(File homeDir) throws IOException {
-		AdminApp app = new AdminApp(homeDir);
-		if (app.settings.getBoolean(SettingsCatalog.ADMIN_AUTO_START, true)) {
+		return start(homeDir, AdminHome.defaultSettingsDirectory(homeDir, null));
+	}
+
+	/**
+	 * Start the application with its home directory and settings folder; the servers start too when
+	 * they run in this application and the settings say so.
+	 */
+	public static AdminApp start(File homeDir, File settingsDir) throws IOException {
+		AdminApp app = new AdminApp(homeDir, settingsDir);
+		app.suite.connect();
+		if (app.suite.isLocal() && app.settings.getBoolean(SettingsCatalog.ADMIN_AUTO_START, true)) {
 			try {
 				app.suite.startAll();
 			} catch (IOException | RuntimeException e) {
@@ -131,15 +151,23 @@ public final class AdminApp implements AutoCloseable {
 		return f.getAbsolutePath().replace('\\', '/');
 	}
 
-	private void reloadAcl() {
-		try {
-			acl.reload(users.getFile());
-		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.ERROR, "Can't read the users file " + users.getFile() + "; the servers keep the previous list", e);
+	/**
+	 * The users file changed (from the Users page or outside): servers of this application read it
+	 * now rather than at their next check (parley.net.acl.reloadSeconds). Servers run as services
+	 * read it at their next check.
+	 */
+	private void usersChanged() {
+		if (suite.isLocal()) {
+			try {
+				AbstractMailServer.sharedUsers(users.getFile()).reloadNow();
+			} catch (IOException | RuntimeException e) {
+				LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile() + "; they keep the previous list", e);
+			}
 		}
 	}
 
-	private void checkUsersFile() {
+	/** Read the users and settings files again when they were changed outside this application. */
+	private void checkFiles() {
 		try {
 			if (users.reloadIfChanged()) {
 				LOG.log(System.Logger.Level.INFO, "Read the users file again: it was changed outside this application");
@@ -147,13 +175,23 @@ public final class AdminApp implements AutoCloseable {
 		} catch (IOException | RuntimeException e) {
 			LOG.log(System.Logger.Level.WARNING, "Can't read the users file " + users.getFile(), e);
 		}
+		try {
+			if (settings.reloadIfChanged()) {
+				LOG.log(System.Logger.Level.INFO, "Read the settings files again: one was changed outside this application");
+			}
+		} catch (IOException | RuntimeException e) {
+			LOG.log(System.Logger.Level.WARNING, "Can't read the settings files in " + settings.getDirectory(), e);
+		}
 	}
 
 	private void settingsChanged(Set<String> changed) {
 		try {
 			if (changed.contains(SettingsCatalog.USERS) && !isBlank(settings.get(SettingsCatalog.USERS))) {
 				users.setFile(new File(settings.get(SettingsCatalog.USERS)));
-				reloadAcl();
+			}
+			if (changed.contains(SettingsCatalog.ADMIN_JMX_URL) || changed.contains(SettingsCatalog.ADMIN_JMX_USER)
+					|| changed.contains(SettingsCatalog.ADMIN_JMX_PASSWORD)) {
+				suite.connect(); // to the launchers named now (or the servers of this application)
 			}
 			if (changed.contains(SettingsCatalog.SMTP_ALIASES) && !isBlank(settings.get(SettingsCatalog.SMTP_ALIASES))) {
 				aliases.setFile(new File(settings.get(SettingsCatalog.SMTP_ALIASES)));
@@ -215,19 +253,79 @@ public final class AdminApp implements AutoCloseable {
 
 	/** The start of a message in the SMTP queue (at most {@link #MAX_MESSAGE_VIEW} bytes), or null. */
 	public String readQueuedMessage(String id) throws IOException {
-		MailQueue q = suite.getQueue();
-		FileSource f = q == null ? null : q.getContent(id);
-		if (f == null) {
+		MailQueueMXBean q = suite.getQueue();
+		if (q == null) {
 			return null;
 		}
-		try (InputStream in = f.getInputStream()) {
-			byte[] buf = in.readNBytes(MAX_MESSAGE_VIEW);
-			String text = new String(buf, StandardCharsets.UTF_8);
-			if (f.length() > MAX_MESSAGE_VIEW) {
-				text += "\r\n\r\n[... " + (f.length() - MAX_MESSAGE_VIEW) + " more bytes not shown]";
-			}
-			return text;
+		QueuedMessageInfo info = q.getMessage(id);
+		String text = info == null ? null : q.readContent(id, MAX_MESSAGE_VIEW);
+		if (text == null) {
+			return null;
 		}
+		if (info.getSize() > MAX_MESSAGE_VIEW) {
+			text += "\r\n\r\n[... " + (info.getSize() - MAX_MESSAGE_VIEW) + " more bytes not shown]";
+		}
+		return text;
+	}
+
+	// ------------------------------------------------------------------ history and log files
+
+	/**
+	 * The SMTP history's folder: the one the queue names while an SMTP server runs (and the last one
+	 * it named), else the one the settings give (parley-smtp's QueueHistory: the history folder
+	 * setting, else .smtp-history in a local mail root); null when there's none.
+	 */
+	public File historyDirectory() {
+		try {
+			MailQueueMXBean q = suite.getQueue();
+			String d = q == null ? null : q.getHistoryDirectory();
+			if (d != null) {
+				lastHistoryDirectory = new File(d);
+				return lastHistoryDirectory;
+			}
+		} catch (RuntimeException e) {
+			// the launcher went away: the settings say where it is
+		}
+		if (lastHistoryDirectory != null) {
+			return lastHistoryDirectory;
+		}
+		if (!settings.getBoolean(QueueHistory.HISTORY_PROP, true)) {
+			return null;
+		}
+		String dir = settings.get(QueueHistory.DIRECTORY_PROP, null);
+		if (dir != null) {
+			return new File(dir);
+		}
+		String root = settings.get(SettingsCatalog.ROOT, null);
+		String fs = settings.get(SettingsCatalog.FILE_SOURCE, null);
+		return root == null || (fs != null && !fs.equalsIgnoreCase("file")) ? null : new File(root, QueueHistory.DEFAULT_DIRECTORY);
+	}
+
+	/**
+	 * The log files the Logs page shows: this application's, the servers' ({@code logFile} in a
+	 * settings file, unless it's System.out or System.err) and those
+	 * {@value SettingsCatalog#ADMIN_LOG_FILES} names.
+	 */
+	private List<File> logFileSources() {
+		List<File> ret = new ArrayList<>();
+		if (logs.getFile() != null) {
+			ret.add(logs.getFile());
+		}
+		for (PropertiesFile f : settings.getFiles()) {
+			String v = f.get("logFile");
+			if (!isBlank(v) && !v.trim().equals("System.out") && !v.trim().equals("System.err")) {
+				ret.add(new File(v.trim()));
+			}
+		}
+		String more = settings.get(SettingsCatalog.ADMIN_LOG_FILES, null);
+		if (more != null) {
+			for (String p : more.split("\\s*,\\s*")) {
+				if (!p.isEmpty()) {
+					ret.add(new File(p));
+				}
+			}
+		}
+		return ret;
 	}
 
 	/** Bytes and files in a user's maildrop (every mailbox), or null if it doesn't exist yet. */
@@ -302,6 +400,10 @@ public final class AdminApp implements AutoCloseable {
 		return history;
 	}
 
+	public LogFiles getLogFiles() {
+		return logFiles;
+	}
+
 	public MailSuite getSuite() {
 		return suite;
 	}
@@ -324,19 +426,20 @@ public final class AdminApp implements AutoCloseable {
 		}
 	}
 
-	/** Stop the services and let go of everything (the web application is stopping). */
+	/**
+	 * Stop the services of this application (services run elsewhere keep running) and let go of
+	 * everything (the web application is stopping).
+	 */
 	@Override
 	public void close() {
 		LOG.log(System.Logger.Level.INFO, "Parley mail admin stopping");
 		try {
-			suite.stopAll();
+			suite.close();
 		} finally {
 			timer.shutdownNow();
-			history.close();
 			jul.uninstall();
 			LogBuffer.install(null);
 			logs.close();
-			settings.clear();
 		}
 	}
 }

@@ -33,15 +33,16 @@ import us.bringardner.parley.mail.admin.AdminApp;
 import us.bringardner.parley.mail.admin.domains.DomainService;
 import us.bringardner.parley.mail.admin.history.HistoryStore;
 import us.bringardner.parley.mail.admin.log.LogBuffer;
+import us.bringardner.parley.mail.admin.log.LogFiles;
 import us.bringardner.parley.mail.admin.settings.SettingDef;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
 import us.bringardner.parley.mail.admin.users.UserRecord;
-import us.bringardner.parley.smtp.queue.MailQueue;
-import us.bringardner.parley.smtp.queue.QueueEntry;
-import us.bringardner.parley.smtp.queue.QueuedRecipient;
+import us.bringardner.parley.smtp.queue.MailQueueMXBean;
+import us.bringardner.parley.smtp.queue.QueuedMessageInfo;
+import us.bringardner.parley.smtp.queue.QueuedRecipientInfo;
 
 /**
  * The JSON API the pages use, under {@code /api}. Every call but session, login, logout and setup
@@ -168,7 +169,6 @@ public class ApiServlet extends HttpServlet {
 		r.get("/services", q -> services());
 		r.post("/services/all/{action}", this::allServices);
 		r.post("/services/{id}/{action}", this::serviceAction);
-		r.get("/services/{id}/connections", q -> app.getSuite().connections(service(q.param(0))));
 
 		// settings
 		r.get("/settings", q -> settings());
@@ -217,14 +217,12 @@ public class ApiServlet extends HttpServlet {
 		r.get("/aliases", q -> aliases());
 		r.put("/aliases/{name}", q -> {
 			app.getAliases().put(q.param(0), required(q.list("members"), "members"));
-			app.getSuite().markChanged(ServiceId.Protocol.SMTP);
 			return aliases();
 		});
 		r.delete("/aliases/{name}", q -> {
 			if (!app.getAliases().delete(q.param(0))) {
 				throw ApiException.notFound("The alias " + q.param(0));
 			}
-			app.getSuite().markChanged(ServiceId.Protocol.SMTP);
 			return aliases();
 		});
 
@@ -248,6 +246,12 @@ public class ApiServlet extends HttpServlet {
 			}
 			return new Router.Download(f, "parley-mail.log", "text/plain; charset=UTF-8");
 		});
+		r.get("/logs/files", q -> app.getLogFiles().describe());
+		r.get("/logs/files/read", q -> new Router.Text(LogFiles.tail(logFile(q), (int) q.queryLong("bytes", 256 * 1024))));
+		r.get("/logs/files/download", q -> {
+			File f = logFile(q);
+			return new Router.Download(f, f.getName().replaceAll("[^A-Za-z0-9._-]", "_"), "text/plain; charset=UTF-8");
+		});
 
 		// SMTP queue
 		r.get("/queue", q -> queue());
@@ -263,8 +267,8 @@ public class ApiServlet extends HttpServlet {
 			return queue();
 		});
 		r.delete("/queue/{id}", q -> {
-			MailQueue mq = requireQueue();
-			if (mq.getEntry(q.param(0)) == null) {
+			MailQueueMXBean mq = requireQueue();
+			if (mq.getMessage(q.param(0)) == null) {
 				throw ApiException.notFound("The message " + q.param(0));
 			}
 			if (!mq.delete(q.param(0))) {
@@ -408,14 +412,26 @@ public class ApiServlet extends HttpServlet {
 		m.put("startedAt", app.getStartedAt());
 		m.put("now", System.currentTimeMillis());
 		m.put("home", app.getHome().getDirectory().getPath());
+		m.put("settingsDirectory", app.getSettings().getDirectory().getPath());
 		m.put("mailRoot", app.getSettings().getEffective(SettingsCatalog.ROOT));
 		m.put("hostname", app.getSettings().getEffective(SettingsCatalog.SMTP_HOSTNAME));
+		MailSuite suite = app.getSuite();
+		m.put("local", suite.isLocal());
+		m.put("launchers", suite.describeTargets());
+		m.put("connectError", suite.getConnectError());
 		m.put("services", services());
-		MailQueue q = app.getSuite().getQueue();
+		MailQueueMXBean q = suite.getQueue();
 		Map<String, Object> queue = new LinkedHashMap<>();
-		queue.put("running", q != null && q.isRunning());
-		queue.put("messages", q == null ? 0 : q.getEntries().size());
+		try {
+			queue.put("running", q != null && q.isRunning());
+			queue.put("messages", q == null ? 0 : q.getMessageCount());
+		} catch (RuntimeException e) {
+			queue.put("running", false);
+			queue.put("messages", 0);
+		}
 		m.put("queue", queue);
+		File history = app.historyDirectory();
+		m.put("historyDirectory", history == null ? null : history.getPath());
 		m.put("domains", app.getDomains().list());
 		m.put("users", app.getUsers().list().size());
 		MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
@@ -424,6 +440,14 @@ public class ApiServlet extends HttpServlet {
 		m.put("java", System.getProperty("java.version"));
 		m.put("problems", app.getLogs().query(0, LogBuffer.Level.WARN, null, null, 8));
 		return m;
+	}
+
+	private File logFile(Router.Request q) {
+		File f = app.getLogFiles().find(q.query("path", null));
+		if (f == null) {
+			throw ApiException.notFound("The log file " + q.query("path", ""));
+		}
+		return f;
 	}
 
 	private List<Map<String, Object>> services() {
@@ -503,7 +527,7 @@ public class ApiServlet extends HttpServlet {
 			List<Object> list = new ArrayList<>();
 			for (SettingDef d : g.settings) {
 				known.add(d.getKey());
-				list.add(setting(d.getKey(), d, inFile.get(d.getKey()), s.getEffective(d.getKey()), c.isSecret(d.getKey())));
+				list.add(setting(d.getKey(), d, inFile.get(d.getKey()), s, c.isSecret(d.getKey())));
 			}
 			gm.put("settings", list);
 			groups.add(gm);
@@ -511,19 +535,26 @@ public class ApiServlet extends HttpServlet {
 		List<Object> other = new ArrayList<>();
 		for (Map.Entry<String, String> e : inFile.entrySet()) {
 			if (!known.contains(e.getKey()) && !e.getKey().startsWith(AdminApp.LOG_LEVEL_PREFIX)) {
-				other.add(setting(e.getKey(), null, e.getValue(), s.getEffective(e.getKey()), c.isSecret(e.getKey())));
+				other.add(setting(e.getKey(), null, e.getValue(), s, c.isSecret(e.getKey())));
 			}
 		}
 		Map<String, Object> m = new LinkedHashMap<>();
-		m.put("file", s.getFile().getFile().getPath());
+		m.put("directory", s.getDirectory().getPath());
+		List<String> files = new ArrayList<>();
+		for (us.bringardner.parley.mail.admin.settings.PropertiesFile f : s.getFiles()) {
+			files.add(f.getFile().getName());
+		}
+		m.put("files", files);
 		m.put("groups", groups);
 		m.put("other", other);
 		return m;
 	}
 
-	private static Map<String, Object> setting(String key, SettingDef d, String value, String effective, boolean secret) {
+	private static Map<String, Object> setting(String key, SettingDef d, String value, SettingsService s, boolean secret) {
+		String effective = s.isSetByJvm(key) ? s.getEffective(key) : null;
 		Map<String, Object> m = new LinkedHashMap<>();
 		m.put("key", key);
+		m.put("file", s.fileFor(key).getFile().getName());
 		if (d != null) {
 			m.put("label", d.getLabel());
 			m.put("type", d.getType().name());
@@ -540,7 +571,7 @@ public class ApiServlet extends HttpServlet {
 		} else {
 			m.put("value", value);
 			if (effective != null && !effective.equals(value == null ? null : value.trim())) {
-				m.put("effective", effective); // set outside the file (-D)
+				m.put("effective", effective); // set outside the files (-D)
 			}
 		}
 		List<String> services = new ArrayList<>();
@@ -655,8 +686,8 @@ public class ApiServlet extends HttpServlet {
 
 	// ------------------------------------------------------------------ queue and history
 
-	private MailQueue requireQueue() {
-		MailQueue q = app.getSuite().getQueue();
+	private MailQueueMXBean requireQueue() {
+		MailQueueMXBean q = app.getSuite().getQueue();
 		if (q == null) {
 			throw new ApiException(409, "The SMTP queue runs only while an SMTP service runs");
 		}
@@ -665,46 +696,52 @@ public class ApiServlet extends HttpServlet {
 
 	private Object queue() {
 		Map<String, Object> m = new LinkedHashMap<>();
-		MailQueue q = app.getSuite().getQueue();
-		m.put("running", q != null && q.isRunning());
+		MailQueueMXBean q = app.getSuite().getQueue();
 		List<Map<String, Object>> list = new ArrayList<>();
+		boolean running = false;
 		if (q != null) {
-			for (QueueEntry e : q.getEntries()) {
-				list.add(entry(e));
+			try {
+				running = q.isRunning();
+				for (QueuedMessageInfo e : q.getMessages()) {
+					list.add(entry(e));
+				}
+			} catch (RuntimeException e) {
+				throw new ApiException(503, "Can't read the SMTP queue: " + MailSuite.message(e));
 			}
 		}
 		list.sort(Comparator.comparingLong(e -> (Long) e.get("created")));
+		m.put("running", running);
 		m.put("entries", list);
 		return m;
 	}
 
-	private static Map<String, Object> entry(QueueEntry e) {
+	private static Map<String, Object> entry(QueuedMessageInfo e) {
 		Map<String, Object> m = new LinkedHashMap<>();
-		synchronized (e) {
-			m.put("id", e.getId());
-			m.put("created", e.getCreated());
-			m.put("from", e.getFrom() == null ? "" : e.getFrom().toString());
-			m.put("size", e.getSize());
-			m.put("submitter", e.getSubmitter());
-			m.put("inbound", e.isInbound());
-			m.put("quarantine", e.isQuarantine());
-			m.put("pending", e.isPending());
-			long next = e.nextAttempt();
-			m.put("nextAttempt", next == Long.MAX_VALUE ? 0 : next);
-			List<Map<String, Object>> rcpts = new ArrayList<>();
-			for (QueuedRecipient r : e.getRecipients()) {
-				Map<String, Object> rm = new LinkedHashMap<>();
-				rm.put("address", r.getAddress().toString());
-				rm.put("status", r.getStatus().name());
-				rm.put("attempts", r.getAttempts());
-				rm.put("lastStatus", r.getLastStatus());
-				rm.put("lastResult", r.getLastResult());
-				rm.put("remoteMta", r.getRemoteMta());
-				rm.put("nextAttempt", r.getStatus() == QueuedRecipient.Status.PENDING ? r.getNextAttempt() : 0);
-				rcpts.add(rm);
-			}
-			m.put("recipients", rcpts);
+		m.put("id", e.getId());
+		m.put("created", e.getCreated());
+		m.put("from", e.getFrom());
+		m.put("size", e.getSize());
+		m.put("submitter", e.getSubmitter());
+		m.put("inbound", e.isInbound());
+		m.put("quarantine", e.isQuarantine());
+		boolean pending = false;
+		List<Map<String, Object>> rcpts = new ArrayList<>();
+		for (QueuedRecipientInfo r : e.getRecipients()) {
+			Map<String, Object> rm = new LinkedHashMap<>();
+			boolean p = "PENDING".equals(r.getStatus());
+			pending |= p;
+			rm.put("address", r.getAddress());
+			rm.put("status", r.getStatus());
+			rm.put("attempts", r.getAttempts());
+			rm.put("lastStatus", r.getLastStatus());
+			rm.put("lastResult", r.getLastResult());
+			rm.put("remoteMta", r.getRemoteMta());
+			rm.put("nextAttempt", p ? r.getNextAttempt() : 0);
+			rcpts.add(rm);
 		}
+		m.put("pending", pending);
+		m.put("nextAttempt", e.getNextAttempt());
+		m.put("recipients", rcpts);
 		return m;
 	}
 

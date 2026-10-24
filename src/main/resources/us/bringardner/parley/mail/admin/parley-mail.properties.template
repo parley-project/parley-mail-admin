@@ -1,8 +1,10 @@
-# Parley mail suite settings, made by parley-mail-admin on its first start.
-# Edit them on the Settings page (or here, then restart the services). Every line becomes a system
-# property, so any parley.mail.* setting of the parley-smtp, parley-imap and parley-pop3 READMEs
-# can be used. The ports below are high ports so the suite runs without root while you try it out;
-# use 25, 587, 465, 143, 993, 110 and 995 on a real server. A port of 0 turns that service off.
+# Parley mail suite settings shared by every mail server, made by parley-mail-admin on its first start.
+# The SMTP, IMAP and POP3 servers read this file, then their own (parley-smtp.properties,
+# parley-imap.properties, parley-pop3.properties in the same folder), whether they run in the admin
+# application or as services (parley-net's launcher). Edit them on the Settings page (or here, then
+# restart the services); any setting of the parley-smtp, parley-imap and parley-pop3 READMEs can be
+# used. The ports below are high ports so the suite runs without root while you try it out; use 25,
+# 587, 465, 143, 993, 110 and 995 on a real server. A port of 0 turns that service off.
 
 # ---------------------------------------------------------------- store, users, TLS
 
@@ -44,5 +46,9 @@ parley.mail.smtp.relayNetworks=127.0.0.1/32
 
 # ---------------------------------------------------------------- the admin application
 
-# Start the enabled services when the web application starts
+# Where the servers run: empty runs them in the web application; JMX service URLs of launcher
+# processes run as services (comma separated) manage those instead
+#parley.mail.admin.jmxUrl=service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi
+
+# Start the enabled services when the web application starts (when they run in it)
 parley.mail.admin.autoStart=true

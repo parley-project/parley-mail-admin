@@ -50,7 +50,16 @@ public final class SettingsCatalog {
 	public static final String SMTP_ALIASES = "parley.mail.smtp.aliases";
 	public static final String SMTP_DKIM_KEYS = "parley.mail.smtp.dkim.keys";
 	public static final String ADMIN_AUTO_START = "parley.mail.admin.autoStart";
-	public static final String ADMIN_HISTORY_DAYS = "parley.mail.admin.historyDays";
+	/** Days of SMTP history the SMTP servers keep (parley-smtp's QueueHistory). */
+	public static final String SMTP_HISTORY_DAYS = "parley.mail.smtp.queue.historyDays";
+	public static final String SMTP_HISTORY = "parley.mail.smtp.queue.history";
+	public static final String SMTP_HISTORY_DIRECTORY = "parley.mail.smtp.queue.historyDirectory";
+	/** One or more JMX service URLs of launcher processes; empty: the servers run in this application. */
+	public static final String ADMIN_JMX_URL = "parley.mail.admin.jmxUrl";
+	public static final String ADMIN_JMX_USER = "parley.mail.admin.jmxUser";
+	public static final String ADMIN_JMX_PASSWORD = "parley.mail.admin.jmxPassword";
+	public static final String ADMIN_LOG_FILES = "parley.mail.admin.logFiles";
+	public static final String ACL_RELOAD_SECONDS = "parley.net.acl.reloadSeconds";
 	public static final String ADMIN_LOG_BUFFER = "parley.mail.admin.logBufferSize";
 	public static final String ADMIN_LOG_FILE_SIZE = "parley.mail.admin.logFileSize";
 
@@ -64,7 +73,9 @@ public final class SettingsCatalog {
 		add(g, FILE_SOURCE, "Mail root file system", TEXT, "the default (local files)",
 				"The parley-files FileSource factory for the mail root, e.g. a database or SFTP factory id. Empty for local files.");
 		add(g, USERS, "Users file", PATH, null,
-				"The user list every server uses (FileBasedAcl format). Changes made on the Users page, or to the file, take effect at once.");
+				"The user list every server uses (FileBasedAcl format). The servers read it again when it changes (Users page or not), within the time below.");
+		add(g, ACL_RELOAD_SECONDS, "Users file check (seconds)", NUMBER, "15",
+				"How often the servers look for changes to the users file; 0: never (a restart reads it).");
 		add(g, "parley.mail.sharedStore", "Shared store", CHOICE, "off",
 				"off: this process alone serves the mail root (a second one is refused). host: several servers on this machine share it. cluster: servers on several machines share it.",
 				"off", "host", "cluster");
@@ -148,7 +159,8 @@ public final class SettingsCatalog {
 		for (ServiceId s : ServiceId.values()) {
 			String p = s.prefix + ".";
 			String l = s.label + ": ";
-			add(g, s.portProperty(), l + "port", PORT, Integer.toString(s.standardPort), s.description + ". 0 turns it off.");
+			add(g, s.portProperty(), l + "port", PORT, s.defaultPort == 0 ? "0 (off)" : Integer.toString(s.defaultPort),
+					s.description + ". 0 turns it off." + (s.defaultPort == 0 ? " The standard port is " + s.standardPort + "; it needs a key store." : ""));
 			add(g, p + "bindAddress", l + "bind address", TEXT, "every address", "Listen on this address only.");
 			add(g, p + "maxConnections", l + "most connections", NUMBER, "0 (no limit)", "Connections at once.");
 			add(g, p + "maxConnectionsPerClient", l + "most connections per client", NUMBER, "0 (no limit)", "Connections at once from one address.");
@@ -162,10 +174,21 @@ public final class SettingsCatalog {
 		}
 
 		g = group("admin", "Admin", "This web application's own settings.");
-		add(g, ADMIN_AUTO_START, "Start services with the application", BOOLEAN, "true", "Start every service whose port isn't 0 when the web application starts.");
-		add(g, ADMIN_HISTORY_DAYS, "Keep SMTP history (days)", NUMBER, "90", "Older history files are deleted.");
+		add(g, ADMIN_JMX_URL, "Servers' JMX address", LIST, "empty: the servers run in this application",
+				"Where the servers run: empty runs them in this application (parley-net's launcher). One or more JMX service URLs, comma separated "
+						+ "(service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi), manage launcher processes run as services instead. They must read the settings files of this page.");
+		add(g, ADMIN_JMX_USER, "JMX user", TEXT, null, "The user for the JMX addresses, if they need one.");
+		add(g, ADMIN_JMX_PASSWORD, "JMX password", SECRET, null, "Its password.");
+		add(g, ADMIN_AUTO_START, "Start services with the application", BOOLEAN, "true",
+				"When the servers run in this application: start every service whose port isn't 0 when the web application starts.");
+		add(g, SMTP_HISTORY_DAYS, "Keep SMTP history (days)", NUMBER, "30",
+				"The SMTP servers delete older history files (parley-smtp's queue history); 0 keeps every day.");
+		add(g, SMTP_HISTORY, "Keep SMTP history", BOOLEAN, "true", "The SMTP servers write the history the SMTP History page shows.");
+		add(g, SMTP_HISTORY_DIRECTORY, "SMTP history folder", PATH, "<mail root>/.smtp-history", "Where the SMTP servers write it.");
 		add(g, ADMIN_LOG_BUFFER, "Log entries kept in memory", NUMBER, "5000", "The Logs page shows these.");
 		add(g, ADMIN_LOG_FILE_SIZE, "Log file size (bytes)", NUMBER, "10485760", "The log file (logs/parley-mail.log in the admin home) is rotated at this size; 5 old files are kept.");
+		add(g, ADMIN_LOG_FILES, "More log files", LIST, null,
+				"Log files the Logs page shows besides its own and the servers' (the logFile setting of the settings files), comma separated.");
 	}
 
 	private Group group(String id, String label, String description) {

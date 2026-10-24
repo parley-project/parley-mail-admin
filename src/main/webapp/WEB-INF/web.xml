@@ -6,11 +6,18 @@
 
 	<display-name>Parley Mail Admin</display-name>
 
-	<!-- Where the settings, users, aliases, history, logs and DKIM keys go. Empty: the
-	     parley.mail.admin.home system property, the PARLEY_MAIL_ADMIN_HOME environment variable,
-	     or ~/.parley/mail-admin. -->
+	<!-- Where the users, aliases, logs and DKIM keys go. Empty: the parley.mail.admin.home system
+	     property, the PARLEY_MAIL_ADMIN_HOME environment variable, or ~/.parley/mail-admin. -->
 	<context-param>
 		<param-name>parley.mail.admin.home</param-name>
+		<param-value></param-value>
+	</context-param>
+
+	<!-- The folder of the settings files the servers read (parley-mail.properties ...). Empty: the
+	     parley.mail.admin.settingsDirectory system property, else /etc/parley (or the folder of the
+	     file PARLEY_CONF names) when it exists, else the home above. -->
+	<context-param>
+		<param-name>parley.mail.admin.settingsDirectory</param-name>
 		<param-value></param-value>
 	</context-param>
 

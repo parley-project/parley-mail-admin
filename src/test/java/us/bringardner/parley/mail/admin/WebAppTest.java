@@ -80,6 +80,12 @@ public class WebAppTest {
 				+ "parley.mail.pop3s.port=0\n"
 				+ "parley.mail.admin.autoStart=true\n").getBytes(StandardCharsets.UTF_8));
 		System.setProperty(AdminHome.HOME_PROPERTY, home.getAbsolutePath());
+		// the settings files in the home (not /etc/parley, which a test machine may have)
+		System.setProperty(AdminHome.SETTINGS_PROPERTY, home.getAbsolutePath());
+		// a JVM has one URL handler factory: parley-files installs its own when another test of this JVM
+		// ran mail servers first (in a real Tomcat, Tomcat's is installed first and parley-files uses
+		// java.protocol.handler.pkgs instead); this application doesn't need Tomcat's (war: URLs)
+		org.apache.catalina.webresources.TomcatURLStreamHandlerFactory.disable();
 		server = new DevServer(0, "/admin", DevServer.webappDirectory(), new File(home, "tomcat"));
 		server.start();
 		base = "http://localhost:" + server.getPort() + "/admin/";
@@ -91,6 +97,7 @@ public class WebAppTest {
 			server.stop();
 		}
 		System.clearProperty(AdminHome.HOME_PROPERTY);
+		System.clearProperty(AdminHome.SETTINGS_PROPERTY);
 	}
 
 	private static HttpResponse<String> call(String method, String path, Object body) throws Exception {
@@ -167,9 +174,16 @@ public class WebAppTest {
 		for (JsonNode svc : st.get("services")) {
 			String id = svc.get("id").asText();
 			boolean enabled = svc.get("enabled").asBoolean();
-			assertEquals(enabled ? "RUNNING" : "STOPPED", svc.get("state").asText(), id + ": " + svc);
+			assertEquals(enabled ? "RUNNING" : "OFF", svc.get("state").asText(), id + ": " + svc);
 		}
 		assertTrue(st.get("queue").get("running").asBoolean());
+		assertTrue(st.get("local").asBoolean(), "the servers run in the application");
+		assertEquals(home.getCanonicalPath(), st.get("settingsDirectory").asText());
+		assertEquals(new File(home, "mail/.smtp-history").getAbsolutePath(), st.get("historyDirectory").asText(), "from the SMTP queue's bean");
+		// the servers are parley-net's, with their JMX beans
+		javax.management.MBeanServer mbs = java.lang.management.ManagementFactory.getPlatformMBeanServer();
+		assertEquals("RUNNING", mbs.getAttribute(new javax.management.ObjectName("us.bringardner.parley:type=Server,name=pop3"), "State"));
+		assertTrue(mbs.isRegistered(new javax.management.ObjectName("us.bringardner.parley:type=MailQueue,name=smtp")));
 	}
 
 	@Test
@@ -185,6 +199,15 @@ public class WebAppTest {
 			dkimRecord |= r.get("name").asText().equals("sel1._domainkey.b.test.") && r.get("value").asText().startsWith("v=DKIM1; k=rsa; p=");
 		}
 		assertTrue(dkimRecord, b.toString());
+		// A4.1: the key file gets the permissions any new file of the process gets (the servers may be another user of its group)
+		File key = new File(home, "dkim/b.test-sel1.pem");
+		assertTrue(key.isFile());
+		if (Files.getFileAttributeView(key.toPath(), java.nio.file.attribute.PosixFileAttributeView.class) != null) {
+			File fresh = new File(home, "dkim/fresh.txt");
+			Files.write(fresh.toPath(), new byte[0]);
+			assertEquals(Files.getPosixFilePermissions(fresh.toPath()), Files.getPosixFilePermissions(key.toPath()));
+			Files.delete(fresh.toPath());
+		}
 
 		ok("POST", "/users", Map.of("name", "tony@b.test", "password", "tonypass1", "permissions", java.util.List.of("READ", "WRITE")));
 		assertEquals(400, call("POST", "/users", Map.of("name", "x@c.test", "password", "xxxxxxxx1")).statusCode(), "not a local domain");
@@ -308,6 +331,17 @@ public class WebAppTest {
 		HttpResponse<String> file = call("GET", "/logs/download", null);
 		assertEquals(200, file.statusCode());
 		assertTrue(file.body().contains("Parley mail admin starting"));
+
+		// the log files: this application's, and only those
+		JsonNode files = ok("GET", "/logs/files", null);
+		assertTrue(files.size() > 0);
+		String path = files.get(0).get("path").asText();
+		assertTrue(path.endsWith("parley-mail.log"), path);
+		HttpResponse<String> tail = call("GET", "/logs/files/read?path=" + URLEncoder.encode(path, StandardCharsets.UTF_8), null);
+		assertEquals(200, tail.statusCode());
+		assertTrue(tail.body().contains("INFO"), tail.body());
+		assertEquals(404, call("GET", "/logs/files/read?path=" + URLEncoder.encode(new File(home, "users.txt").getPath(), StandardCharsets.UTF_8), null).statusCode(),
+				"no other files");
 	}
 
 	@Test
@@ -315,6 +349,9 @@ public class WebAppTest {
 	public void settingsPage() throws Exception {
 		JsonNode s = ok("GET", "/settings", null);
 		assertTrue(s.get("groups").size() > 5);
+		assertEquals("[\"parley-mail.properties\",\"parley-smtp.properties\",\"parley-imap.properties\",\"parley-pop3.properties\"]", s.get("files").toString());
+		// queueActions put the queue's settings in parley-smtp.properties
+		assertTrue(Files.readString(new File(home, "parley-smtp.properties").toPath()).contains("parley.mail.smtp.queue.retry=600"));
 		HttpResponse<String> bad = call("PUT", "/settings", Map.of("changes", Map.of("parley.mail.pop3.port", "abc")));
 		assertEquals(400, bad.statusCode());
 		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.tls.keyStorePassword", "s3cret")));
