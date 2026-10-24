@@ -21,6 +21,8 @@ public class AdminContextListener implements ServletContextListener {
 	@Override
 	public void contextInitialized(ServletContextEvent event) {
 		ServletContext ctx = event.getServletContext();
+		// in code rather than web.xml's <cookie-config><attribute>, which Eclipse WTP's descriptor model can't read
+		ctx.getSessionCookieConfig().setAttribute("SameSite", "Strict");
 		File home = AdminHome.defaultDirectory(ctx.getInitParameter(AdminHome.HOME_PROPERTY));
 		try {
 			AdminApp app = AdminApp.start(home);
