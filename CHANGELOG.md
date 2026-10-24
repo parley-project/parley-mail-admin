@@ -26,7 +26,7 @@
   servers running as another user of the same group can read them.
 - Files rewritten through a temporary file (settings, users, aliases, DKIM keys made again) keep the original's
   permissions and group.
-- The connections dialog of the Dashboard is gone: JMX gives the number of connections, not who they are.
+- The Dashboard's connections dialog (client, user, TLS) comes from parley-net's `ParleyServerMBean.getConnectionList()`.
 
 ### Added
 

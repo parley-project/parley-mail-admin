@@ -346,6 +346,15 @@
 			checkRestart();
 		}
 
+		async function connections(s) {
+			let list = [];
+			try { list = await api('GET', '/services/' + s.id + '/connections'); } catch (e) { return fail(e); }
+			dialog(s.label + ' connections', list.length === 0 ? h('div.empty', 'No connections') :
+				h('table', h('thead', h('tr', h('th', 'Client'), h('th', 'User'), h('th', 'TLS'))),
+					h('tbody', list.map(c => h('tr', h('td.mono', c.remote), h('td', c.user || h('span.faint', 'not logged in')), h('td', c.tls ? 'yes' : ''))))),
+				{ okLabel: null });
+		}
+
 		async function refresh() {
 			let st;
 			try { st = await api('GET', '/status'); } catch (e) { return; }
@@ -380,7 +389,7 @@
 						h('dt', 'Port'), h('dd', s.port > 0 ? String(s.port) : 'off'),
 						h('dt', 'TLS'), h('dd', s.secure ? (s.tls ? 'implicit' : h('span.warn-text', 'implicit, no key store')) : (s.tls ? 'STARTTLS offered' : 'no key store')),
 						s.state === 'RUNNING' ? [h('dt', 'Up'), h('dd', ago(s.started))] : null,
-						s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', String(s.connections))] : null,
+						s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', h('button.link', { type: 'button', onclick: () => connections(s) }, String(s.connections)))] : null,
 						s.where && !st.local ? [h('dt', 'Runs at'), h('dd.mono', s.where)] : null),
 					s.error ? h('div.err', s.error) : null,
 					h('div.actions',

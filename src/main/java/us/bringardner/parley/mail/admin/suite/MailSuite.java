@@ -35,6 +35,7 @@ import us.bringardner.parley.mail.admin.settings.PropertiesFile;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.net.server.LaunchSettings;
+import us.bringardner.parley.net.server.ParleyConnection;
 import us.bringardner.parley.net.server.ParleyLauncherMBean;
 import us.bringardner.parley.net.server.ParleyServerMBean;
 import us.bringardner.parley.net.server.ServerContext;
@@ -688,6 +689,30 @@ public final class MailSuite implements AutoCloseable {
 		m.put("tls", tlsConfigured(id));
 		m.put("where", where);
 		return m;
+	}
+
+	/** The open connections of a service: the client's address, the user once logged in, and TLS. */
+	public synchronized List<Map<String, Object>> connections(ServiceId id) {
+		List<Map<String, Object>> ret = new ArrayList<>();
+		Object[] f = find(id);
+		if (f == null) {
+			return ret;
+		}
+		ParleyConnection[] list;
+		try {
+			list = ((ParleyServerMBean) f[0]).getConnectionList();
+		} catch (RuntimeException e) {
+			broken((Target) f[1], e);
+			throw new IllegalStateException("Can't read the connections of " + id.label + ": " + message(e), e);
+		}
+		for (ParleyConnection c : list == null ? new ParleyConnection[0] : list) {
+			Map<String, Object> m = new LinkedHashMap<>();
+			m.put("remote", c.getRemote());
+			m.put("user", c.getUser());
+			m.put("tls", c.isSecure());
+			ret.add(m);
+		}
+		return ret;
 	}
 
 	/** True if the service has a key store (its own or the TLS page's). */
