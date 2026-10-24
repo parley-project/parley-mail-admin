@@ -201,7 +201,7 @@
 				h('label.row', h('span', 'Password'), pw),
 				setup ? h('label.row', h('span', 'Password again'), pw2) : null),
 			err, btn,
-			h('div.faint.small', state.version));
+			h('div.foot', h('span.faint.small', state.version), themePicker()));
 		form.addEventListener('submit', async e => {
 			e.preventDefault();
 			err.textContent = '';
