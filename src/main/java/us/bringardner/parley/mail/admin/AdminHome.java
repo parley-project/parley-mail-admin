@@ -6,26 +6,62 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
+import us.bringardner.parley.net.server.ServerMain;
+
 /**
- * The directory that holds the mail suite's own files: the settings, the user and alias files
- * (unless the settings put them elsewhere), the history of the SMTP queue, the log files and the
- * DKIM keys made from the web pages. The mail itself goes to {@code parley.mail.root}, which is
- * {@code <home>/mail} in the settings made on the first start.
+ * The directory that holds the admin application's own files: the user and alias files (unless
+ * the settings put them elsewhere), its log files and the DKIM keys made from the web pages. The
+ * mail itself goes to {@code parley.mail.root}, which is {@code <home>/mail} in the settings made
+ * on the first start.
  * <p>
  * The home is, in order: the {@value #HOME_PROPERTY} system property, the servlet context
  * parameter of the same name, the {@value #HOME_ENV} environment variable, or
  * {@code ~/.parley/mail-admin}.
+ * <p>
+ * The settings files (parley-mail.properties, parley-smtp.properties ...) are in the settings
+ * folder, the one the servers read: the {@value #SETTINGS_PROPERTY} system property or context
+ * parameter, else parley-net's {@code ServerMain.confDir()} (/etc/parley, or the folder of the file
+ * PARLEY_CONF names) when it exists, else the home.
  */
 public final class AdminHome {
 
 	public static final String HOME_PROPERTY = "parley.mail.admin.home";
 	public static final String HOME_ENV = "PARLEY_MAIL_ADMIN_HOME";
+	/** Names the settings folder instead of ServerMain.confDir() (system property or context parameter). */
+	public static final String SETTINGS_PROPERTY = "parley.mail.admin.settingsDirectory";
 
 	private final File dir;
+	private final File settingsDir;
 
+	/** A home whose settings files are in the home too. */
 	public AdminHome(File dir) throws IOException {
+		this(dir, dir);
+	}
+
+	public AdminHome(File dir, File settingsDir) throws IOException {
 		this.dir = dir.getCanonicalFile();
 		mkdirs(this.dir);
+		this.settingsDir = settingsDir.getCanonicalFile();
+		mkdirs(this.settingsDir);
+	}
+
+	/**
+	 * The settings folder: the {@value #SETTINGS_PROPERTY} system property, else the context
+	 * parameter, else ServerMain.confDir() if it exists, else the home.
+	 */
+	public static File defaultSettingsDirectory(File home, String contextParameter) {
+		String tmp = System.getProperty(SETTINGS_PROPERTY);
+		if (isBlank(tmp)) {
+			tmp = contextParameter;
+		}
+		if (!isBlank(tmp)) {
+			if (tmp.startsWith("~/")) {
+				tmp = System.getProperty("user.home") + tmp.substring(1);
+			}
+			return new File(tmp);
+		}
+		File conf = ServerMain.confDir();
+		return conf != null && conf.isDirectory() ? conf : home;
 	}
 
 	/** The home from the system property or environment, else ~/.parley/mail-admin. */
@@ -54,8 +90,14 @@ public final class AdminHome {
 		return dir;
 	}
 
+	/** The folder of the settings files the servers read. */
+	public File getSettingsDirectory() {
+		return settingsDir;
+	}
+
+	/** The shared settings file, parley-mail.properties. */
 	public File settingsFile() {
-		return new File(dir, "parley-mail.properties");
+		return new File(settingsDir, "parley-mail.properties");
 	}
 
 	public File defaultUsersFile() {
@@ -70,10 +112,6 @@ public final class AdminHome {
 		return new File(dir, "mail");
 	}
 
-	public File historyDirectory() throws IOException {
-		return mkdirs(new File(dir, "history"));
-	}
-
 	public File logDirectory() throws IOException {
 		return mkdirs(new File(dir, "logs"));
 	}
@@ -83,8 +121,9 @@ public final class AdminHome {
 	}
 
 	/**
-	 * Write the settings, users and aliases files of a new home from the templates in this
-	 * package, unless they exist. {@code @HOME@} in a template is replaced by the home directory.
+	 * Write the shared settings file (in the settings folder), and the users and aliases files of a
+	 * new home, from the templates in this package, unless they exist. {@code @HOME@} in a template
+	 * is replaced by the home directory.
 	 */
 	public void createMissingFiles() throws IOException {
 		if (!settingsFile().exists()) {

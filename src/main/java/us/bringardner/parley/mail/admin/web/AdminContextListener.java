@@ -10,8 +10,9 @@ import us.bringardner.parley.mail.admin.AdminHome;
 
 /**
  * Starts the mail suite when the web application starts, and stops it when it stops (undeployed,
- * reloaded or the container shuts down). The admin home comes from the
- * {@code parley.mail.admin.home} system property or context parameter (see {@link AdminHome}).
+ * reloaded or the container shuts down). The admin home and the settings folder come from the
+ * {@code parley.mail.admin.home} and {@code parley.mail.admin.settingsDirectory} system properties or
+ * context parameters (see {@link AdminHome}).
  */
 public class AdminContextListener implements ServletContextListener {
 
@@ -24,10 +25,11 @@ public class AdminContextListener implements ServletContextListener {
 		// in code rather than web.xml's <cookie-config><attribute>, which Eclipse WTP's descriptor model can't read
 		ctx.getSessionCookieConfig().setAttribute("SameSite", "Strict");
 		File home = AdminHome.defaultDirectory(ctx.getInitParameter(AdminHome.HOME_PROPERTY));
+		File settings = AdminHome.defaultSettingsDirectory(home, ctx.getInitParameter(AdminHome.SETTINGS_PROPERTY));
 		try {
-			AdminApp app = AdminApp.start(home);
+			AdminApp app = AdminApp.start(home, settings);
 			ctx.setAttribute(APP, app);
-			ctx.log("Parley mail admin started; home " + app.getHome().getDirectory());
+			ctx.log("Parley mail admin started; home " + app.getHome().getDirectory() + ", settings in " + app.getHome().getSettingsDirectory());
 		} catch (Exception e) {
 			ctx.log("Parley mail admin can't start (home " + home + ")", e);
 			throw new IllegalStateException("Parley mail admin can't start: " + e.getMessage(), e);

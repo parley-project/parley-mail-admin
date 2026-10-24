@@ -315,18 +315,20 @@
 	// ------------------------------------------------------------------ dashboard
 
 	function stateBadge(s) {
-		const cls = s.state === 'RUNNING' ? 'ok' : s.state === 'FAILED' ? 'bad' : '';
-		return h('span.badge', { class: cls }, s.state === 'STOPPED' && !s.enabled ? 'off' : s.state.toLowerCase());
+		const cls = s.state === 'RUNNING' ? 'ok' : s.state === 'FAILED' ? 'bad' : s.state === 'UNAVAILABLE' ? 'warn' : '';
+		return h('span.badge', { class: cls }, (s.state === 'STOPPED' && !s.enabled) || s.state === 'OFF' ? 'off' : s.state.toLowerCase());
 	}
 
 	function dashboardPage(root) {
 		const tiles = h('div.tiles');
 		const cards = h('div.cards');
 		const problems = h('div');
+		const where = h('div');
 		const tools = h('div.toolbar',
 			h('button', { onclick: () => all('start') }, 'Start all'),
 			h('button', { onclick: () => all('stop') }, 'Stop all'));
 		root.appendChild(tiles);
+		root.appendChild(where);
 		root.appendChild(panel('Services', tools, cards));
 		root.appendChild(panel('Recent warnings and errors', h('a', { href: '#/logs' }, 'Logs'), problems));
 
@@ -344,15 +346,6 @@
 			checkRestart();
 		}
 
-		async function connections(s) {
-			let list = [];
-			try { list = await api('GET', '/services/' + s.id + '/connections'); } catch (e) { return fail(e); }
-			dialog(s.label + ' connections', list.length === 0 ? h('div.empty', 'No connections') :
-				h('table', h('thead', h('tr', h('th', 'Client'), h('th', 'User'), h('th', 'TLS'))),
-					h('tbody', list.map(c => h('tr', h('td.mono', c.remote), h('td', c.user || h('span.faint', 'not logged in')), h('td', c.tls ? 'yes' : ''))))),
-			{ okLabel: null });
-		}
-
 		async function refresh() {
 			let st;
 			try { st = await api('GET', '/status'); } catch (e) { return; }
@@ -367,6 +360,15 @@
 				tile(fmtBytes(st.heapUsed), 'Memory of ' + fmtBytes(st.heapMax)),
 				tile(ago(st.startedAt), 'Up (Java ' + st.java + ')')
 			]);
+			clear(where);
+			where.appendChild(h('p.muted', st.local
+				? 'The servers run in this application, with the settings in ' + st.settingsDirectory + '.'
+				: 'The servers run as services, managed over JMX at ' + st.launchers.map(l => l.where).join(', ') + '. Their settings are in ' + st.settingsDirectory + '.'));
+			if (st.connectError) where.appendChild(h('div.banner', st.connectError));
+			for (const l of st.launchers) {
+				if (l.warning) where.appendChild(h('div.banner', l.where + ': ' + l.warning));
+				if (l.error) where.appendChild(h('div.banner', l.where + ': ' + l.error));
+			}
 			clear(cards);
 			for (const s of st.services) {
 				const proto = s.protocol.toLowerCase();
@@ -378,10 +380,11 @@
 						h('dt', 'Port'), h('dd', s.port > 0 ? String(s.port) : 'off'),
 						h('dt', 'TLS'), h('dd', s.secure ? (s.tls ? 'implicit' : h('span.warn-text', 'implicit, no key store')) : (s.tls ? 'STARTTLS offered' : 'no key store')),
 						s.state === 'RUNNING' ? [h('dt', 'Up'), h('dd', ago(s.started))] : null,
-						s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', h('button.link', { type: 'button', onclick: () => connections(s) }, String(s.connections)))] : null),
+						s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', String(s.connections))] : null,
+						s.where && !st.local ? [h('dt', 'Runs at'), h('dd.mono', s.where)] : null),
 					s.error ? h('div.err', s.error) : null,
 					h('div.actions',
-						s.state !== 'RUNNING' ? h('button.small', { disabled: !s.enabled, title: s.enabled ? '' : 'Port is 0 (Settings > Listeners)', onclick: () => act(s, 'start') }, 'Start') : null,
+						s.state !== 'RUNNING' ? h('button.small', { disabled: !s.enabled || s.state === 'UNAVAILABLE', title: !s.enabled ? 'Port is 0 (Settings > Listeners)' : s.state === 'UNAVAILABLE' ? 'No launcher reached runs it' : '', onclick: () => act(s, 'start') }, 'Start') : null,
 						s.state === 'RUNNING' ? h('button.small', { onclick: () => act(s, 'stop') }, 'Stop') : null,
 						s.state === 'RUNNING' ? h('button.small', { class: s.restartNeeded ? 'primary' : '', onclick: () => act(s, 'restart') }, 'Restart') : null,
 						h('a.btn.small', { href: '#/logs?source=' + s.protocol, onclick: () => { state.logSource = s.protocol; } }, 'Logs'))));
@@ -771,6 +774,35 @@
 			h('button', { onclick: async () => { try { await api('POST', '/logs/clear'); reload(); } catch (e) { fail(e); } } }, 'Clear'),
 			h('a.btn', { href: 'api/logs/download' }, 'Download file')), view));
 		root.appendChild(panel('Log levels', null, h('p.muted', 'How much each part of the suite logs. Kept in the settings; "default" leaves the servers\' own level (INFO).'), levels));
+		const fileSel = h('select');
+		const fileView = h('pre.message.logfile');
+		const fileDl = h('a.btn', { href: '#' }, 'Download');
+		root.appendChild(panel('Log files', h('div.toolbar', fileSel, h('button', { onclick: () => readFile() }, 'Refresh'), fileDl),
+			h('p.muted', 'This application\'s log file and the servers\' (logFile in a settings file), and those named in Settings > Admin. Servers run as services log here, not to the log above.'),
+			fileView));
+		fileSel.addEventListener('change', () => readFile());
+
+		async function drawFiles() {
+			let files;
+			try { files = await api('GET', '/logs/files'); } catch (e) { return; }
+			clear(fileSel);
+			if (!files.length) {
+				fileSel.appendChild(h('option', { value: '' }, 'No log files'));
+				clear(fileView).appendChild(document.createTextNode('No log files yet.'));
+				return;
+			}
+			for (const f of files) fileSel.appendChild(h('option', { value: f.path }, f.path + ' (' + fmtBytes(f.size) + ', ' + fmtTime(f.modified) + ')'));
+			readFile();
+		}
+
+		async function readFile() {
+			if (!fileSel.value) return;
+			fileDl.href = 'api/logs/files/download?' + new URLSearchParams({ path: fileSel.value });
+			let text;
+			try { text = await api('GET', '/logs/files/read?' + new URLSearchParams({ path: fileSel.value, bytes: 262144 })); } catch (e) { return fail(e); }
+			clear(fileView).appendChild(document.createTextNode(text || '(empty)'));
+			fileView.scrollTop = fileView.scrollHeight;
+		}
 
 		function line(e) {
 			return h('div.e', { class: e.level },
@@ -811,6 +843,7 @@
 
 		reload();
 		drawLevels();
+		drawFiles();
 		every(2000, () => poll(false));
 		return { refresh: reload };
 	}
@@ -837,7 +870,7 @@
 
 		async function load() {
 			try { data = await api('GET', '/settings'); } catch (e) { return fail(e); }
-			where.textContent = 'Saved in ' + data.file + '. Each tab says which services need a restart after a change.';
+			where.textContent = 'Saved in ' + data.directory + ' (' + data.files.join(', ') + '): the files the servers read. Each tab says which services need a restart after a change.';
 			if (!current) current = data.groups[0].id;
 			draw();
 		}
@@ -920,7 +953,8 @@
 				h('div.name', h('b', s.label || s.key), h('code', s.key)),
 				h('div.edit', input,
 					s.description ? h('div.hint', s.description) : null,
-					s.effective !== undefined ? h('div.hint.warn-text', 'Set outside the file (-D) to: ' + s.effective) : null,
+					s.effective !== undefined ? h('div.hint.warn-text', 'Set outside the files (-D) to: ' + s.effective) : null,
+					s.file && s.file !== 'parley-mail.properties' ? h('div.hint', 'In ' + s.file) : null,
 					s.services && s.services.join(',') !== common ? h('div.hint', restartText(s.services.join(','))) : null,
 					!s.label ? h('div', h('button.small.danger', { onclick: () => { changes.set(s.key, null); r.classList.add('dirty'); set(null); } }, 'Remove')) : null));
 			return r;

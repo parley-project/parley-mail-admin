@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -16,6 +15,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
+import us.bringardner.parley.mail.admin.FileRewrite;
 import us.bringardner.parley.net.server.FileBasedAcl;
 
 /**
@@ -276,14 +276,8 @@ public final class UserStore {
 				// a deleted user's original line is dropped
 			}
 		}
-		File dir = file.getAbsoluteFile().getParentFile();
-		File tmp = new File(dir, "." + file.getName() + ".tmp");
-		Files.write(tmp.toPath(), out.toString().getBytes(StandardCharsets.UTF_8));
-		try {
-			Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		} catch (IOException e) {
-			Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-		}
+		// through a temporary file, keeping the file's permissions and group
+		FileRewrite.write(file, out.toString().getBytes(StandardCharsets.UTF_8));
 		// the edited lines replace what was read: reread to keep line texts and file stamps in step
 		load();
 	}

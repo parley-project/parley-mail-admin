@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -12,6 +11,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
+
+import us.bringardner.parley.mail.admin.FileRewrite;
 
 /**
  * The aliases file of parley-smtp ({@code parley.mail.smtp.aliases}): lines like
@@ -162,17 +163,8 @@ public final class AliasStore {
 				}
 			}
 		}
-		File dir = file.getAbsoluteFile().getParentFile();
-		if (dir != null) {
-			dir.mkdirs();
-		}
-		File tmp = new File(dir, "." + file.getName() + ".tmp");
-		Files.write(tmp.toPath(), out.toString().getBytes(StandardCharsets.UTF_8));
-		try {
-			Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		} catch (IOException e) {
-			Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
-		}
+		// through a temporary file, keeping the file's permissions and group
+		FileRewrite.write(file, out.toString().getBytes(StandardCharsets.UTF_8));
 		load();
 	}
 }

@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import us.bringardner.parley.mail.admin.FileRewrite;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.users.AliasStore;
@@ -206,31 +207,16 @@ public final class DomainService {
 			throw new IOException("Can't make a " + t + " key: " + e.getMessage(), e);
 		}
 		File key = new File(dkimDir, d + "-" + sel + ".pem");
-		writePrivate(key, DkimKeys.toPem(pair.getPrivate()));
-		Files.write(dnsFile(key).toPath(), DkimKeys.dnsRecord(pair.getPublic()).getBytes(StandardCharsets.US_ASCII));
+		// the folder's and the process's usual permissions (the SMTP servers, maybe another user in the
+		// same group, read the key); a key file made again keeps its permissions and group
+		FileRewrite.write(key, DkimKeys.toPem(pair.getPrivate()).getBytes(StandardCharsets.US_ASCII));
+		FileRewrite.write(dnsFile(key), DkimKeys.dnsRecord(pair.getPublic()).getBytes(StandardCharsets.US_ASCII));
 		List<DkimEntry> keys = dkimEntries();
 		keys.removeIf(k -> k.domain.equals(d));
 		DkimEntry e = new DkimEntry(d, sel, key.getAbsolutePath().replace('\\', '/'));
 		keys.add(e);
 		settings.set(SettingsCatalog.SMTP_DKIM_KEYS, formatKeys(keys));
 		return e;
-	}
-
-	/** Write a private key readable by its owner only (from the start, where the file system allows). */
-	private static void writePrivate(File f, String pem) throws IOException {
-		f.getAbsoluteFile().getParentFile().mkdirs();
-		java.nio.file.Path p = f.toPath();
-		Files.deleteIfExists(p);
-		try {
-			Files.createFile(p, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")));
-		} catch (UnsupportedOperationException e) {
-			Files.createFile(p);
-			f.setReadable(false, false);
-			f.setWritable(false, false);
-			f.setReadable(true, true);
-			f.setWritable(true, true);
-		}
-		Files.write(p, pem.getBytes(StandardCharsets.US_ASCII));
 	}
 
 	private static File dnsFile(File key) {

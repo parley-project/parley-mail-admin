@@ -23,12 +23,12 @@ import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
 import us.bringardner.parley.mail.admin.users.AliasStore;
-import us.bringardner.parley.mail.admin.users.SuiteAcl;
 import us.bringardner.parley.mail.admin.users.UserRecord;
 import us.bringardner.parley.mail.admin.users.UserStore;
+import us.bringardner.parley.net.server.FileBasedAcl;
 import us.bringardner.parley.net.server.IPrincipal;
 
-/** The files the pages edit: settings, users and aliases. */
+/** The files the pages edit: settings, users and aliases, and the log and history files they read. */
 public class StoresTest {
 
 	@TempDir
@@ -65,32 +65,74 @@ public class StoresTest {
 	}
 
 	@Test
-	public void settingsAreCheckedAndApplied() throws Exception {
-		File f = new File(dir, "s.properties");
-		write(f, "parley.mail.smtp.port=2525\n");
-		SettingsService s = new SettingsService(new PropertiesFile(f), new SettingsCatalog());
-		try {
-			s.load();
-			assertEquals("2525", System.getProperty("parley.mail.smtp.port"));
-			assertThrows(IllegalArgumentException.class, () -> s.set("parley.mail.smtp.port", "70000"));
-			assertThrows(IllegalArgumentException.class, () -> s.set("parley.mail.smtp.requireTls", "yes"));
-			assertThrows(IllegalArgumentException.class, () -> s.set("bad name", "x"));
-			assertThrows(IllegalArgumentException.class, () -> s.set("user.home", "/x"), "only Parley settings");
-			System.setProperty("parley.test.fromCommandLine", "dash-D");
-			s.set("parley.test.fromCommandLine", "file");
-			assertEquals("file", System.getProperty("parley.test.fromCommandLine"));
-			s.set("parley.test.fromCommandLine", null);
-			assertEquals("dash-D", System.getProperty("parley.test.fromCommandLine"), "the -D value comes back");
-			System.clearProperty("parley.test.fromCommandLine");
-			Set<String> changed = s.set("parley.mail.smtp.port", "2526");
-			assertEquals(Set.of("parley.mail.smtp.port"), changed);
-			assertEquals("2526", System.getProperty("parley.mail.smtp.port"));
-			s.set("parley.mail.smtp.port", "");
-			assertNull(System.getProperty("parley.mail.smtp.port"), "removed from the file and the system properties");
-			assertFalse(read(f).contains("parley.mail.smtp.port"));
-		} finally {
-			s.clear();
-		}
+	public void settingsAreCheckedAndKeptInTheServersFiles() throws Exception {
+		write(new File(dir, "parley-mail.properties"), "# shared\nparley.mail.root=/mail\nparley.mail.smtp.port=2525\n");
+		write(new File(dir, "parley-pop3.properties"), "parley.mail.root=/pop3-only\n");
+		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		s.load();
+		assertNull(System.getProperty("parley.mail.smtp.port"), "the servers read the files: no system properties");
+		assertEquals("2525", s.get("parley.mail.smtp.port"));
+		assertEquals("parley-mail.properties", s.findFile("parley.mail.smtp.port").getFile().getName(), "kept where it is");
+		assertEquals("/pop3-only", s.readBy(ServiceId.Protocol.POP3).get("parley.mail.root"), "a protocol's file wins for its servers");
+		assertEquals("/mail", s.readBy(ServiceId.Protocol.IMAP).get("parley.mail.root"));
+
+		assertThrows(IllegalArgumentException.class, () -> s.set("parley.mail.smtp.port", "70000"));
+		assertThrows(IllegalArgumentException.class, () -> s.set("parley.mail.smtp.requireTls", "yes"));
+		assertThrows(IllegalArgumentException.class, () -> s.set("bad name", "x"));
+		assertThrows(IllegalArgumentException.class, () -> s.set("user.home", "/x"), "only Parley settings");
+
+		// a new setting goes to its protocol's file; others to the shared one
+		Set<String> changed = s.update(Map.of("parley.mail.submission.maxConnections", "10", "parley.mail.imaps.port", "993", "parley.mail.lockDomain", "m"));
+		assertEquals(3, changed.size());
+		assertTrue(read(new File(dir, "parley-smtp.properties")).contains("parley.mail.submission.maxConnections=10"));
+		assertTrue(read(new File(dir, "parley-imap.properties")).contains("parley.mail.imaps.port=993"));
+		assertTrue(read(new File(dir, "parley-mail.properties")).endsWith("parley.mail.lockDomain=m\n"));
+		assertEquals(Set.of("parley.mail.smtp.port"), s.set("parley.mail.smtp.port", "2526"));
+		assertTrue(read(new File(dir, "parley-mail.properties")).startsWith("# shared\nparley.mail.root=/mail\nparley.mail.smtp.port=2526\n"));
+		assertEquals(Set.of(), s.set("parley.mail.smtp.port", "2526"), "no change");
+
+		// removed from every file
+		s.set("parley.mail.root", null);
+		assertNull(s.get("parley.mail.root"));
+		assertFalse(read(new File(dir, "parley-pop3.properties")).contains("parley.mail.root"));
+
+		// changed outside: read again, and the listeners hear of it
+		java.util.List<Set<String>> heard = new java.util.ArrayList<>();
+		s.addListener(heard::add);
+		assertFalse(s.reloadIfChanged());
+		write(new File(dir, "parley-pop3.properties"), "parley.mail.pop3.port=1110\n# a longer file\n");
+		assertTrue(s.reloadIfChanged());
+		assertEquals("1110", s.get("parley.mail.pop3.port"));
+		assertEquals(List.of(Set.of("parley.mail.pop3.port")), heard);
+	}
+
+	@Test
+	public void rewrittenFilesKeepTheirPermissions() throws Exception {
+		File f = new File(dir, "users.txt");
+		write(f, "a , b , READ\n");
+		java.nio.file.attribute.PosixFileAttributeView v = Files.getFileAttributeView(f.toPath(), java.nio.file.attribute.PosixFileAttributeView.class);
+		org.junit.jupiter.api.Assumptions.assumeTrue(v != null, "POSIX permissions");
+		Set<java.nio.file.attribute.PosixFilePermission> perms = java.nio.file.attribute.PosixFilePermissions.fromString("rw-r-----");
+		Files.setPosixFilePermissions(f.toPath(), perms);
+		java.nio.file.attribute.GroupPrincipal group = v.readAttributes().group();
+		FileRewrite.write(f, "c , d , READ\n".getBytes(StandardCharsets.UTF_8));
+		assertEquals("c , d , READ\n", read(f));
+		assertEquals(perms, Files.getPosixFilePermissions(f.toPath()));
+		assertEquals(group, v.readAttributes().group());
+		assertFalse(new File(dir, ".users.txt.tmp").exists());
+
+		// the stores rewrite through it too
+		UserStore u = new UserStore(f);
+		u.load();
+		u.add("someone", "password1".toCharArray(), null, null);
+		assertEquals(perms, Files.getPosixFilePermissions(f.toPath()));
+		PropertiesFile p = new PropertiesFile(new File(dir, "p.properties"));
+		p.set("a", "b");
+		p.save();
+		Files.setPosixFilePermissions(p.getFile().toPath(), perms);
+		p.set("a", "c");
+		p.save();
+		assertEquals(perms, Files.getPosixFilePermissions(p.getFile().toPath()));
 	}
 
 	@Test
@@ -142,7 +184,8 @@ public class StoresTest {
 		assertTrue(text.contains(" , READ|WRITE|ADMIN , maildrop=a.test/tony\n"), text);
 
 		// the servers' list (parley-net's FileBasedAcl) reads the same file
-		SuiteAcl acl = new SuiteAcl(f);
+		FileBasedAcl acl = new FileBasedAcl();
+		acl.initialize(f);
 		IPrincipal p = acl.getPrincipal("tony@a.test");
 		assertNotNull(p);
 		assertEquals("a.test/tony", p.getParameter("maildrop"));
@@ -177,5 +220,46 @@ public class StoresTest {
 		assertFalse(a.delete("postmaster"));
 		assertThrows(IllegalArgumentException.class, () -> a.put("x", List.of()));
 		assertThrows(IllegalArgumentException.class, () -> a.put("x y", List.of("a")));
+	}
+
+	@Test
+	public void logFilesAreReadFromTheEnd() throws Exception {
+		File log = new File(dir, "servers.log");
+		StringBuilder b = new StringBuilder();
+		for (int i = 0; i < 1000; i++) {
+			b.append("line ").append(i).append('\n');
+		}
+		write(log, b.toString());
+		write(new File(dir, "servers.log.1"), "older\n");
+		write(new File(dir, "secret.txt"), "not a log\n");
+		us.bringardner.parley.mail.admin.log.LogFiles files = new us.bringardner.parley.mail.admin.log.LogFiles(() -> List.of(log, new File(dir, "missing.log")));
+		assertEquals(List.of(log.getAbsoluteFile(), new File(dir, "servers.log.1").getAbsoluteFile()), files.list(), "the file and its rotated copy");
+		assertNotNull(files.find(log.getPath()));
+		assertNull(files.find(new File(dir, "secret.txt").getPath()), "only the log files");
+		assertNull(files.find(dir.getPath() + "/../" + dir.getName() + "/secret.txt"));
+		String tail = us.bringardner.parley.mail.admin.log.LogFiles.tail(log, 30);
+		assertTrue(tail.startsWith("line 99"), "from the start of a line: " + tail);
+		assertTrue(tail.endsWith("line 999\n"));
+	}
+
+	@Test
+	public void historyIsReadFromTheServersFiles() throws Exception {
+		File h = new File(dir, ".smtp-history");
+		h.mkdirs();
+		java.time.LocalDate today = java.time.LocalDate.now();
+		long now = System.currentTimeMillis();
+		write(new File(h, "smtp-" + today + ".jsonl"), "{\"time\":" + (now - 2) + ",\"type\":\"QUEUED\",\"id\":\"m1\",\"from\":\"a@x\",\"recipients\":[\"b@y\"]}\n"
+				+ "{\"time\":" + (now - 1) + ",\"type\":\"DELIVERED\",\"id\":\"m1\",\"from\":\"a@x\",\"recipient\":\"b@y\",\"result\":\"ok\"}\n"
+				+ "{\"time\":" + now + ",\"type\"\n");
+		write(new File(h, "smtp-" + today.minusDays(1) + ".jsonl"), "{\"time\":1,\"type\":\"QUEUED\",\"id\":\"m0\"}\n");
+		us.bringardner.parley.mail.admin.history.HistoryStore store = new us.bringardner.parley.mail.admin.history.HistoryStore(() -> h,
+				new com.fasterxml.jackson.databind.ObjectMapper());
+		List<Map<String, Object>> rows = store.query(today, today, null, null, 100);
+		assertEquals(2, rows.size(), "a line being written is skipped");
+		assertEquals("DELIVERED", rows.get(0).get("type"), "newest first");
+		assertEquals(3, store.query(today.minusDays(1), today, null, null, 100).size());
+		assertEquals(1, store.query(today, today, "B@Y", Set.of("DELIVERED"), 100).size());
+		assertEquals(0, new us.bringardner.parley.mail.admin.history.HistoryStore(() -> null, new com.fasterxml.jackson.databind.ObjectMapper())
+				.query(today, today, null, null, 10).size(), "no history yet");
 	}
 }
