@@ -7,6 +7,27 @@
 
 	const state = { user: null, csrf: null, setupRequired: false, version: '', domains: [], timers: [], page: null };
 
+	// ------------------------------------------------------------------ themes
+
+	/** swing-widgets' built-in themes, as in parley-files-viewer (the colors are in app.css). */
+	const THEMES = ['Gold', 'Dark', 'Light', 'Copper', 'Sage', 'Ocean', 'Slate', 'Plum'];
+
+	function savedTheme() {
+		try {
+			const t = localStorage.getItem('parley.mail.admin.theme');
+			return THEMES.includes(t) ? t : 'Gold';
+		} catch (e) {
+			return 'Gold';
+		}
+	}
+
+	function applyTheme(name) {
+		document.documentElement.dataset.theme = name.toLowerCase();
+		try { localStorage.setItem('parley.mail.admin.theme', name); } catch (e) { /* this browser keeps none */ }
+	}
+
+	applyTheme(savedTheme());
+
 	// ------------------------------------------------------------------ DOM helpers
 
 	/** h('div.cls#id', {attrs}, children...) */
@@ -229,7 +250,7 @@
 			h('aside.side',
 				h('div.brand', h('img', { src: 'brand/parley-icon.svg', alt: '' }), h('div', h('b', 'Parley Mail'), h('span', 'Admin'))),
 				nav,
-				h('div.foot', h('div', 'Logged in as ', h('b', state.user)), logout)),
+				h('div.foot', themePicker(), h('div', 'Logged in as ', h('b', state.user)), logout)),
 			h('main.main', h('div.topbar', title), h('div.banner-wrap', banner), content)));
 		shell = { nav, title, banner, content };
 		window.onhashchange = route;
@@ -237,6 +258,13 @@
 		checkRestart();
 		const t = setInterval(checkRestart, 10000);
 		shell.restartTimer = t;
+	}
+
+	function themePicker() {
+		const sel = h('select', { 'aria-label': 'Theme' }, THEMES.map(t => h('option', { value: t }, t)));
+		sel.value = savedTheme();
+		sel.addEventListener('change', () => applyTheme(sel.value));
+		return h('label', 'Theme', sel);
 	}
 
 	/** The banner offering to restart services whose settings changed. */
