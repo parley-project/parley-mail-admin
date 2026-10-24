@@ -1,17 +1,20 @@
 /* Parley Mail Admin: the Parley look (ink and gold, as on parley.bringardner.us) */
 :root {
-	--ink: #080808;
-	--panel: #12100b;
-	--panel-2: #17130a;
-	--raise: #1d180d;
+	--ink: #2c271d;        /* the page */
+	--panel: #3a3426;
+	--panel-2: #423b2b;
+	--raise: #4d4432;
+	--well: #221e16;       /* inputs, the log, message text */
+	--side-top: #40382a;
+	--side-bottom: #302a1f;
 	--gold: #F2CE71;
 	--gold-mid: #d9b866;
 	--bronze: #967B28;
-	--text: #ECE3CC;
-	--muted: #A3966F;
-	--faint: #7f7356;
-	--line: rgba(242, 206, 113, 0.16);
-	--line-strong: rgba(242, 206, 113, 0.32);
+	--text: #F4ECD8;
+	--muted: #CDBF98;
+	--faint: #A89A75;
+	--line: rgba(242, 206, 113, 0.22);
+	--line-strong: rgba(242, 206, 113, 0.42);
 	--on-gold: #080808;
 	--ok: #8fcf7a;
 	--warn: #f0b44c;
@@ -44,7 +47,7 @@ h3 { font-size: 15px; }
 /* ---------- layout */
 .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
 .side {
-	background: linear-gradient(180deg, #17130a 0%, #0c0a06 100%);
+	background: linear-gradient(180deg, var(--side-top) 0%, var(--side-bottom) 100%);
 	border-right: 1px solid var(--line);
 	padding: 18px 12px;
 	display: flex; flex-direction: column; gap: 4px;
@@ -68,7 +71,7 @@ h3 { font-size: 15px; }
 .topbar {
 	display: flex; align-items: center; gap: 12px;
 	padding: 14px 28px; border-bottom: 1px solid var(--line);
-	background: rgba(8,8,8,.92); position: sticky; top: 0; z-index: 5;
+	background: var(--ink); position: sticky; top: 0; z-index: 5;
 }
 .topbar h1 { flex: 1; }
 .content { padding: 22px 28px 60px; display: flex; flex-direction: column; gap: 18px; }
@@ -111,7 +114,7 @@ h3 { font-size: 15px; }
 .card.running { border-color: rgba(143,207,122,.35); }
 .card.failed { border-color: rgba(239,111,94,.5); }
 .card .top { display: flex; gap: 12px; align-items: center; }
-.card .top img { width: 52px; height: 52px; border-radius: 8px; background: #0c0a06; }
+.card .top img { width: 52px; height: 52px; border-radius: 8px; background: var(--well); }
 .card .top .grow { flex: 1; min-width: 0; }
 .card .desc { font-size: 12px; color: var(--muted); }
 .card .facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; }
@@ -150,7 +153,7 @@ button.small, .btn.small { padding: 3px 9px; font-size: 12px; }
 .btn:hover { text-decoration: none; border-color: var(--gold-mid); }
 button.link { background: none; border: none; color: var(--gold); padding: 0; }
 input, select, textarea {
-	font: inherit; color: var(--text); background: #0d0b07;
+	font: inherit; color: var(--text); background: var(--well);
 	border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 9px;
 }
 input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid rgba(242,206,113,.55); outline-offset: 1px; }
@@ -195,13 +198,13 @@ td.actions button { margin-left: 4px; }
 .setting.dirty .name b::after { content: " •"; color: var(--warn); }
 .savebar {
 	position: sticky; bottom: 0; display: flex; gap: 10px; align-items: center;
-	padding: 12px 16px; background: rgba(23,19,10,.97); border: 1px solid var(--line-strong);
+	padding: 12px 16px; background: var(--panel-2); border: 1px solid var(--line-strong);
 	border-radius: var(--radius); box-shadow: 0 -8px 24px rgba(0,0,0,.4);
 }
 .savebar .grow { flex: 1; }
 
 /* ---------- logs */
-.log { font-family: var(--mono); font-size: 12px; background: #050505; border: 1px solid var(--line); border-radius: var(--radius); height: calc(100vh - 290px); min-height: 300px; overflow: auto; padding: 6px 0; }
+.log { font-family: var(--mono); font-size: 12px; background: var(--well); border: 1px solid var(--line); border-radius: var(--radius); height: calc(100vh - 290px); min-height: 300px; overflow: auto; padding: 6px 0; }
 .log .e { display: grid; grid-template-columns: 92px 52px 56px 1fr; gap: 10px; padding: 1px 12px; white-space: pre-wrap; word-break: break-word; }
 .log .e:hover { background: rgba(242,206,113,.05); }
 .log .e .t { color: var(--faint); }
@@ -217,7 +220,7 @@ td.actions button { margin-left: 4px; }
 .levels label { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); }
 
 /* ---------- modal and toasts */
-.backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px; z-index: 50; overflow: auto; }
+.backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px; z-index: 50; overflow: auto; }
 .modal { background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; width: 560px; max-width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
 .modal.wide { width: 920px; }
 .modal > header { display: flex; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
@@ -226,7 +229,7 @@ td.actions button { margin-left: 4px; }
 .modal > .body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
 .modal > footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
 .modal .error { color: var(--bad); font-size: 13px; }
-pre.message { margin: 0; max-height: 60vh; overflow: auto; background: #050505; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+pre.message { margin: 0; max-height: 60vh; overflow: auto; background: var(--well); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 .toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
 .toast { background: var(--raise); border: 1px solid var(--line-strong); border-left: 4px solid var(--gold); padding: 10px 14px; border-radius: 8px; max-width: 440px; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
 .toast.bad { border-left-color: var(--bad); }
