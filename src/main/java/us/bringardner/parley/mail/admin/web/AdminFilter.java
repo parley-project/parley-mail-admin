@@ -37,6 +37,11 @@ public class AdminFilter extends HttpFilter {
 				"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'");
 
 		String path = req.getRequestURI().substring(req.getContextPath().length());
+		if (!path.startsWith("/api/") && !path.startsWith("/brand/")) {
+			// the pages, styles and scripts: the browser asks each time whether they changed, so a new
+			// version is used at once (unchanged files still come from its cache: 304 Not Modified)
+			res.setHeader("Cache-Control", "no-cache");
+		}
 		if (path.startsWith("/api/")) {
 			res.setHeader("Cache-Control", "no-store");
 			String call = path.substring(4);
