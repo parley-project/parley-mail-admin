@@ -372,10 +372,28 @@ public class ApiServlet extends HttpServlet {
 			if (app.getUsers().hasAdmin()) {
 				throw new ApiException(409, "An administrator already exists; log in");
 			}
-			String name = q.requiredText("user");
-			app.getUsers().add(name, required(q.password("password"), "password"),
-					Arrays.asList(UserRecord.READ, UserRecord.WRITE, UserRecord.ADMIN), q.text("maildrop"));
-			UserRecord u = app.getUsers().get(name.trim());
+			String name = q.requiredText("user").trim();
+			char[] password = required(q.password("password"), "password");
+			// the first administrator's domain becomes a local domain (there's no page to add it before logging in)
+			int at = name.lastIndexOf('@');
+			boolean added = false;
+			if (at > 0 && !app.getDomains().isLocal(name.substring(at + 1))) {
+				app.getDomains().add(name.substring(at + 1));
+				added = true;
+			}
+			try {
+				app.getUsers().add(name, password,
+						Arrays.asList(UserRecord.READ, UserRecord.WRITE, UserRecord.ADMIN), q.text("maildrop"));
+			} catch (RuntimeException e) {
+				if (added) {
+					app.getDomains().remove(name.substring(at + 1)); // as it was
+				}
+				throw e;
+			}
+			if (added) {
+				LOG.log(System.Logger.Level.INFO, "Added the local domain " + name.substring(at + 1) + " for the first administrator");
+			}
+			UserRecord u = app.getUsers().get(name);
 			AdminFilter.login(q.http, u.getName());
 			LOG.log(System.Logger.Level.INFO, "Created the first administrator " + u.getName() + " from " + q.http.getRemoteAddr());
 		}

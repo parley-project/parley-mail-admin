@@ -142,6 +142,8 @@ public class WebAppTest {
 		HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(base + "api/setup")).header("Content-Type", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofString("{\"user\":\"admin@a.test\",\"password\":\"adminpass1\"}")).build(), HttpResponse.BodyHandlers.ofString());
 		assertEquals(403, r.statusCode(), "no CSRF header");
+		assertEquals(400, call("POST", "/setup", Map.of("user", "admin@new.test", "password", "short")).statusCode());
+		assertFalse(ok("GET", "/session", null).get("domains").toString().contains("new.test"), "a failed setup adds no domain");
 		JsonNode s = ok("POST", "/setup", Map.of("user", "admin@a.test", "password", "adminpass1"));
 		assertTrue(s.get("authenticated").asBoolean());
 		csrf = s.get("csrf").asText();

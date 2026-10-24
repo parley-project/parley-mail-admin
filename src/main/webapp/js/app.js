@@ -195,7 +195,7 @@
 		const btn = h('button.primary', { type: 'submit' }, setup ? 'Create administrator' : 'Log in');
 		const form = h('form.box',
 			h('div.logo', h('img', { src: 'brand/parley-icon.svg', alt: '' }), h('div', h('b', 'Parley Mail'), h('span.muted', 'Administration'))),
-			setup ? h('p.muted', 'No administrator exists yet. Create the first one: a mail user with the READ, WRITE and ADMIN permissions.') : null,
+			setup ? h('p.muted', 'No administrator exists yet. Create the first one: a mail user with the READ, WRITE and ADMIN permissions. A name like admin@example.com also makes example.com a local domain.') : null,
 			h('div.form',
 				h('label.row', h('span', 'User'), user),
 				h('label.row', h('span', 'Password'), pw),
