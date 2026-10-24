@@ -329,6 +329,8 @@ pre.message { margin: 0; max-height: 60vh; overflow: auto; background: var(--fie
 .login .box .logo img { width: 56px; height: 56px; border-radius: 10px; }
 .login .box .logo b { font-size: 18px; display: block; }
 .login .box .form .row > span { color: var(--text); }
+.login .box .foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.login .box .foot label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .login .error { color: var(--bad); background: var(--field); border-radius: 6px; padding: 0 8px; font-size: 13px; }
 .login .error:empty { display: none; }
 
