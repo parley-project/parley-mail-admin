@@ -52,10 +52,7 @@
 			<http-only>true</http-only>
 			<!-- set to true when the pages are served over HTTPS (they should be, outside development) -->
 			<secure>false</secure>
-			<attribute>
-				<attribute-name>SameSite</attribute-name>
-				<attribute-value>Strict</attribute-value>
-			</attribute>
+			<!-- SameSite=Strict is set by AdminContextListener: Eclipse WTP can't read <attribute> here -->
 		</cookie-config>
 		<tracking-mode>COOKIE</tracking-mode>
 	</session-config>
