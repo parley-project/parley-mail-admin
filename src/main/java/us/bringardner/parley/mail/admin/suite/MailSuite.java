@@ -124,7 +124,7 @@ public final class MailSuite implements AutoCloseable {
 				return null;
 			}
 			for (ObjectName n : mbeans.queryNames(name("Server", id), null)) {
-				return JMX.newMBeanProxy(mbeans, n, ParleyServerMBean.class);
+				return JMX.newMXBeanProxy(mbeans, n, ParleyServerMBean.class); // an MXBean (parley-net)
 			}
 			return null;
 		}
@@ -199,6 +199,11 @@ public final class MailSuite implements AutoCloseable {
 	/** True when the servers run in this application (no JMX address in the settings). */
 	public boolean isLocal() {
 		return urls().isEmpty();
+	}
+
+	/** The context of the launcher in this application (what its servers share), or null when there's none yet */
+	public synchronized us.bringardner.parley.net.server.ServerContext localContext() {
+		return local == null ? null : local.getContext();
 	}
 
 	private List<String> urls() {
