@@ -157,9 +157,13 @@ public final class AdminApp implements AutoCloseable {
 	 * read it at their next check.
 	 */
 	private void usersChanged() {
-		if (suite.isLocal()) {
+		us.bringardner.parley.net.server.ServerContext context = suite.isLocal() ? suite.localContext() : null;
+		if (context != null) {
 			try {
-				AbstractMailServer.sharedUsers(users.getFile()).reloadNow();
+				us.bringardner.parley.net.server.FileBasedAcl acl = AbstractMailServer.sharedUsers(context, users.getFile());
+				if (acl != null) {
+					acl.reloadNow(); // else no server has read it yet
+				}
 			} catch (IOException | RuntimeException e) {
 				LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile() + "; they keep the previous list", e);
 			}
