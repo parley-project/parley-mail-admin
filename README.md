@@ -24,8 +24,8 @@ It gives you pages to:
 | Settings | Every setting, in the files the servers read: the ones every server shares (mail root, TLS key store, the users file) and each protocol's and each listener's own, with what they do and their defaults. Saving says which services need a restart and offers to do it. |
 
 The pages look like parley-files-viewer: swing-widgets' gradient look, with the same eight themes
-(Gold, the default, Dark, Light, Copper, Sage, Ocean, Slate and Plum), picked at the bottom of the
-side bar and remembered by the browser. Their colors are the `.theme` files' values, at the top of
+(Gold, the default, Dark, Light, Copper, Sage, Ocean, Slate and Plum), picked at the right of the
+top bar (with who is logged in and Log out) and remembered by the browser. Their colors are the `.theme` files' values, at the top of
 `src/main/webapp/css/app.css`.
 
 It's a Maven war project (`packaging war`, Jakarta Servlet 6.0), so it imports into Eclipse as a

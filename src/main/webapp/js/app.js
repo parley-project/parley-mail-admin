@@ -249,9 +249,10 @@
 		app.appendChild(h('div.shell',
 			h('aside.side',
 				h('div.brand', h('img', { src: 'brand/parley-icon.svg', alt: '' }), h('div', h('b', 'Parley Mail'), h('span', 'Admin'))),
-				nav,
-				h('div.foot', themePicker(), h('div', 'Logged in as ', h('b', state.user)), logout)),
-			h('main.main', h('div.topbar', title), h('div.banner-wrap', banner), content)));
+				nav),
+			h('main.main',
+				h('div.topbar', title, h('div.session', themePicker(), h('span.who', 'Logged in as ', h('b', state.user)), logout)),
+				h('div.banner-wrap', banner), content)));
 		shell = { nav, title, banner, content };
 		window.onhashchange = route;
 		route();
