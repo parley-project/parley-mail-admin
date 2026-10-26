@@ -4,6 +4,8 @@
 
 ### Changed
 
+- The theme picker, who is logged in and Log out are at the right of the top bar, on the page title's line, instead
+  of at the bottom of the side bar.
 - The servers are parley-net launcher servers managed with JMX (`ParleyServerMBean`, `ParleyLauncherMBean`,
   parley-smtp's `MailQueueMXBean`) instead of servers the application made itself. They run in the application
   (a `ServerLauncher` in its JVM) or, with `parley.mail.admin.jmxUrl` set to one or more JMX service URLs, as
