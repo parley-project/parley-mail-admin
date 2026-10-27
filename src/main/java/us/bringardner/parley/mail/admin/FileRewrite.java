@@ -13,8 +13,9 @@ import java.nio.file.attribute.PosixFileAttributes;
  * Writes a file through a temporary file in the same folder, then renames it over the original, so
  * a crash never leaves half a file. The new file keeps the original's permissions and group (a
  * users file readable by the mail servers' group stays readable by it); a file that didn't exist
- * gets the permissions every new file of this process gets. Nothing here assumes which user or
- * group the application runs as.
+ * gets the permissions every new file of this process gets. In a folder this process may not add
+ * files to, a file it may write is written in place. Nothing here assumes which user or group the
+ * application runs as.
  */
 public final class FileRewrite {
 
@@ -31,7 +32,17 @@ public final class FileRewrite {
 			throw new IOException("Can't create " + dir);
 		}
 		Path tmp = new File(dir, "." + target.getName() + ".tmp").toPath();
-		Files.write(tmp, content);
+		try {
+			Files.write(tmp, content);
+		} catch (java.nio.file.AccessDeniedException e) {
+			if (target.isFile() && target.canWrite()) {
+				// a folder this process may not add files to, but a file it may write (the mail store's
+				// settings in a root only its owner adds to): written in place, keeping everything about it
+				Files.write(target.toPath(), content);
+				return;
+			}
+			throw new IOException("Can't write " + target + ": this process may not add files to " + dir, e);
+		}
 		try {
 			copyAttributes(target.toPath(), tmp);
 			try {

@@ -66,10 +66,15 @@ public class WebAppTest {
 		pop3Port = freePort();
 		imapPort = freePort();
 		String root = new File(home, "mail").getAbsolutePath().replace('\\', '/');
+		// the store's and the queue's own settings, as parley-servers-setup makes them (the queue names
+		// no aliases file: the application's own is used, and named when the queue's settings change)
+		new File(home, "mail/.smtp-queue").mkdirs();
+		Files.write(new File(home, "mail/.parley-store.properties").toPath(), "sharing=host\n".getBytes(StandardCharsets.UTF_8));
+		Files.write(new File(home, "mail/.smtp-queue/queue.properties").toPath(), "# the queue\nhostname=mx.a.test\ndomains=a.test\n".getBytes(StandardCharsets.UTF_8));
 		Files.write(new File(home, "parley-mail.properties").toPath(), ("# test settings\n"
 				+ "parley.mail.root=" + root + "\n"
 				+ "parley.mail.smtp.hostname=mx.a.test\n"
-				+ "parley.mail.smtp.domains=a.test\n"
+				+ "parley.mail.submission.hostname=mx.a.test\n"
 				+ "parley.mail.smtp.relayNetworks=127.0.0.1/32\n"
 				+ "parley.mail.smtp.port=" + smtpPort + "\n"
 				+ "parley.mail.submission.port=" + submissionPort + "\n"
@@ -270,9 +275,9 @@ public class WebAppTest {
 	@Order(5)
 	public void queueActions() throws Exception {
 		// to a smart host that refuses connections, with a retry schedule far away: it stays in the queue
-		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.smtp.queue.retry", "600", "parley.mail.smtp.relayHost", "127.0.0.1:" + freePort(),
-				"parley.mail.smtp.relayTls", "none")));
-		ok("POST", "/services/smtp/restart", null);
+		ok("PUT", "/settings", Map.of("changes", Map.of("queue.retry", "600", "queue.relayHost", "127.0.0.1:" + freePort(),
+				"queue.relayTls", "none")));
+		ok("POST", "/services/all/restart-changed", null);
 		smtp(smtpPort, "admin@a.test", "someone@remote.invalid", "Subject: stuck\r\n\r\nbody\r\n");
 		waitFor(() -> {
 			try {
@@ -352,12 +357,77 @@ public class WebAppTest {
 
 	@Test
 	@Order(7)
+	public void storeQueueAndEachServersSettings() throws Exception {
+		JsonNode s = ok("GET", "/settings", null);
+		JsonNode store = null, queue = null, smtp = null;
+		for (JsonNode g : s.get("groups")) {
+			String id = g.get("id").asText();
+			if (id.equals("store")) {
+				store = g;
+			} else if (id.equals("queue")) {
+				queue = g;
+			} else if (id.equals("smtp")) {
+				smtp = g;
+			}
+		}
+		assertNotNull(store);
+		assertNotNull(queue);
+		assertEquals("store", store.get("asset").asText());
+		assertTrue(s.get("assets").get("store").get("exists").asBoolean());
+		assertEquals(new File(home, "mail/.smtp-queue/queue.properties").getAbsolutePath().replace('\\', '/'), s.get("assets").get("queue").get("path").asText());
+		assertEquals(java.util.List.of("smtp", "submission", "submissions"), smtp.get("servers").findValuesAsText("id"));
+		boolean submissionTls = false;
+		for (JsonNode x : smtp.get("settings")) {
+			submissionTls |= x.get("key").asText().equals("parley.mail.submission.requireTls") && x.get("server").asText().equals("submission");
+		}
+		assertTrue(submissionTls, "each server's own settings");
+		for (JsonNode x : store.get("settings")) {
+			if (x.get("key").asText().equals("store.sharing")) {
+				assertEquals("host", x.get("value").asText());
+				assertEquals("sharing", x.get("name").asText());
+			}
+		}
+		// queueActions put the queue's settings in its own file
+		String q = Files.readString(new File(home, "mail/.smtp-queue/queue.properties").toPath());
+		assertTrue(q.contains("retry=600"), q);
+		assertTrue(q.startsWith("# the queue\n"), "the file's comments are kept");
+		for (String f : new String[] { "parley-mail.properties", "parley-smtp.properties" }) {
+			File file = new File(home, f);
+			assertFalse(file.exists() && Files.readString(file.toPath()).contains("retry"), f);
+		}
+		// the Domains page and the Aliases page changed it too
+		assertTrue(q.contains("domains=a.test,b.test"), q);
+		assertTrue(q.contains("dkim.keys=b.test:sel1:"), q);
+		assertTrue(q.contains("aliases="), "named when the queue's settings changed");
+
+		// one host name: the queue's and every SMTP server's; the SMTP servers need a restart, IMAP doesn't
+		JsonNode r = ok("PUT", "/settings", Map.of("changes", Map.of("queue.hostname", "mx2.a.test")));
+		assertTrue(r.get("restartNeeded").toString().contains("submission"), r.toString());
+		assertFalse(r.get("restartNeeded").toString().contains("imap"), r.toString());
+		assertTrue(Files.readString(new File(home, "mail/.smtp-queue/queue.properties").toPath()).contains("hostname=mx2.a.test"));
+		String smtpFile = Files.readString(new File(home, "parley-smtp.properties").toPath());
+		assertTrue(smtpFile.contains("parley.mail.submissions.hostname=mx2.a.test"), smtpFile);
+		assertEquals("mx2.a.test", ok("GET", "/status", null).get("hostname").asText());
+		ok("POST", "/services/all/restart-changed", null);
+
+		// a submission server's own setting: only it needs a restart
+		r = ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.submission.maxRecipients", "50")));
+		assertEquals("[\"submission\"]", r.get("restartNeeded").toString());
+		ok("POST", "/services/all/restart-changed", null);
+		for (JsonNode svc : ok("GET", "/services", null)) {
+			assertFalse(svc.get("restartNeeded").asBoolean(), svc.toString());
+			if (svc.get("enabled").asBoolean()) {
+				assertEquals("RUNNING", svc.get("state").asText(), svc.toString());
+			}
+		}
+	}
+
+	@Test
+	@Order(8)
 	public void settingsPage() throws Exception {
 		JsonNode s = ok("GET", "/settings", null);
 		assertTrue(s.get("groups").size() > 5);
 		assertEquals("[\"parley-mail.properties\",\"parley-smtp.properties\",\"parley-imap.properties\",\"parley-pop3.properties\"]", s.get("files").toString());
-		// queueActions put the queue's settings in parley-smtp.properties
-		assertTrue(Files.readString(new File(home, "parley-smtp.properties").toPath()).contains("parley.mail.smtp.queue.retry=600"));
 		HttpResponse<String> bad = call("PUT", "/settings", Map.of("changes", Map.of("parley.mail.pop3.port", "abc")));
 		assertEquals(400, bad.statusCode());
 		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.tls.keyStorePassword", "s3cret")));

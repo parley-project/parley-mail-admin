@@ -137,17 +137,100 @@ public class StoresTest {
 
 	@Test
 	public void whichServicesASettingAffects() {
-		assertTrue(ServiceId.SMTP.isAffectedBy("parley.mail.smtp.domains"));
-		assertTrue(ServiceId.SUBMISSION.isAffectedBy("parley.mail.smtp.domains"), "the submission servers share the SMTP queue");
+		// each server reads only its own prefix: the relay's settings aren't the submission server's
+		assertTrue(ServiceId.SMTP.isAffectedBy("parley.mail.smtp.requireTls"));
+		assertFalse(ServiceId.SUBMISSION.isAffectedBy("parley.mail.smtp.requireTls"), "the relay's own");
+		assertTrue(ServiceId.SUBMISSION.isAffectedBy("parley.mail.submission.requireTls"));
 		assertFalse(ServiceId.SMTP.isAffectedBy("parley.mail.submission.port"));
-		assertTrue(ServiceId.IMAPS.isAffectedBy("parley.mail.imap.requireTls"));
+		assertFalse(ServiceId.IMAPS.isAffectedBy("parley.mail.imap.requireTls"), "imap's own");
 		assertTrue(ServiceId.IMAPS.isAffectedBy("parley.mail.imaps.port"));
 		assertFalse(ServiceId.IMAP.isAffectedBy("parley.mail.imaps.port"));
 		assertFalse(ServiceId.POP3.isAffectedBy("parley.mail.imap.port"));
+		// the queue's settings: every SMTP server; the store's: every server
+		assertTrue(ServiceId.SUBMISSION.isAffectedBy("queue.domains"));
+		assertFalse(ServiceId.POP3.isAffectedBy("queue.domains"));
+		assertTrue(ServiceId.POP3.isAffectedBy("store.sharing"));
 		assertTrue(ServiceId.POP3.isAffectedBy("parley.mail.root"));
 		assertTrue(ServiceId.POP3.isAffectedBy("parley.mail.tls.keyStore"));
 		assertFalse(ServiceId.POP3.isAffectedBy("parley.mail.users"), "users are reloaded without a restart");
 		assertFalse(ServiceId.POP3.isAffectedBy("parley.mail.admin.autoStart"));
+	}
+
+	@Test
+	public void theStoresAndTheQueuesOwnSettings() throws Exception {
+		File root = new File(dir, "mail");
+		write(new File(dir, "parley-mail.properties"), "parley.mail.root=" + root.getAbsolutePath().replace('\\', '/') + "\n");
+		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		s.setNewQueueDefaults(Map.of("aliases", "/etc/parley/aliases.txt"));
+		s.load();
+		File store = new File(root, ".parley-store.properties");
+		File queue = new File(root, ".smtp-queue/queue.properties");
+		assertEquals(store.getAbsolutePath().replace('\\', '/'), s.getStoreFile().getPath());
+		assertEquals(queue.getAbsolutePath().replace('\\', '/'), s.getQueueFile().getPath());
+		assertFalse(s.getStoreFile().exists(), "not made until something is set");
+		assertNull(s.get("store.sharing"));
+
+		// setting one makes its file; the host name is the queue's and every SMTP server's
+		s.update(Map.of("store.sharing", "host", "queue.hostname", "mx.a.test", "queue.domains", "a.test,b.test"));
+		assertEquals("sharing=host\n", read(store));
+		java.util.Properties q = new java.util.Properties();
+		q.load(new java.io.StringReader(read(queue)));
+		assertEquals("mx.a.test", q.getProperty("hostname"));
+		assertEquals("a.test,b.test", q.getProperty("domains"));
+		assertEquals("/etc/parley/aliases.txt", q.getProperty("aliases"), "a new queue names the aliases file");
+		String smtp = read(new File(dir, "parley-smtp.properties"));
+		for (String k : SettingsCatalog.SMTP_HOSTNAMES) {
+			assertTrue(smtp.contains(k + "=mx.a.test"), smtp);
+		}
+		assertFalse(read(new File(dir, "parley-mail.properties")).contains("hostname"));
+		assertEquals("a.test,b.test", s.get("queue.domains"));
+		assertEquals("host", s.getAll().get("store.sharing"));
+		assertThrows(IllegalArgumentException.class, () -> s.set("store.sharing", "sometimes"));
+
+		// edited outside: read again
+		write(queue, read(queue).replace("domains=a.test,b.test", "domains=c.test"));
+		assertTrue(s.reloadIfChanged());
+		assertEquals("c.test", s.get("queue.domains"));
+
+		// another queue folder: the files follow
+		s.set(SettingsCatalog.SMTP_QUEUE, "queues/main");
+		assertEquals(new File(root, "queues/main/queue.properties").getAbsolutePath().replace('\\', '/'), s.getQueueFile().getPath());
+		assertNull(s.get("queue.domains"));
+		s.set(SettingsCatalog.SMTP_QUEUE, "../outside");
+		assertNull(s.getQueueFile(), "under the mail root only");
+		assertTrue(s.getAssetError().contains("must be under the mail root"), s.getAssetError());
+		assertThrows(IllegalArgumentException.class, () -> s.set("queue.domains", "a.test"));
+	}
+
+	@Test
+	public void theStoresSettingsOnAnotherFileSystem() throws Exception {
+		write(new File(dir, "parley-mail.properties"), "parley.mail.root=/mail\nparley.mail.fileSource=memory\n");
+		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		s.load();
+		assertNull(s.getAssetError());
+		assertNull(s.getStoreFile().getFile(), "a FileSource, not a local file");
+		s.set("store.sharing", "cluster");
+		assertTrue(s.getStoreFile().exists());
+		s.getStoreFile().load();
+		assertEquals("cluster", s.getStoreFile().get("sharing"));
+		assertEquals("/mail/.parley-store.properties", s.getStoreFile().getPath());
+	}
+
+	@Test
+	public void aFileInAFolderThisProcessCantAddTo() throws Exception {
+		File locked = new File(dir, "root");
+		locked.mkdirs();
+		File f = new File(locked, ".parley-store.properties");
+		write(f, "sharing=off\n");
+		org.junit.jupiter.api.Assumptions.assumeTrue(Files.getFileAttributeView(f.toPath(), java.nio.file.attribute.PosixFileAttributeView.class) != null, "POSIX permissions");
+		Files.setPosixFilePermissions(locked.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("r-xr-x---"));
+		try {
+			org.junit.jupiter.api.Assumptions.assumeFalse(new File(locked, "probe").createNewFile() && new File(locked, "probe").delete(), "not as root");
+			FileRewrite.write(f, "sharing=host\n".getBytes(StandardCharsets.UTF_8));
+			assertEquals("sharing=host\n", read(f), "written in place");
+		} finally {
+			Files.setPosixFilePermissions(locked.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+		}
 	}
 
 	@Test

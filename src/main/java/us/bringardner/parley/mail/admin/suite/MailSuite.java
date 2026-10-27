@@ -53,10 +53,10 @@ import us.bringardner.parley.smtp.queue.MailQueueMXBean;
  * their JMX service URLs, and each server is managed where it runs.</li>
  * </ol>
  * The servers read the settings files themselves; a start (or restart) reads them again first. A
- * running server whose settings changed since it started says so ({@link #isRestartNeeded}). The
- * SMTP servers of a process share one queue, made with the SMTP settings of the moment the first
- * of them starts, so restarting an SMTP server after an SMTP setting changed restarts every running
- * SMTP server of that process.
+ * running server whose settings changed since it started says so ({@link #isRestartNeeded}): its own
+ * settings, those every server reads, the store's own file and, for an SMTP server, its queue's own
+ * file and the aliases file the queue names. Each SMTP server opens its queue itself (the bean
+ * {@code MailQueue,name=<its id>}); servers given the same queue folder share it.
  */
 public final class MailSuite implements AutoCloseable {
 
@@ -129,8 +129,9 @@ public final class MailSuite implements AutoCloseable {
 			return null;
 		}
 
-		MailQueueMXBean queue() throws IOException {
-			for (ObjectName n : mbeans.queryNames(name("MailQueue", "smtp"), null)) {
+		/** The queue of the SMTP server with this id (smtp, submission, ...), while it runs */
+		MailQueueMXBean queue(String serverId) throws IOException {
+			for (ObjectName n : mbeans.queryNames(name("MailQueue", serverId), null)) {
 				return JMX.newMXBeanProxy(mbeans, n, MailQueueMXBean.class);
 			}
 			return null;
@@ -221,7 +222,31 @@ public final class MailSuite implements AutoCloseable {
 
 	private String currentKey() {
 		return String.join(",", urls()) + "\u0000" + settings.get(SettingsCatalog.ADMIN_JMX_USER, "") + "\u0000"
-				+ settings.get(SettingsCatalog.ADMIN_JMX_PASSWORD, "").hashCode();
+				+ jmxPassword().hashCode();
+	}
+
+	/**
+	 * The JMX password: the setting, else the first line of the file
+	 * {@value SettingsCatalog#ADMIN_JMX_PASSWORD_FILE} names (the parley-servers package makes it), else empty.
+	 */
+	String jmxPassword() {
+		String pw = settings.get(SettingsCatalog.ADMIN_JMX_PASSWORD, null);
+		if (pw != null) {
+			return pw;
+		}
+		String file = settings.get(SettingsCatalog.ADMIN_JMX_PASSWORD_FILE, null);
+		if (file == null) {
+			return "";
+		}
+		try {
+			for (String line : Files.readAllLines(new File(file).toPath(), StandardCharsets.UTF_8)) {
+				return line.trim();
+			}
+			return "";
+		} catch (IOException e) {
+			LOG.log(System.Logger.Level.WARNING, "Can't read the JMX password file " + file + " (" + SettingsCatalog.ADMIN_JMX_PASSWORD_FILE + "): " + e.getMessage());
+			return "";
+		}
 	}
 
 	/**
@@ -305,7 +330,7 @@ public final class MailSuite implements AutoCloseable {
 		Map<String, Object> env = new HashMap<>();
 		String user = settings.get(SettingsCatalog.ADMIN_JMX_USER, null);
 		if (user != null) {
-			env.put(JMXConnector.CREDENTIALS, new String[] { user, settings.get(SettingsCatalog.ADMIN_JMX_PASSWORD, "") });
+			env.put(JMXConnector.CREDENTIALS, new String[] { user, jmxPassword() });
 		}
 		Future<JMXConnector> f = connecting.submit(() -> JMXConnectorFactory.connect(u, env));
 		JMXConnector c;
@@ -488,50 +513,25 @@ public final class MailSuite implements AutoCloseable {
 		LOG.log(System.Logger.Level.INFO, id.label + " stopped");
 	}
 
-	/**
-	 * Stop and start a service, with the settings as they are now. For an SMTP service whose
-	 * process's queue was made with older SMTP settings, every running SMTP service of that process
-	 * is restarted.
-	 */
+	/** Stop and start a service, with the settings as they are now (it reads them again). */
 	public synchronized void restart(ServiceId id) throws IOException {
 		Object[] f = find(id);
 		if (f == null) {
 			require(id);
 		}
-		Target t = (Target) f[1];
-		List<ServiceId> again = new ArrayList<>();
-		again.add(id);
-		if (id.protocol == ServiceId.Protocol.SMTP && isRestartNeeded(id)) {
-			for (ServiceId s : ServiceId.values()) {
-				if (s != id && s.protocol == ServiceId.Protocol.SMTP && isRunning(s)) {
-					Object[] o = find(s);
-					if (o != null && o[1] == t) {
-						again.add(s);
-					}
-				}
-			}
+		ParleyServerMBean b = (ParleyServerMBean) f[0];
+		String fp = fingerprint(id);
+		try {
+			b.restart(); // reads the settings files again
+		} catch (Exception e) {
+			String msg = message(e);
+			LOG.log(System.Logger.Level.ERROR, "Can't restart " + id.label + ": " + msg, e);
+			throw new IOException("Can't restart " + id.label + ": " + msg, e);
+		} finally {
+			serverCreated.run();
 		}
-		if (again.size() == 1) {
-			ParleyServerMBean b = (ParleyServerMBean) f[0];
-			String fp = fingerprint(id);
-			try {
-				b.restart(); // reads the settings files again
-			} catch (Exception e) {
-				String msg = message(e);
-				LOG.log(System.Logger.Level.ERROR, "Can't restart " + id.label + ": " + msg, e);
-				throw new IOException("Can't restart " + id.label + ": " + msg, e);
-			} finally {
-				serverCreated.run();
-			}
-			seen.put(id, new Seen(b.getStarted(), fp));
-			LOG.log(System.Logger.Level.INFO, id.label + " restarted");
-			return;
-		}
-		// the queue goes with the last SMTP server: stop them all, then start them
-		for (int i = again.size() - 1; i >= 0; i--) {
-			stop(again.get(i));
-		}
-		startEach(again);
+		seen.put(id, new Seen(b.getStarted(), fp));
+		LOG.log(System.Logger.Level.INFO, id.label + " restarted");
 	}
 
 	/** Start every service whose port isn't 0. */
@@ -587,9 +587,6 @@ public final class MailSuite implements AutoCloseable {
 		}
 		List<String> errors = new ArrayList<>();
 		for (ServiceId id : ids) {
-			if (!isRestartNeeded(id)) {
-				continue; // restarted with another SMTP service
-			}
 			try {
 				restart(id);
 			} catch (IOException | RuntimeException e) {
@@ -725,39 +722,87 @@ public final class MailSuite implements AutoCloseable {
 		return notBlank(settings.getEffective(id.prefix + ".keyStoreName")) || notBlank(settings.getEffective(SettingsCatalog.TLS_KEY_STORE));
 	}
 
-	/** The SMTP queue's bean, while an SMTP service runs; else null. */
+	/**
+	 * The SMTP queue's bean (the queue folder the relay's settings name, which the Queue tab edits),
+	 * from the first running SMTP server that uses that folder; else null.
+	 */
 	public synchronized MailQueueMXBean getQueue() {
 		connect();
-		for (Target t : targets) {
-			if (t.broken) {
+		String queue = queueOf(ServiceId.SMTP);
+		for (ServiceId id : getQueueServers()) {
+			if (!queue.equals(queueOf(id))) {
 				continue;
 			}
-			try {
-				MailQueueMXBean q = t.queue();
-				if (q != null) {
-					return q;
+			for (Target t : targets) {
+				if (t.broken) {
+					continue;
 				}
-			} catch (Exception e) {
-				broken(t, e);
+				try {
+					MailQueueMXBean q = t.queue(id.id());
+					if (q != null) {
+						return q;
+					}
+				} catch (Exception e) {
+					broken(t, e);
+				}
 			}
 		}
 		return null;
+	}
+
+	/** The SMTP servers. */
+	public static List<ServiceId> getQueueServers() {
+		List<ServiceId> ret = new ArrayList<>();
+		for (ServiceId id : ServiceId.values()) {
+			if (id.protocol == ServiceId.Protocol.SMTP) {
+				ret.add(id);
+			}
+		}
+		return ret;
+	}
+
+	/** The queue folder an SMTP server's settings name (its {@code <prefix>.queue}), normalized. */
+	public String queueOf(ServiceId id) {
+		String q = settings.get(id.prefix + ".queue", SettingsCatalog.DEFAULT_QUEUE).replace('\\', '/');
+		StringBuilder b = new StringBuilder();
+		for (String seg : q.split("/")) {
+			if (!seg.isEmpty() && !seg.equals(".")) {
+				b.append(b.length() == 0 ? "" : "/").append(seg);
+			}
+		}
+		return b.toString();
 	}
 
 	// ------------------------------------------------------------------ settings fingerprints
 
 	/** When a file a service reads last changed. */
 	private long lastModified(ServiceId id) {
-		long t = Math.max(settings.getSharedFile().getFile().lastModified(), settings.getFile(id.protocol).getFile().lastModified());
+		long t = Math.max(settings.getSharedFile().lastModified(), settings.getFile(id.protocol).lastModified());
+		for (PropertiesFile f : assetFiles(id)) {
+			t = Math.max(t, f.lastModified());
+		}
 		File aliases = aliasesFile(id);
 		return aliases == null ? t : Math.max(t, aliases.lastModified());
 	}
 
+	/** The store's and, for an SMTP server, the queue's own settings files (those there are) */
+	private List<PropertiesFile> assetFiles(ServiceId id) {
+		List<PropertiesFile> ret = new ArrayList<>();
+		if (settings.getStoreFile() != null) {
+			ret.add(settings.getStoreFile());
+		}
+		if (id.protocol == ServiceId.Protocol.SMTP && settings.getQueueFile() != null && queueOf(id).equals(queueOf(ServiceId.SMTP))) {
+			ret.add(settings.getQueueFile());
+		}
+		return ret;
+	}
+
+	/** The aliases file an SMTP server's queue names, or null */
 	private File aliasesFile(ServiceId id) {
-		if (id.protocol != ServiceId.Protocol.SMTP) {
+		if (id.protocol != ServiceId.Protocol.SMTP || !queueOf(id).equals(queueOf(ServiceId.SMTP))) {
 			return null;
 		}
-		String a = settings.readBy(ServiceId.Protocol.SMTP).get(SettingsCatalog.SMTP_ALIASES);
+		String a = settings.get(SettingsCatalog.QUEUE_ALIASES);
 		return a == null || a.trim().isEmpty() ? null : new File(a.trim());
 	}
 
@@ -775,6 +820,12 @@ public final class MailSuite implements AutoCloseable {
 				md.update(e.getKey().getBytes(StandardCharsets.UTF_8));
 				md.update((byte) 0);
 				md.update(e.getValue().getBytes(StandardCharsets.UTF_8));
+				md.update((byte) 0);
+			}
+			for (PropertiesFile f : assetFiles(id)) {
+				md.update(f.getPath().getBytes(StandardCharsets.UTF_8));
+				md.update((byte) 0);
+				md.update(new TreeMap<>(f.getValues()).toString().getBytes(StandardCharsets.UTF_8));
 				md.update((byte) 0);
 			}
 			File aliases = aliasesFile(id);

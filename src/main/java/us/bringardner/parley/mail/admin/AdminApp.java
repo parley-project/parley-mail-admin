@@ -90,15 +90,14 @@ public final class AdminApp implements AutoCloseable {
 		if (isBlank(settings.get(SettingsCatalog.USERS))) {
 			settings.set(SettingsCatalog.USERS, path(home.defaultUsersFile()));
 		}
-		if (isBlank(settings.get(SettingsCatalog.SMTP_ALIASES))) {
-			settings.set(SettingsCatalog.SMTP_ALIASES, path(home.defaultAliasesFile()));
-		}
+		// a queue whose settings are made here names the aliases file the Aliases page edits
+		settings.setNewQueueDefaults(java.util.Collections.singletonMap("aliases", path(home.defaultAliasesFile())));
 		applyLogLevels();
 
 		// the servers read the users file again themselves when it changes (parley-net's FileBasedAcl)
 		users = new UserStore(new File(settings.get(SettingsCatalog.USERS)));
 		users.load();
-		aliases = new AliasStore(new File(settings.get(SettingsCatalog.SMTP_ALIASES)));
+		aliases = new AliasStore(aliasesFile());
 		aliases.load();
 		domains = new DomainService(settings, users, aliases, home.dkimDirectory());
 		users.setDomainCheck(domains::isLocal);
@@ -141,6 +140,22 @@ public final class AdminApp implements AutoCloseable {
 			}
 		}
 		return app;
+	}
+
+	/** The aliases file the queue names, else the one in the admin home (a new queue's) */
+	private File aliasesFile() {
+		String a = settings.get(SettingsCatalog.QUEUE_ALIASES);
+		return isBlank(a) ? home.defaultAliasesFile() : new File(a.trim());
+	}
+
+	/**
+	 * Make the queue name the aliases file the Aliases page edits, when it names none (so the SMTP
+	 * servers read the aliases made here).
+	 */
+	public void queueNamesAliases() throws IOException {
+		if (isBlank(settings.get(SettingsCatalog.QUEUE_ALIASES)) && settings.getQueueFile() != null) {
+			settings.set(SettingsCatalog.QUEUE_ALIASES, path(aliases.getFile()));
+		}
 	}
 
 	private static boolean isBlank(String s) {
@@ -194,11 +209,15 @@ public final class AdminApp implements AutoCloseable {
 				users.setFile(new File(settings.get(SettingsCatalog.USERS)));
 			}
 			if (changed.contains(SettingsCatalog.ADMIN_JMX_URL) || changed.contains(SettingsCatalog.ADMIN_JMX_USER)
-					|| changed.contains(SettingsCatalog.ADMIN_JMX_PASSWORD)) {
+					|| changed.contains(SettingsCatalog.ADMIN_JMX_PASSWORD) || changed.contains(SettingsCatalog.ADMIN_JMX_PASSWORD_FILE)) {
 				suite.connect(); // to the launchers named now (or the servers of this application)
 			}
-			if (changed.contains(SettingsCatalog.SMTP_ALIASES) && !isBlank(settings.get(SettingsCatalog.SMTP_ALIASES))) {
-				aliases.setFile(new File(settings.get(SettingsCatalog.SMTP_ALIASES)));
+			if (changed.contains(SettingsCatalog.QUEUE_ALIASES) || changed.contains(SettingsCatalog.ROOT) || changed.contains(SettingsCatalog.FILE_SOURCE)
+					|| changed.contains(SettingsCatalog.SMTP_QUEUE)) {
+				File f = aliasesFile();
+				if (!f.equals(aliases.getFile())) {
+					aliases.setFile(f);
+				}
 			}
 			if (changed.contains(SettingsCatalog.ADMIN_LOG_BUFFER)) {
 				logs.setCapacity((int) settings.getLong(SettingsCatalog.ADMIN_LOG_BUFFER, 5000));
@@ -276,7 +295,7 @@ public final class AdminApp implements AutoCloseable {
 
 	/**
 	 * The SMTP history's folder: the one the queue names while an SMTP server runs (and the last one
-	 * it named), else the one the settings give (parley-smtp's QueueHistory: the history folder
+	 * it named), else the one the queue's settings give (parley-smtp's QueueHistory: its history folder
 	 * setting, else .smtp-history in a local mail root); null when there's none.
 	 */
 	public File historyDirectory() {
@@ -293,10 +312,10 @@ public final class AdminApp implements AutoCloseable {
 		if (lastHistoryDirectory != null) {
 			return lastHistoryDirectory;
 		}
-		if (!settings.getBoolean(QueueHistory.HISTORY_PROP, true)) {
+		if (!settings.getBoolean(SettingsCatalog.QUEUE_HISTORY, true)) {
 			return null;
 		}
-		String dir = settings.get(QueueHistory.DIRECTORY_PROP, null);
+		String dir = settings.get(SettingsCatalog.QUEUE_HISTORY_DIRECTORY, null);
 		if (dir != null) {
 			return new File(dir);
 		}

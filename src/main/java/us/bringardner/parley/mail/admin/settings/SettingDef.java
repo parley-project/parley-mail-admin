@@ -33,9 +33,16 @@ public final class SettingDef {
 	private final String defaultValue;
 	private final String description;
 	private final List<String> options;
+	/** The server whose setting this is (its id: smtp, submission, ...), or null for one every server of the group reads */
+	private final String server;
 
 	public SettingDef(String key, String group, String label, Type type, String defaultValue, String description, String... options) {
+		this(key, group, null, label, type, defaultValue, description, options);
+	}
+
+	public SettingDef(String key, String group, String server, String label, Type type, String defaultValue, String description, String... options) {
 		this.key = key;
+		this.server = server;
 		this.group = group;
 		this.label = label;
 		this.type = type;
@@ -46,6 +53,11 @@ public final class SettingDef {
 
 	public String getKey() {
 		return key;
+	}
+
+	/** The server whose setting this is (smtp, submission, ...), or null. */
+	public String getServer() {
+		return server;
 	}
 
 	public String getGroup() {

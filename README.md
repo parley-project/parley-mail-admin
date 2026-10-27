@@ -83,13 +83,13 @@ the folders the group and permissions you want the servers to share.
 With `parley.mail.admin.jmxUrl` empty, a parley-net `ServerLauncher` in the web application runs
 every service (ids `smtp`, `submission`, `submissions`, `imap`, `imaps`, `pop3`, `pop3s`) from the
 settings folder's files; stopping or undeploying the web application stops them. Their JMX beans
-(`us.bringardner.parley:type=Server,name=<id>`, `type=Launcher,name=ParleyMailAdmin`,
-`type=MailQueue,name=smtp`) are on the JVM's platform MBean server, so jconsole sees them too.
+(`us.bringardner.parley:type=Server,name=<id>`, `type=Launcher,name=ParleyMailAdmin`, and each
+running SMTP server's queue, `type=MailQueue,name=<id>`) are on the JVM's platform MBean server, so jconsole sees them too.
 `parley.mail.admin.autoStart` (true) starts the services whose port isn't 0 when it starts.
 
-- **One process per mail store.** IMAP sessions share mailboxes in the JVM and POP3 holds its
-  maildrop locks there, so don't also run another Parley mail server on the same mail root (unless
-  `parley.mail.sharedStore` says the store is shared; see parley-mail).
+- **The store's sharing:** the servers of this application are several servers on one store, so
+  the store's `sharing` (Settings > Store) must be `host` (or `cluster`); another Parley mail server
+  on the same mail root needs the same.
 - **Low ports:** on a real server set the ports to 25, 587, 465, 143, 993, 110 and 995 (Settings >
   Listeners). The JVM must be allowed to bind them (on Linux, for example, `setcap
   cap_net_bind_service=+ep` on the java binary, or systemd's `AmbientCapabilities`).
@@ -117,14 +117,19 @@ java -Dcom.sun.management.jmxremote.port=9010 -Dcom.sun.management.jmxremote.hos
 and set `parley.mail.admin.jmxUrl` (Settings > Admin) to its JMX service URL,
 `service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi`; several launcher processes (SMTP in one, IMAP
 and POP3 in another, say) are several URLs, comma separated. `parley.mail.admin.jmxUser` and
-`parley.mail.admin.jmxPassword` are the credentials when JMX asks for them. A server no launcher
+`parley.mail.admin.jmxPassword` are the credentials when JMX asks for them; without a password,
+`parley.mail.admin.jmxPasswordFile` names a file whose first line is it (the parley-servers package
+makes `/etc/parley/jmx/admin.password` and names it). A server no launcher
 runs shows as unavailable. The application then starts nothing itself, and stopping it leaves the
 services running.
 
 - The launchers must read the settings folder this application edits (the same machine, the same
   `/etc/parley` or `PARLEY_CONF`); the Dashboard warns when a launcher reads files elsewhere.
 - A start or restart from the pages makes the launcher read the settings files again first.
-- Servers in separate processes on one mail store need `parley.mail.sharedStore=host`.
+- Servers in separate processes on one mail store need the store's `sharing=host` (Settings > Store).
+- Starting or restarting servers over a JMX connection that asks for a password needs parley-net's
+  launcher to run its bean operations on its own thread (parley-net branch `service-main4`): on JDK 21
+  a server started in the authenticated caller's security context fails as it makes its threads.
 - Protect JMX as you would the servers' settings: anyone who reaches it can stop them.
 
 ## The settings folder
@@ -140,22 +145,42 @@ parley-smtp.properties, and so on), anything else in the shared file; comments a
 The files are read again when they change outside the pages. A setting the JVM was given with `-D`
 wins over the files, and the page says so.
 
+Each server reads only its own settings, under its prefix, so the SMTP, Authentication, IMAP and
+POP3 tabs have a server picker: the submission server's `parley.mail.submission.requireTls` is
+not the relay's `parley.mail.smtp.requireTls`. A change marks only the servers that read it as
+needing a restart.
+
+The mail store and the SMTP queue carry their own settings, in their own files, which every server
+using them reads (parley-mail's and parley-smtp's READMEs); the Store and Queue tabs edit them where
+the servers read them, on the mail root's file system:
+
+| File | What |
+|---|---|
+| `<mail root>/.parley-store.properties` | The store's (Store tab): `sharing` (required), `lockDomain`, `lockProvider`, `allowUnsafe`. |
+| `<mail root>/<queue>/queue.properties` | The queue's (Queue tab), in the relay's queue folder (`parley.mail.smtp.queue`, default `.smtp-queue`): `hostname` and `domains` (required), `aliases`, `postmaster`, delivery, smart host, history, DKIM signing, ARC sealing and DMARC reports. |
+
+A store or queue without its file isn't used, and the servers refuse to start; the Dashboard says
+so, and setting one of its settings makes the file. A queue file made here names the aliases file
+the Aliases page edits. The host name (Settings > SMTP) is one value: the queue's `hostname` and each
+SMTP server's (`parley.mail.smtp.hostname`, `parley.mail.submission.hostname`,
+`parley.mail.submissions.hostname`). Nothing is taken from another setting or the machine's name.
+
 ## The admin home
 
 | File | What |
 |---|---|
 | `users.txt` | The users (`parley.mail.users`), in parley-net's FileBasedAcl format; the servers read it again when it changes. |
-| `aliases.txt` | The aliases (`parley.mail.smtp.aliases`). |
+| `aliases.txt` | The aliases, when the queue names no other file (its `aliases`). |
 | `logs/parley-mail.log` | This application's log (rotated at `parley.mail.admin.logFileSize`, 5 old files kept). |
 | `dkim/` | DKIM keys made on the Domains page, each with its DNS record. |
 | `mail/` | The mail store (`parley.mail.root`) of a new home. |
 
-The SMTP history is the SMTP servers' own: `smtp-YYYY-MM-DD.jsonl` files in `<mail root>/.smtp-history`
-(`parley.mail.smtp.queue.historyDirectory`), kept `parley.mail.smtp.queue.historyDays` (30) days.
+The SMTP history is the queue's own: `smtp-YYYY-MM-DD.jsonl` files in `<mail root>/.smtp-history`
+(the queue's `historyDirectory`), kept its `historyDays` (30) days.
 
 ## Several domains
 
-All local domains are in `parley.mail.smtp.domains` (the Domains page). Users and aliases can belong
+All local domains are in the queue's `domains` (the Domains page). Users and aliases can belong
 to one domain or to all of them:
 
 - `tony@example.com` gets mail for tony@example.com only; its maildrop is `example.com/tony` unless
@@ -209,9 +234,8 @@ that limit). A user who loses ADMIN, or is deleted, is logged out at their next 
   try waiting up to 10 seconds.
 - A service started before this application saw it is taken to need a restart if one of its
   settings files changed after it started (the application can't know which settings it read).
-- Restarting the SMTP services while a slow remote delivery is still under way can leave the old
-  queue finishing that delivery while the new one starts; with `parley.mail.sharedStore` off the
-  two don't lock each other out, so that message could be tried by both.
+- The Queue tab and page are the relay's queue (`parley.mail.smtp.queue`); a submission server
+  given another queue folder has its own, which they don't show.
 
 ## License
 

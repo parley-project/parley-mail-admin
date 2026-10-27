@@ -30,6 +30,7 @@ import javax.management.remote.JMXServiceURL;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
 import us.bringardner.parley.net.server.LaunchSettings;
@@ -62,13 +63,21 @@ public class RemoteModeTest {
 		int smtpPort = freePort();
 		String root = new File(dir, "mail").getAbsolutePath().replace('\\', '/');
 		new File(dir, "mail/.parley-locks").mkdirs();
+		new File(dir, "mail/.smtp-queue").mkdirs();
+		// the store's and the queue's own settings, as parley-servers-setup makes them
+		Files.write(new File(dir, "mail/.parley-store.properties").toPath(), "sharing=host\n".getBytes(StandardCharsets.UTF_8));
+		Files.write(new File(dir, "mail/.smtp-queue/queue.properties").toPath(), ("hostname=mx.a.test\ndomains=a.test\naliases="
+				+ new File(dir, "aliases.txt").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
+		// the JMX password in a file, as the parley-servers package keeps it
+		Files.write(new File(dir, "admin.password").toPath(), "s3cret-jmx\n".getBytes(StandardCharsets.UTF_8));
 		Files.write(new File(conf, "parley-mail.properties").toPath(), ("parley.mail.root=" + root + "\n"
 				+ "parley.mail.users=" + new File(dir, "users.txt").getAbsolutePath().replace('\\', '/') + "\n"
-				+ "parley.mail.smtp.domains=a.test\n"
-				+ "parley.mail.smtp.aliases=" + new File(dir, "aliases.txt").getAbsolutePath().replace('\\', '/') + "\n"
-				+ "parley.mail.admin.jmxUrl=" + url + "\n").getBytes(StandardCharsets.UTF_8));
+				+ "parley.mail.admin.jmxUrl=" + url + "\n"
+				+ "parley.mail.admin.jmxUser=parleyadmin\n"
+				+ "parley.mail.admin.jmxPasswordFile=" + new File(dir, "admin.password").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
 		Files.write(new File(conf, "parley-pop3.properties").toPath(), ("parley.mail.pop3.port=" + pop3Port + "\n").getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(conf, "parley-smtp.properties").toPath(), ("parley.mail.smtp.port=" + smtpPort + "\nparley.mail.submission.port=0\n").getBytes(StandardCharsets.UTF_8));
+		Files.write(new File(conf, "parley-smtp.properties").toPath(), ("parley.mail.smtp.port=" + smtpPort + "\nparley.mail.smtp.hostname=mx.a.test\n"
+				+ "parley.mail.submission.port=0\n").getBytes(StandardCharsets.UTF_8));
 		Files.write(new File(dir, "users.txt").toPath(), "# users\n".getBytes(StandardCharsets.UTF_8));
 		Files.write(new File(dir, "aliases.txt").toPath(), "# aliases\n".getBytes(StandardCharsets.UTF_8));
 
@@ -79,7 +88,16 @@ public class RemoteModeTest {
 		Set<String> before = new HashSet<>(System.getProperties().stringPropertyNames());
 		MBeanServer mbs = MBeanServerFactory.newMBeanServer();
 		Registry registry = LocateRegistry.createRegistry(registryPort);
-		JMXConnectorServer cs = JMXConnectorServerFactory.newJMXConnectorServer(new JMXServiceURL(url), null, mbs);
+		// a password, as the parley-mail service's JMX has
+		Map<String, Object> env = new java.util.HashMap<>();
+		env.put(JMXConnectorServer.AUTHENTICATOR, (javax.management.remote.JMXAuthenticator) credentials -> {
+			String[] c = credentials instanceof String[] ? (String[]) credentials : new String[0];
+			if (c.length == 2 && c[0].equals("parleyadmin") && c[1].equals("s3cret-jmx")) {
+				return new javax.security.auth.Subject();
+			}
+			throw new SecurityException("wrong JMX user or password");
+		});
+		JMXConnectorServer cs = JMXConnectorServerFactory.newJMXConnectorServer(new JMXServiceURL(url), env, mbs);
 		ServerLauncher launcher = null;
 		AdminApp app = null;
 		try {
@@ -92,7 +110,7 @@ public class RemoteModeTest {
 			app = AdminApp.start(home, conf);
 			MailSuite suite = app.getSuite();
 			assertFalse(suite.isLocal());
-			assertNull(suite.getConnectError());
+			assertNull(suite.getConnectError(), "logged in with the password file's password");
 			assertEquals(MailSuite.State.RUNNING, suite.getState(ServiceId.POP3));
 			assertEquals(MailSuite.State.RUNNING, suite.getState(ServiceId.SMTP));
 			assertEquals(MailSuite.State.UNAVAILABLE, suite.getState(ServiceId.IMAP), "not run there");
@@ -122,9 +140,17 @@ public class RemoteModeTest {
 			app.getSettings().set("parley.mail.pop3.autologout", "700000");
 			assertTrue(suite.isRestartNeeded(ServiceId.POP3));
 			assertFalse(suite.isRestartNeeded(ServiceId.SMTP), "a POP3 setting");
+			long started = launcher.getServer("pop3").getStarted();
 			assertEquals(List.of(ServiceId.POP3), suite.restartChanged());
 			assertFalse(suite.isRestartNeeded(ServiceId.POP3));
-			assertEquals("700000", System.getProperty("parley.mail.pop3.autologout"), "the launcher read the files again");
+			assertTrue(launcher.getServer("pop3").getStarted() >= started, "restarted");
+
+			// the queue's own settings: the SMTP server needs a restart, POP3 doesn't
+			app.getSettings().set(SettingsCatalog.QUEUE_PREFIX + "retry", "10,20");
+			assertTrue(suite.isRestartNeeded(ServiceId.SMTP));
+			assertFalse(suite.isRestartNeeded(ServiceId.POP3));
+			assertEquals(List.of(ServiceId.SMTP), suite.restartChanged());
+			assertTrue(Files.readString(new File(dir, "mail/.smtp-queue/queue.properties").toPath()).contains("retry=10,20"));
 
 			suite.stop(ServiceId.POP3);
 			assertEquals("STOPPED", launcher.getServer("pop3").getState());

@@ -375,6 +375,12 @@
 				? 'The servers run in this application, with the settings in ' + st.settingsDirectory + '.'
 				: 'The servers run as services, managed over JMX at ' + st.launchers.map(l => l.where).join(', ') + '. Their settings are in ' + st.settingsDirectory + '.'));
 			if (st.connectError) where.appendChild(h('div.banner', st.connectError));
+			for (const [id, what] of [['store', 'The mail store'], ['queue', 'The SMTP queue']]) {
+				const a = st.assets && st.assets[id];
+				if (a && !a.exists) where.appendChild(h('div.banner', a.path ? what + ' has no settings (' + a.path + '), so the servers refuse to start with it. ' : what + '\'s settings can\'t be found: ' + (a.error || '') + '. ',
+					h('a', { href: '#/settings?tab=' + id }, 'Settings > ' + (id === 'store' ? 'Store' : 'Queue'))));
+			}
+			if (!st.hostname) where.appendChild(h('div.banner', 'The host name isn\'t set, so the SMTP servers refuse to start. ', h('a', { href: '#/settings?tab=smtp' }, 'Settings > SMTP')));
 			for (const l of st.launchers) {
 				if (l.warning) where.appendChild(h('div.banner', l.where + ': ' + l.warning));
 				if (l.error) where.appendChild(h('div.banner', l.where + ': ' + l.error));
@@ -725,7 +731,7 @@
 		const list = h('div');
 		const form = h('form.toolbar', h('span.muted', 'From'), from, h('span.muted', 'to'), to, type, q, h('button.primary', { type: 'submit' }, 'Search'));
 		form.addEventListener('submit', e => { e.preventDefault(); refresh(); });
-		root.appendChild(h('p.muted', 'Every message the SMTP queue took, each delivery attempt and its result, kept for the days set in Settings > Delivery.'));
+		root.appendChild(h('p.muted', 'Every message the SMTP queue took, each delivery attempt and its result, kept for the days set in Settings > Queue.'));
 		root.appendChild(panel('History', null, form, list));
 
 		async function refresh() {
@@ -874,14 +880,18 @@
 
 		let data = null, current = null;
 		const changes = new Map();
+		/** the server chosen on each tab whose settings are each server's own */
+		const chosen = new Map();
+		const wanted = /[?&]tab=([\w-]+)/.exec(location.hash);
+		if (wanted) current = wanted[1];
 
 		save.addEventListener('click', doSave);
 		discard.addEventListener('click', () => { changes.clear(); draw(); });
 
 		async function load() {
 			try { data = await api('GET', '/settings'); } catch (e) { return fail(e); }
-			where.textContent = 'Saved in ' + data.directory + ' (' + data.files.join(', ') + '): the files the servers read. Each tab says which services need a restart after a change.';
-			if (!current) current = data.groups[0].id;
+			where.textContent = 'Saved in ' + data.directory + ' (' + data.files.join(', ') + '), and the store\'s and queue\'s own files (Store and Queue tabs): the files the servers read. Each tab says which services need a restart after a change.';
+			if (!current || !groupsWithOther().some(g => g.id === current)) current = data.groups[0].id;
 			draw();
 		}
 
@@ -897,12 +907,36 @@
 			}
 			const g = groupsWithOther().find(x => x.id === current);
 			clear(body);
-			const common = commonServices(g.settings);
+			let shown = g.settings;
+			let picker = null;
+			if (g.servers) {
+				if (!chosen.has(g.id)) chosen.set(g.id, g.servers[0].id);
+				const sel = chosen.get(g.id);
+				shown = g.settings.filter(s => !s.server || s.server === sel);
+				picker = h('div.toolbar.servers', h('span.muted', 'Server'), g.servers.map(sv => {
+					const dirty = g.settings.some(s => s.server === sv.id && changes.has(s.key));
+					return h('button.small', { class: sv.id === sel ? 'primary' : '', title: sv.prefix + '.*', onclick: () => { chosen.set(g.id, sv.id); draw(); } }, sv.label, dirty ? h('span.dot') : null);
+				}));
+			}
+			const common = commonServices(shown);
 			body.appendChild(h('p.muted', g.description, common ? ' ' + restartText(common) : ''));
-			for (const s of g.settings) body.appendChild(row(s, common));
+			if (g.asset) body.appendChild(assetNote(g.asset));
+			// the settings of every server of the tab, then the chosen server's own
+			for (const s of shown) if (!s.server) body.appendChild(row(s, common, g.asset));
+			if (picker) body.appendChild(picker);
+			for (const s of shown) if (s.server) body.appendChild(row(s, common, g.asset));
 			if (g.id === 'other') body.appendChild(otherAdder());
 			count.textContent = changes.size ? changes.size + ' unsaved change' + (changes.size > 1 ? 's' : '') : '';
 			bar.classList.toggle('hidden', changes.size === 0);
+		}
+
+		/** Where the store's or queue's own file is, and what saving does when it isn't there yet */
+		function assetNote(id) {
+			const a = data.assets[id];
+			const what = id === 'store' ? 'The mail store' : 'The SMTP queue';
+			if (!a.path) return h('div.banner', what + '\'s settings can\'t be edited: ' + (a.error || 'the mail root isn\'t set (General tab)'));
+			if (!a.exists) return h('div.banner', what + ' has no settings file yet (' + a.path + '), so the servers refuse to start with it. Saving a setting here makes the file.');
+			return h('p.muted', 'In ' + a.path + '.');
 		}
 
 		function known(key) { return data.groups.some(g => g.settings.some(s => s.key === key)) || data.other.some(s => s.key === key); }
@@ -925,7 +959,7 @@
 			return ids.length === 7 ? 'Changes need every service restarted.' : 'Changes need a restart of: ' + ids.join(', ') + '.';
 		}
 
-		function row(s, common) {
+		function row(s, common, inAsset) {
 			const has = changes.has(s.key);
 			const val = has ? changes.get(s.key) : s.value;
 			let input;
@@ -943,7 +977,7 @@
 					input.addEventListener('change', () => set(input.value || null));
 					break;
 				case 'CHOICE':
-					input = h('select', h('option', { value: '' }, 'default (' + (s.default || '') + ')'), (s.options || []).map(o => h('option', { value: o }, o)));
+					input = h('select', h('option', { value: '' }, s.default ? 'default (' + s.default + ')' : 'not set'), (s.options || []).map(o => h('option', { value: o }, o)));
 					input.value = val || '';
 					input.addEventListener('change', () => set(input.value || null));
 					break;
@@ -960,18 +994,19 @@
 					input.addEventListener('input', () => set(input.value.trim() === '' ? null : input.value));
 			}
 			const r = h('div.setting', { class: has ? 'dirty' : '' },
-				h('div.name', h('b', s.label || s.key), h('code', s.key)),
+				h('div.name', h('b', s.label || s.key), h('code', s.key === 'queue.hostname' ? 'hostname' : s.name || s.key)),
 				h('div.edit', input,
 					s.description ? h('div.hint', s.description) : null,
 					s.effective !== undefined ? h('div.hint.warn-text', 'Set outside the files (-D) to: ' + s.effective) : null,
-					s.file && s.file !== 'parley-mail.properties' ? h('div.hint', 'In ' + s.file) : null,
+					s.key === 'queue.hostname' ? h('div.hint', 'In ' + (s.file || 'the queue\'s queue.properties') + ', and parley-smtp.properties for each SMTP server') :
+						s.file && s.file !== 'parley-mail.properties' && !inAsset ? h('div.hint', 'In ' + s.file) : null,
 					s.services && s.services.join(',') !== common ? h('div.hint', restartText(s.services.join(','))) : null,
 					!s.label ? h('div', h('button.small.danger', { onclick: () => { changes.set(s.key, null); r.classList.add('dirty'); set(null); } }, 'Remove')) : null));
 			return r;
 		}
 
 		function otherAdder() {
-			const k = h('input', { type: 'text', placeholder: 'parley.mail.smtp.something', spellcheck: 'false' });
+			const k = h('input', { type: 'text', placeholder: 'parley.mail.smtp.something, or queue.name / store.name', spellcheck: 'false' });
 			const v = h('input', { type: 'text', placeholder: 'value', spellcheck: 'false' });
 			const f = h('form.toolbar.spaced', k, v, h('button', { type: 'submit' }, 'Add'));
 			f.addEventListener('submit', e => {

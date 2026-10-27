@@ -13,6 +13,8 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
 
 /**
@@ -27,7 +29,13 @@ import us.bringardner.parley.mail.admin.suite.ServiceId;
  * ({@code parley.mail.smtp.*}, {@code parley.mail.submission.*} ... to parley-smtp.properties),
  * anything else to the shared file. Nothing here sets system properties: the servers read the files
  * themselves (in this process, through parley-net's launcher). Only Parley settings
- * ({@code parley.*}) can be set.
+ * ({@code parley.*}) can be set there.
+ * <p>
+ * The mail store and the SMTP queue carry their own settings, in their own files: the store's
+ * {@code .parley-store.properties} in the mail root ({@code store.NAME} here), the queue's
+ * {@code queue.properties} in the relay's queue folder ({@code queue.NAME}), on the mail root's file
+ * system. Setting one makes its file when there's none (the administrator's job, done here). The
+ * host name ({@link SettingsCatalog#QUEUE_HOSTNAME}) is one value for the queue and every SMTP server.
  */
 public final class SettingsService {
 
@@ -40,9 +48,16 @@ public final class SettingsService {
 	private final List<PropertiesFile> files = new ArrayList<>();
 	/** The Parley settings this JVM had when the application started (-D): they win over the files. */
 	private final Map<String, String> jvm = new HashMap<>();
-	private final Map<File, long[]> stamps = new HashMap<>();
+	private final Map<String, long[]> stamps = new HashMap<>();
 	private final List<Consumer<Set<String>>> listeners = new CopyOnWriteArrayList<>();
 	private boolean loaded;
+	/** The store's and the queue's settings files (null while there's no mail root), and what they were made from */
+	private PropertiesFile storeFile;
+	private PropertiesFile queueFile;
+	private String assetsFrom;
+	private String assetError;
+	/** Settings a new queue file gets besides those set (the aliases file the Aliases page edits) */
+	private volatile Map<String, String> newQueueDefaults = Collections.emptyMap();
 
 	public SettingsService(File directory, SettingsCatalog catalog) {
 		this.directory = directory;
@@ -92,6 +107,7 @@ public final class SettingsService {
 				f.load();
 				stamp(f);
 			}
+			resolveAssets(true);
 			Map<String, String> now = getAll();
 			for (String k : before.keySet()) {
 				if (!now.containsKey(k)) {
@@ -112,18 +128,16 @@ public final class SettingsService {
 	}
 
 	private void stamp(PropertiesFile f) {
-		File file = f.getFile();
-		stamps.put(file, new long[] { file.lastModified(), file.length() });
+		stamps.put(f.getPath(), new long[] { f.lastModified(), f.length() });
 	}
 
 	/** Read the files again if one of them changed (edited outside this application); true if one did. */
 	public boolean reloadIfChanged() throws IOException {
 		synchronized (this) {
 			boolean changed = false;
-			for (PropertiesFile f : files) {
-				long[] s = stamps.get(f.getFile());
-				File file = f.getFile();
-				if (s == null || s[0] != file.lastModified() || s[1] != file.length()) {
+			for (PropertiesFile f : allFiles()) {
+				long[] s = stamps.get(f.getPath());
+				if (s == null || s[0] != f.lastModified() || s[1] != f.length()) {
 					changed = true;
 				}
 			}
@@ -133,6 +147,137 @@ public final class SettingsService {
 		}
 		load();
 		return true;
+	}
+
+	// ------------------------------------------------------------------ the store's and the queue's files
+
+	/** The settings files and the store's and queue's, those there are */
+	private List<PropertiesFile> allFiles() {
+		List<PropertiesFile> ret = new ArrayList<>(files);
+		if (storeFile != null) {
+			ret.add(storeFile);
+		}
+		if (queueFile != null) {
+			ret.add(queueFile);
+		}
+		return ret;
+	}
+
+	/**
+	 * Find the store's and the queue's files from the mail root, its file system and the relay's
+	 * queue folder (again when one of those changed), and read them.
+	 */
+	private void resolveAssets(boolean reload) throws IOException {
+		String root = trim(getEffective(SettingsCatalog.ROOT));
+		String fs = trim(getEffective(SettingsCatalog.FILE_SOURCE));
+		String queue = trim(getEffective(SettingsCatalog.SMTP_QUEUE));
+		if (queue == null) {
+			queue = SettingsCatalog.DEFAULT_QUEUE;
+		}
+		String from = root + "\u0000" + fs + "\u0000" + queue;
+		if (!from.equals(assetsFrom)) {
+			assetsFrom = from;
+			storeFile = null;
+			queueFile = null;
+			assetError = null;
+			reload = true;
+			if (root == null) {
+				assetError = "The mail root isn't set (" + SettingsCatalog.ROOT + ")";
+			} else {
+				try {
+					String[] segs = queueSegments(queue);
+					if (fs == null) {
+						File r = new File(root);
+						storeFile = new PropertiesFile(new File(r, us.bringardner.parley.mail.store.MailLocks.STORE_SETTINGS_FILE));
+						File q = r;
+						for (String seg : segs) {
+							q = new File(q, seg);
+						}
+						queueFile = new PropertiesFile(new File(q, us.bringardner.parley.smtp.queue.MailQueue.SETTINGS_FILE));
+					} else {
+						FileSourceFactory factory = FileSourceFactory.getFileSourceFactory(fs.toLowerCase(java.util.Locale.ROOT));
+						if (factory == null) {
+							throw new IOException("No file system " + fs + " (" + SettingsCatalog.FILE_SOURCE + ")");
+						}
+						FileSource r = factory.createFileSource(root);
+						storeFile = new PropertiesFile(r.getChild(us.bringardner.parley.mail.store.MailLocks.STORE_SETTINGS_FILE));
+						FileSource q = r;
+						for (String seg : segs) {
+							q = q.getChild(seg);
+						}
+						queueFile = new PropertiesFile(q.getChild(us.bringardner.parley.smtp.queue.MailQueue.SETTINGS_FILE));
+					}
+				} catch (IOException | RuntimeException e) {
+					storeFile = null;
+					queueFile = null;
+					assetError = "Can't reach the mail root " + root + ": " + e.getMessage();
+				}
+			}
+		}
+		if (reload) {
+			for (PropertiesFile f : new PropertiesFile[] { storeFile, queueFile }) {
+				if (f != null) {
+					try {
+						f.load();
+					} catch (IOException e) {
+						assetError = "Can't read " + f.getPath() + ": " + e.getMessage();
+					}
+					stamp(f);
+				}
+			}
+		}
+	}
+
+	/** The queue folder's names under the mail root, as parley-smtp's SmtpServer takes them */
+	private static String[] queueSegments(String queue) throws IOException {
+		List<String> ret = new ArrayList<>();
+		for (String seg : queue.replace('\\', '/').split("/")) {
+			if (seg.isEmpty() || seg.equals(".")) {
+				continue;
+			}
+			if (seg.equals("..")) {
+				throw new IOException("The queue (" + SettingsCatalog.SMTP_QUEUE + "=" + queue + ") must be under the mail root");
+			}
+			ret.add(seg);
+		}
+		if (ret.isEmpty()) {
+			throw new IOException("The queue (" + SettingsCatalog.SMTP_QUEUE + ") can't be the mail root itself");
+		}
+		return ret.toArray(new String[0]);
+	}
+
+	private static String trim(String s) {
+		return s == null || s.trim().isEmpty() ? null : s.trim();
+	}
+
+	/** The mail store's own settings file, or null while there's no mail root (see {@link #getAssetError}). */
+	public synchronized PropertiesFile getStoreFile() {
+		return storeFile;
+	}
+
+	/** The SMTP queue's own settings file, or null while there's no mail root. */
+	public synchronized PropertiesFile getQueueFile() {
+		return queueFile;
+	}
+
+	/** Why the store's and queue's files can't be found or read, or null. */
+	public synchronized String getAssetError() {
+		return assetError;
+	}
+
+	/** Settings a queue file made here gets besides those set, unless they are set (the aliases file). */
+	public void setNewQueueDefaults(Map<String, String> defaults) {
+		newQueueDefaults = new LinkedHashMap<>(defaults);
+	}
+
+	/** The file of a store or queue setting (null while there's none), else null */
+	private PropertiesFile assetFile(String key) {
+		return key.startsWith(SettingsCatalog.STORE_PREFIX) ? storeFile : key.startsWith(SettingsCatalog.QUEUE_PREFIX) ? queueFile : null;
+	}
+
+	/** A store or queue setting's name in its own file */
+	private static String assetName(String key) {
+		return key.substring(key.indexOf('.') + 1);
 	}
 
 	/** The protocol whose file a setting belongs in, or null for the shared file. */
@@ -150,6 +295,10 @@ public final class SettingsService {
 	 * put there) another protocol's file; or null if it isn't set.
 	 */
 	public synchronized PropertiesFile findFile(String key) {
+		if (SettingsCatalog.isAssetKey(key)) {
+			PropertiesFile f = assetFile(key);
+			return f != null && f.get(assetName(key)) != null ? f : null;
+		}
 		ServiceId.Protocol p = protocolOf(key);
 		if (p != null && getFile(p).get(key) != null) {
 			return getFile(p);
@@ -164,6 +313,9 @@ public final class SettingsService {
 
 	/** The file a setting is in, or the one a new value goes to. */
 	public synchronized PropertiesFile fileFor(String key) {
+		if (SettingsCatalog.isAssetKey(key)) {
+			return assetFile(key);
+		}
 		PropertiesFile f = findFile(key);
 		if (f != null) {
 			return f;
@@ -175,7 +327,7 @@ public final class SettingsService {
 	/** The value in the files (see {@link #findFile}), or null. */
 	public synchronized String get(String key) {
 		PropertiesFile f = findFile(key);
-		return f == null ? null : f.get(key);
+		return f == null ? null : f.get(SettingsCatalog.isAssetKey(key) ? assetName(key) : key);
 	}
 
 	/**
@@ -214,7 +366,10 @@ public final class SettingsService {
 		}
 	}
 
-	/** Every setting in the files (each with the value {@link #get} gives), the shared file's first. */
+	/**
+	 * Every setting in the files (each with the value {@link #get} gives), the shared file's first,
+	 * then the store's and the queue's ({@code store.NAME}, {@code queue.NAME}).
+	 */
 	public synchronized Map<String, String> getAll() {
 		Map<String, String> ret = new LinkedHashMap<>();
 		for (PropertiesFile f : files) {
@@ -222,6 +377,16 @@ public final class SettingsService {
 				if (!ret.containsKey(k)) {
 					ret.put(k, get(k));
 				}
+			}
+		}
+		if (storeFile != null) {
+			for (Map.Entry<String, String> e : storeFile.getValues().entrySet()) {
+				ret.put(SettingsCatalog.STORE_PREFIX + e.getKey(), e.getValue());
+			}
+		}
+		if (queueFile != null) {
+			for (Map.Entry<String, String> e : queueFile.getValues().entrySet()) {
+				ret.put(SettingsCatalog.QUEUE_PREFIX + e.getKey(), e.getValue());
 			}
 		}
 		return ret;
@@ -251,8 +416,8 @@ public final class SettingsService {
 			Map<String, String> clean = new LinkedHashMap<>();
 			for (Map.Entry<String, String> e : changes.entrySet()) {
 				String key = e.getKey() == null ? "" : e.getKey().trim();
-				if (!key.matches("parley\\.[A-Za-z0-9_.\\-]+")) {
-					errors.add("Invalid setting name '" + e.getKey() + "' (a Parley setting, parley.*)");
+				if (!key.matches("(parley|store|queue)\\.[A-Za-z0-9_.\\-]+")) {
+					errors.add("Invalid setting name '" + e.getKey() + "' (a Parley setting, parley.*, or the store's or queue's, store.* or queue.*)");
 					continue;
 				}
 				String value = e.getValue() == null ? null : e.getValue().trim();
@@ -270,10 +435,19 @@ public final class SettingsService {
 			if (!errors.isEmpty()) {
 				throw new IllegalArgumentException(String.join("; ", errors));
 			}
+			// the host name is one for the queue and every SMTP server
+			if (clean.containsKey(SettingsCatalog.QUEUE_HOSTNAME)) {
+				for (String k : SettingsCatalog.SMTP_HOSTNAMES) {
+					clean.put(k, clean.get(SettingsCatalog.QUEUE_HOSTNAME));
+				}
+			}
 			Set<PropertiesFile> dirty = new LinkedHashSet<>();
 			for (Map.Entry<String, String> e : clean.entrySet()) {
 				String key = e.getKey();
 				String value = e.getValue();
+				if (SettingsCatalog.isAssetKey(key)) {
+					continue; // after the files that say where they are
+				}
 				if (value == null) {
 					for (PropertiesFile f : files) {
 						if (f.get(key) != null) {
@@ -287,6 +461,44 @@ public final class SettingsService {
 					f.set(key, value);
 					dirty.add(f);
 					changed.add(key);
+				}
+			}
+			for (PropertiesFile f : dirty) {
+				f.save();
+				stamp(f);
+			}
+			resolveAssets(false);
+			Set<PropertiesFile> made = new LinkedHashSet<>();
+			dirty.clear();
+			for (Map.Entry<String, String> e : clean.entrySet()) {
+				String key = e.getKey();
+				if (!SettingsCatalog.isAssetKey(key)) {
+					continue;
+				}
+				PropertiesFile f = assetFile(key);
+				if (f == null) {
+					throw new IllegalArgumentException("Can't set " + key + ": " + (assetError != null ? assetError : "there's no mail root"));
+				}
+				String name = assetName(key);
+				String value = e.getValue();
+				if (value == null ? f.get(name) == null : value.equals(f.get(name))) {
+					continue;
+				}
+				if (!f.exists()) {
+					made.add(f);
+				}
+				f.set(name, value);
+				dirty.add(f);
+				changed.add(key);
+			}
+			for (PropertiesFile f : made) {
+				if (f == queueFile) {
+					for (Map.Entry<String, String> d : newQueueDefaults.entrySet()) {
+						if (f.get(d.getKey()) == null && d.getValue() != null) {
+							f.set(d.getKey(), d.getValue());
+							changed.add(SettingsCatalog.QUEUE_PREFIX + d.getKey());
+						}
+					}
 				}
 			}
 			for (PropertiesFile f : dirty) {

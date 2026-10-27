@@ -346,3 +346,7 @@ pre.message { margin: 0; max-height: 60vh; overflow: auto; background: var(--fie
 	.setting { grid-template-columns: 1fr; }
 	.content, .topbar { padding-left: 14px; padding-right: 14px; }
 }
+
+/* the server picker of a tab whose settings are each server's own */
+.toolbar.servers { margin: 14px 0 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.toolbar.servers .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--warn-fill); margin-left: 6px; vertical-align: middle; }
