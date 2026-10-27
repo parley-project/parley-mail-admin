@@ -32,14 +32,10 @@ parley.mail.pop3s.port=0
 
 # ---------------------------------------------------------------- SMTP
 
-# The name in the greeting, EHLO and Received fields (the PTR record of the server's address)
-parley.mail.smtp.hostname=localhost
-
-# Domains whose mail is delivered here (comma separated); managed on the Domains page
-parley.mail.smtp.domains=localhost
-
-# alias: member, member ...  ; managed on the Aliases page
-parley.mail.smtp.aliases=@HOME@/aliases.txt
+# The host name (each SMTP server's and the queue's) has no default: set it on Settings > SMTP. The
+# local domains, the aliases file and how mail is delivered are the queue's own settings
+# (<mail root>/.smtp-queue/queue.properties: Settings > Queue, the Domains and Aliases pages), and the
+# store's sharing is the store's (<mail root>/.parley-store.properties: Settings > Store).
 
 # Clients that may relay without logging in
 parley.mail.smtp.relayNetworks=127.0.0.1/32

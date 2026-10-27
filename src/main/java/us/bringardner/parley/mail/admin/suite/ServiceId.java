@@ -3,9 +3,8 @@ package us.bringardner.parley.mail.admin.suite;
 import java.util.Locale;
 
 /**
- * The listeners of the mail suite. Each reads its own settings (port, limits, key store) with its
- * property prefix; the protocol's shared settings use the protocol's prefix
- * ({@code parley.mail.smtp}, {@code parley.mail.imap}, {@code parley.mail.pop3}).
+ * The listeners of the mail suite. Each reads only its own settings, with its property prefix (no
+ * fallback to another prefix), and the settings every mail server reads.
  */
 public enum ServiceId {
 
@@ -21,7 +20,7 @@ public enum ServiceId {
 		SMTP("parley.mail.smtp", "parley-smtp.properties"), IMAP("parley.mail.imap", "parley-imap.properties"),
 		POP3("parley.mail.pop3", "parley-pop3.properties");
 
-		/** The prefix of the protocol's shared settings. */
+		/** The prefix of the protocol's first server (the relay, imap, pop3), whose file is the protocol's. */
 		public final String prefix;
 		/** The settings file of the protocol's servers (read after parley-mail.properties). */
 		public final String settingsFile;
@@ -77,19 +76,26 @@ public enum ServiceId {
 	}
 
 	/**
-	 * True if a change to this setting needs this service restarted: its own prefix, its
-	 * protocol's prefix (for SMTP, which shares one queue, any SMTP setting), or a setting every
-	 * server reads (the store, TLS, parley-net and parley-core settings).
+	 * True if a change to this setting needs this service restarted: its own prefix (each server
+	 * reads only its own: the submission server doesn't read the relay's {@code parley.mail.smtp.*}),
+	 * the store's settings (every server), the queue's (the SMTP servers), or a setting every server
+	 * reads (the mail root, TLS, parley-net and parley-core settings).
 	 */
 	public boolean isAffectedBy(String key) {
 		if (key.startsWith("parley.mail.admin.") || key.equals("parley.mail.users")) {
 			return false; // the admin application's own, or applied without a restart
 		}
-		if (key.startsWith(prefix + ".") || key.startsWith(protocol.prefix + ".")) {
+		if (key.startsWith("store.")) {
+			return true;
+		}
+		if (key.startsWith("queue.")) {
+			return protocol == Protocol.SMTP;
+		}
+		if (key.startsWith(prefix + ".")) {
 			return true;
 		}
 		for (ServiceId s : values()) {
-			if (key.startsWith(s.prefix + ".") || key.startsWith(s.protocol.prefix + ".")) {
+			if (key.startsWith(s.prefix + ".")) {
 				return false; // another service's
 			}
 		}

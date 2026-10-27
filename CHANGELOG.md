@@ -4,6 +4,26 @@
 
 ### Changed
 
+- Each server is alone with its own settings (Parley's server design rule): the SMTP, Authentication, IMAP and
+  POP3 tabs have a server picker and edit each server's own prefix (`parley.mail.submission.*` is no longer
+  taken for the relay's), and a change marks only the servers that read it as needing a restart.
+- New Store and Queue tabs edit the store's and the queue's own settings files, where the servers read them
+  (`.parley-store.properties` in the mail root, `queue.properties` in the relay's queue folder, on the mail
+  root's file system): the store's sharing and locks; the queue's domains, aliases, postmaster, delivery,
+  smart host, history, DKIM signing, ARC sealing and DMARC reports. The Queue tab takes the place of Delivery,
+  and takes the queue's settings from the SMTP and Authentication tabs. `parley.mail.sharedStore`,
+  `parley.mail.lockDomain` and the `parley.mail.smtp.*` delivery settings are gone. Setting one of them makes
+  its file; the Dashboard says when one is missing (the servers refuse to start).
+- The host name (Settings > SMTP) is one field: the queue's and each SMTP server's.
+- The Domains page writes the queue's `domains` and `dkim.keys`, the Aliases page edits the file the queue's
+  `aliases` names (and names its own when the queue names none). Nothing is taken from another setting: no
+  domain from the host name, no host name from the machine's.
+- The Queue page and the Dashboard read the queue of the first running SMTP server on the relay's queue folder
+  (`MailQueue,name=<id>`).
+- `parley.mail.admin.jmxPasswordFile`: the JMX password from a file (the parley-servers package's
+  `/etc/parley/jmx/admin.password`) when `parley.mail.admin.jmxPassword` isn't set.
+- A file in a folder this process may not add files to, but may write (the store's settings in the mail root),
+  is written in place.
 - The theme picker, who is logged in and Log out are at the right of the top bar, on the page title's line, instead
   of at the bottom of the side bar.
 - The servers are parley-net launcher servers managed with JMX (`ParleyServerMBean`, `ParleyLauncherMBean`,
@@ -21,7 +41,7 @@
 - The users file is read again by the servers themselves (parley-mail's shared `FileBasedAcl`); `SuiteAcl` is gone.
 - The SMTP History page reads the history the SMTP servers write (`<mail root>/.smtp-history`); the application's
   own history listener and `history/` folder are gone, and "Keep SMTP history (days)" is now
-  `parley.mail.smtp.queue.historyDays` (30). It and the history's on/off and folder settings are on Settings > Delivery (it was on Settings > Admin).
+  the queue's `historyDays` (30). It and the history's on/off and folder settings are on Settings > Queue (it was on Settings > Admin).
 - The Logs page also shows log files: the application's, the servers' (`logFile` in a settings file, with its
   rotated copies) and those `parley.mail.admin.logFiles` names.
 - DKIM key files made on the Domains page get the process's usual permissions instead of owner-only ones, so

@@ -71,9 +71,9 @@ public final class DomainService {
 	/** The local domains (A-labels, lower case), in the order of the setting. */
 	public List<String> list() {
 		Set<String> ret = new LinkedHashSet<>();
-		String v = settings.getEffective(SettingsCatalog.SMTP_DOMAINS);
-		if (v == null || v.trim().isEmpty()) {
-			v = hostname();
+		String v = settings.getEffective(SettingsCatalog.QUEUE_DOMAINS);
+		if (v == null) {
+			return new ArrayList<>(); // none: not taken from the host name
 		}
 		for (String d : v.split(",")) {
 			if (!d.trim().isEmpty()) {
@@ -87,16 +87,10 @@ public final class DomainService {
 		return list().contains(normalize(domain));
 	}
 
+	/** The mail servers' host name (the queue's), or null: it isn't taken from the machine's name */
 	private String hostname() {
-		String h = settings.getEffective(SettingsCatalog.SMTP_HOSTNAME);
-		if (h == null || h.trim().isEmpty()) {
-			try {
-				h = java.net.InetAddress.getLocalHost().getCanonicalHostName();
-			} catch (IOException e) {
-				h = "localhost";
-			}
-		}
-		return h.trim();
+		String h = settings.getEffective(SettingsCatalog.QUEUE_HOSTNAME);
+		return h == null || h.trim().isEmpty() ? null : h.trim();
 	}
 
 	/** A domain as an A-label in lower case. */
@@ -122,7 +116,7 @@ public final class DomainService {
 			throw new IllegalArgumentException(d + " is already a local domain");
 		}
 		list.add(d);
-		settings.set(SettingsCatalog.SMTP_DOMAINS, String.join(",", list));
+		settings.set(SettingsCatalog.QUEUE_DOMAINS, String.join(",", list));
 	}
 
 	/**
@@ -139,17 +133,17 @@ public final class DomainService {
 			throw new IllegalArgumentException("The last local domain can't be removed");
 		}
 		Map<String, String> changes = new LinkedHashMap<>();
-		changes.put(SettingsCatalog.SMTP_DOMAINS, String.join(",", list));
+		changes.put(SettingsCatalog.QUEUE_DOMAINS, String.join(",", list));
 		List<DkimEntry> keys = dkimEntries();
 		if (keys.removeIf(k -> k.domain.equals(d))) {
-			changes.put(SettingsCatalog.SMTP_DKIM_KEYS, formatKeys(keys));
+			changes.put(SettingsCatalog.QUEUE_DKIM_KEYS, formatKeys(keys));
 		}
 		settings.update(changes);
 	}
 
 	public List<DkimEntry> dkimEntries() {
 		List<DkimEntry> ret = new ArrayList<>();
-		String v = settings.getEffective(SettingsCatalog.SMTP_DKIM_KEYS);
+		String v = settings.getEffective(SettingsCatalog.QUEUE_DKIM_KEYS);
 		if (v == null) {
 			return ret;
 		}
@@ -215,7 +209,7 @@ public final class DomainService {
 		keys.removeIf(k -> k.domain.equals(d));
 		DkimEntry e = new DkimEntry(d, sel, key.getAbsolutePath().replace('\\', '/'));
 		keys.add(e);
-		settings.set(SettingsCatalog.SMTP_DKIM_KEYS, formatKeys(keys));
+		settings.set(SettingsCatalog.QUEUE_DKIM_KEYS, formatKeys(keys));
 		return e;
 	}
 
@@ -285,7 +279,7 @@ public final class DomainService {
 	public List<Map<String, String>> dnsRecords(String d, DkimEntry k) {
 		String host = hostname();
 		List<Map<String, String>> ret = new ArrayList<>();
-		ret.add(record("MX", d + ".", "10 " + host + "."));
+		ret.add(record("MX", d + ".", host == null ? "10 (set the host name on Settings > SMTP)" : "10 " + host + "."));
 		ret.add(record("TXT", d + ".", "v=spf1 mx -all"));
 		if (k != null) {
 			String txt = dkimRecord(k);

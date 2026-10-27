@@ -218,6 +218,7 @@ public class ApiServlet extends HttpServlet {
 		r.get("/aliases", q -> aliases());
 		r.put("/aliases/{name}", q -> {
 			app.getAliases().put(q.param(0), required(q.list("members"), "members"));
+			app.queueNamesAliases();
 			return aliases();
 		});
 		r.delete("/aliases/{name}", q -> {
@@ -415,7 +416,8 @@ public class ApiServlet extends HttpServlet {
 		m.put("home", app.getHome().getDirectory().getPath());
 		m.put("settingsDirectory", app.getSettings().getDirectory().getPath());
 		m.put("mailRoot", app.getSettings().getEffective(SettingsCatalog.ROOT));
-		m.put("hostname", app.getSettings().getEffective(SettingsCatalog.SMTP_HOSTNAME));
+		m.put("hostname", app.getSettings().getEffective(SettingsCatalog.QUEUE_HOSTNAME));
+		m.put("assets", assets(app.getSettings()));
 		MailSuite suite = app.getSuite();
 		m.put("local", suite.isLocal());
 		m.put("launchers", suite.describeTargets());
@@ -525,6 +527,20 @@ public class ApiServlet extends HttpServlet {
 			gm.put("id", g.id);
 			gm.put("label", g.label);
 			gm.put("description", g.description);
+			if (!g.servers.isEmpty()) {
+				List<Object> servers = new ArrayList<>();
+				for (ServiceId id : g.servers) {
+					Map<String, Object> sm = new LinkedHashMap<>();
+					sm.put("id", id.id());
+					sm.put("label", id.label);
+					sm.put("prefix", id.prefix);
+					servers.add(sm);
+				}
+				gm.put("servers", servers);
+			}
+			if (g.id.equals("store") || g.id.equals("queue")) {
+				gm.put("asset", g.id);
+			}
 			List<Object> list = new ArrayList<>();
 			for (SettingDef d : g.settings) {
 				known.add(d.getKey());
@@ -546,6 +562,7 @@ public class ApiServlet extends HttpServlet {
 			files.add(f.getFile().getName());
 		}
 		m.put("files", files);
+		m.put("assets", assets(s));
 		m.put("groups", groups);
 		m.put("other", other);
 		return m;
@@ -555,7 +572,16 @@ public class ApiServlet extends HttpServlet {
 		String effective = s.isSetByJvm(key) ? s.getEffective(key) : null;
 		Map<String, Object> m = new LinkedHashMap<>();
 		m.put("key", key);
-		m.put("file", s.fileFor(key).getFile().getName());
+		us.bringardner.parley.mail.admin.settings.PropertiesFile file = s.fileFor(key);
+		if (SettingsCatalog.isAssetKey(key)) {
+			m.put("name", key.substring(key.indexOf('.') + 1)); // its name in that file
+			m.put("file", file == null ? null : file.getPath());
+		} else {
+			m.put("file", file.getName());
+		}
+		if (d != null && d.getServer() != null) {
+			m.put("server", d.getServer());
+		}
 		if (d != null) {
 			m.put("label", d.getLabel());
 			m.put("type", d.getType().name());
@@ -582,6 +608,33 @@ public class ApiServlet extends HttpServlet {
 			}
 		}
 		m.put("services", services);
+		return m;
+	}
+
+	/** The store's and the queue's own settings files: where, and whether they are there */
+	private static Map<String, Object> assets(SettingsService s) {
+		Map<String, Object> m = new LinkedHashMap<>();
+		us.bringardner.parley.mail.admin.settings.PropertiesFile[] files = { s.getStoreFile(), s.getQueueFile() };
+		String[] ids = { "store", "queue" };
+		for (int i = 0; i < 2; i++) {
+			Map<String, Object> a = new LinkedHashMap<>();
+			if (files[i] == null) {
+				a.put("path", null);
+				a.put("exists", false);
+				a.put("error", s.getAssetError());
+			} else {
+				a.put("path", files[i].getPath());
+				boolean exists;
+				try {
+					exists = files[i].exists();
+				} catch (IOException e) {
+					exists = false;
+					a.put("error", e.getMessage());
+				}
+				a.put("exists", exists);
+			}
+			m.put(ids[i], a);
+		}
 		return m;
 	}
 
