@@ -14,8 +14,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 import us.bringardner.parley.files.FileSource;
-import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
+import us.bringardner.parley.mail.store.MaildropRoot;
 
 /**
  * The mail suite's settings: the files the servers read, in the settings folder (the folder of
@@ -174,7 +174,7 @@ public final class SettingsService {
 		if (queue == null) {
 			queue = SettingsCatalog.DEFAULT_QUEUE;
 		}
-		String from = root + "\u0000" + fs + "\u0000" + queue;
+		String from = root + "\u0000" + fs + "\u0000" + queue + "\u0000" + new java.util.TreeMap<>(connectionSettings());
 		if (!from.equals(assetsFrom)) {
 			assetsFrom = from;
 			storeFile = null;
@@ -186,7 +186,7 @@ public final class SettingsService {
 			} else {
 				try {
 					String[] segs = queueSegments(queue);
-					if (fs == null) {
+					if (isLocalMailRoot()) {
 						File r = new File(root);
 						storeFile = new PropertiesFile(new File(r, us.bringardner.parley.mail.store.MailLocks.STORE_SETTINGS_FILE));
 						File q = r;
@@ -195,11 +195,9 @@ public final class SettingsService {
 						}
 						queueFile = new PropertiesFile(new File(q, us.bringardner.parley.smtp.queue.MailQueue.SETTINGS_FILE));
 					} else {
-						FileSourceFactory factory = FileSourceFactory.getFileSourceFactory(fs.toLowerCase(java.util.Locale.ROOT));
-						if (factory == null) {
-							throw new IOException("No file system " + fs + " (" + SettingsCatalog.FILE_SOURCE + ")");
-						}
-						FileSource r = factory.createFileSource(root);
+						// another file system: opened as the servers open it (MaildropRoot), with the
+						// parley.mail.fileSource.* connection settings, or a filesource: URL
+						FileSource r = getMailRoot();
 						storeFile = new PropertiesFile(r.getChild(us.bringardner.parley.mail.store.MailLocks.STORE_SETTINGS_FILE));
 						FileSource q = r;
 						for (String seg : segs) {
@@ -210,7 +208,11 @@ public final class SettingsService {
 				} catch (IOException | RuntimeException e) {
 					storeFile = null;
 					queueFile = null;
-					assetError = "Can't reach the mail root " + root + ": " + e.getMessage();
+					// (getMailRoot's message names the root without a URL's query)
+					assetError = e.getMessage() != null && e.getMessage().startsWith("Can't reach the mail root") ? e.getMessage()
+							: "Can't reach the mail root " + MaildropRoot.describe(root, fs) + ": " + e.getMessage();
+					// try again next time: the store may be reachable then
+					assetsFrom = null;
 				}
 			}
 		}
@@ -226,6 +228,72 @@ public final class SettingsService {
 				}
 			}
 		}
+	}
+
+	// ------------------------------------------------------------------ the mail root
+
+	/** The mail root as last opened, and the settings it was opened with */
+	private FileSource mailRoot;
+	private String mailRootFrom;
+
+	/**
+	 * The file system's connection settings the servers get: every {@code parley.mail.fileSource.KEY}
+	 * the servers see (the files', or -D), as KEY.
+	 */
+	public synchronized java.util.Properties connectionSettings() {
+		Map<String, String> all = new LinkedHashMap<>();
+		for (PropertiesFile f : files) {
+			all.putAll(f.getValues());
+		}
+		all.putAll(jvm);
+		java.util.Properties ret = new java.util.Properties();
+		String prefix = SettingsCatalog.FILE_SOURCE + ".";
+		for (String k : all.keySet()) {
+			if (k.startsWith(prefix) && k.length() > prefix.length()) {
+				String v = getEffective(k);
+				if (v != null) {
+					ret.setProperty(k.substring(prefix.length()), v.trim());
+				}
+			}
+		}
+		return ret;
+	}
+
+	/**
+	 * True if the mail root is a folder on this machine's disk: a path, with no
+	 * {@value SettingsCatalog#FILE_SOURCE}.
+	 */
+	public boolean isLocalMailRoot() {
+		String root = trim(getEffective(SettingsCatalog.ROOT));
+		return root != null && !MaildropRoot.isUrl(root) && trim(getEffective(SettingsCatalog.FILE_SOURCE)) == null;
+	}
+
+	/**
+	 * The mail root, on whatever file system it is, opened as the servers open it (parley-mail's
+	 * MaildropRoot): {@value SettingsCatalog#ROOT} on the file system {@value SettingsCatalog#FILE_SOURCE}
+	 * names with its {@code parley.mail.fileSource.*} connection settings, or a {@code filesource:}
+	 * URL. Kept open until one of those settings changes.
+	 *
+	 * @throws IOException if it isn't set or can't be reached (the message never holds a URL's query)
+	 */
+	public synchronized FileSource getMailRoot() throws IOException {
+		String root = trim(getEffective(SettingsCatalog.ROOT));
+		String fs = trim(getEffective(SettingsCatalog.FILE_SOURCE));
+		java.util.Properties connection = connectionSettings();
+		if (root == null) {
+			throw new IOException("The mail root isn't set (" + SettingsCatalog.ROOT + ")");
+		}
+		String from = root + "\u0000" + fs + "\u0000" + new java.util.TreeMap<>(connection);
+		if (mailRoot == null || !from.equals(mailRootFrom)) {
+			try {
+				mailRoot = MaildropRoot.open(root, fs, connection, SettingsCatalog.FILE_SOURCE);
+			} catch (IOException e) {
+				mailRoot = null;
+				throw new IOException("Can't reach the mail root " + MaildropRoot.describe(root, fs) + ": " + e.getMessage(), e);
+			}
+			mailRootFrom = from;
+		}
+		return mailRoot;
 	}
 
 	/** The queue folder's names under the mail root, as parley-smtp's SmtpServer takes them */

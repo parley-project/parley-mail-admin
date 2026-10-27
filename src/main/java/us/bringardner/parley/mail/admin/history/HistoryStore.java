@@ -1,11 +1,9 @@
 package us.bringardner.parley.mail.admin.history;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,35 +15,37 @@ import java.util.function.Supplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.smtp.queue.QueueHistory;
 
 /**
  * Reads the history of the SMTP queue that parley-smtp's SMTP servers write ({@link QueueHistory}):
  * every queue event as a JSON line in one file per day, {@code smtp-YYYY-MM-DD.jsonl}. The queue
  * forgets a message when it's done, so this is where the SMTP History page looks. The servers
- * delete the old files ({@code parley.mail.smtp.queue.historyDays}).
+ * delete the old files ({@code parley.mail.smtp.queue.historyDays}). The folder is a FileSource, on
+ * the mail root's file system like the servers', so it works for a store on any file system.
  */
 public final class HistoryStore {
 
 	/** Longest range a query reads. */
 	public static final int MAX_DAYS = 366;
 
-	private final Supplier<File> directory;
+	private final Supplier<FileSource> directory;
 	private final ObjectMapper json;
 
 	/** @param directory the history's folder as it is now (null: none is known) */
-	public HistoryStore(Supplier<File> directory, ObjectMapper json) {
+	public HistoryStore(Supplier<FileSource> directory, ObjectMapper json) {
 		this.directory = directory;
 		this.json = json;
 	}
 
 	/** The history's folder, or null if there is none. */
-	public File getDirectory() {
+	public FileSource getDirectory() {
 		return directory.get();
 	}
 
-	private static File file(File dir, LocalDate day) {
-		return new File(dir, QueueHistory.PREFIX + day + QueueHistory.SUFFIX);
+	private static FileSource file(FileSource dir, LocalDate day) throws IOException {
+		return dir.getChild(QueueHistory.PREFIX + day + QueueHistory.SUFFIX);
 	}
 
 	/**
@@ -57,7 +57,7 @@ public final class HistoryStore {
 	 */
 	public List<Map<String, Object>> query(LocalDate from, LocalDate to, String text, Set<String> types, int limit) throws IOException {
 		List<Map<String, Object>> ret = new ArrayList<>();
-		File dir = getDirectory();
+		FileSource dir = getDirectory();
 		if (dir == null || !dir.isDirectory()) {
 			return ret;
 		}
@@ -71,12 +71,12 @@ public final class HistoryStore {
 		}
 		String t = text == null || text.trim().isEmpty() ? null : text.trim().toLowerCase(Locale.ROOT);
 		for (LocalDate d = to; !d.isBefore(from) && ret.size() < limit; d = d.minusDays(1)) {
-			File f = file(dir, d);
-			if (!f.isFile()) {
+			FileSource f = file(dir, d);
+			if (f == null || !f.isFile()) {
 				continue;
 			}
 			List<Map<String, Object>> day = new ArrayList<>();
-			try (BufferedReader r = new BufferedReader(new InputStreamReader(Files.newInputStream(f.toPath()), StandardCharsets.UTF_8))) {
+			try (BufferedReader r = new BufferedReader(new InputStreamReader(f.getInputStream(), StandardCharsets.UTF_8))) {
 				String line;
 				while ((line = r.readLine()) != null) {
 					if (line.isEmpty()) {
