@@ -49,6 +49,12 @@
 			<artifactId>parley-smtp</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<!-- the DNS page: its server's management bean and signed dynamic updates -->
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-dns</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>us.bringardner.parley</groupId>
 			<artifactId>parley-imap</artifactId>

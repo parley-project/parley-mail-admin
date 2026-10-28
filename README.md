@@ -150,6 +150,20 @@ POP3 tabs have a server picker: the submission server's `parley.mail.submission.
 not the relay's `parley.mail.smtp.requireTls`. A change marks only the servers that read it as
 needing a restart.
 
+A change on the Domains and Aliases pages (a domain added or removed, a DKIM key made, an alias
+saved or deleted) is used at once, with no restart: the admin has every running SMTP server that
+uses the relay's queue read its domains, aliases file and DKIM keys again (parley-smtp's
+`MailQueueMXBean.reload`), and, for a domain or a DKIM key, the Parley DNS server read its zones
+again, so the domain and its DKIM record are served now. If a server can't, the change is still
+saved, the page says why, and a restart uses it.
+
+DKIM: the primary domain's key is the shared one. The admin keeps the queue's `dkim.shared` set to
+the primary domain while it has a key, and every domain without a key of its own signs with it, as
+itself (parley-smtp); with Parley DNS each such domain inherits the key's record from the primary
+domain's zone, so it needs no zone file. "Make DKIM key" on another domain gives it a key of its
+own, whose record the admin puts in that domain's zone (which then has a file). The DNS records
+list shows the record a domain needs either way, for a DNS provider elsewhere.
+
 The mail store and the SMTP queue carry their own settings, in their own files, which every server
 using them reads (parley-mail's and parley-smtp's READMEs); the Store and Queue tabs edit them where
 the servers read them, on the mail root's file system:
@@ -200,7 +214,8 @@ before users, and the full address before the local part.
   start, stop, restart, connections and who they are) and `ParleyLauncherMBean` (read the settings again), and
   parley-smtp's `MailQueueMXBean` for the Queue page; in this application's own launcher or over
   `parley.mail.admin.jmxUrl`. A running service whose settings (or, for SMTP, aliases file) changed
-  since it started says "restart". The SMTP services of a process share one queue (made when the
+  since it started says "restart", except the queue's domains, aliases and DKIM keys once
+  `reloadQueue` had the SMTP servers read them again. The SMTP services of a process share one queue (made when the
   first one starts), so a change to an SMTP setting restarts that process's running SMTP services
   together.
 - `settings.SettingsService` edits the settings files; `settings.SettingsCatalog` describes the
@@ -225,6 +240,24 @@ Administrators are mail users with the ADMIN permission (Users page). While no u
 first page creates one. After 10 login attempts from one address in 15 minutes without success,
 that address must wait (behind a reverse proxy every client has the proxy's address, so they share
 that limit). A user who loses ADMIN, or is deleted, is logged out at their next request.
+
+### Primary and domain administrators
+
+An administrator manages its own domain, unless its domain is the primary one: then it manages every
+domain. The primary domain is the first administrator's (so the first administrator's name must have
+a domain, like `admin@example.com`), recorded as `parley.mail.admin.primaryDomain` (Settings > Admin)
+when it is made; on an installation that had administrators before, it is the domain of the first
+administrator in the users file, recorded the first time it is needed.
+An administrator of the primary domain may change it (Settings > Admin) to another local domain
+that has an administrator; it is never empty, so someone can always manage every domain.
+
+1. An administrator of the primary domain uses every page, as before.
+2. An administrator of another domain sees Domains (its own: DNS records and DKIM keys), Users (its
+   domain's: it may make them administrators of it, and a maildrop must be under its domain's folder),
+   Aliases (its domain's), and the Queue and History of mail from or to its domain (retry, delete, read).
+   The Dashboard, Logs and Settings, adding or removing domains, the services and retrying the whole
+   queue are the primary domain's administrators' only; the API answers 403.
+3. A user with ADMIN but no domain in its name (`root`) administers nothing and can't log in here.
 
 ## Known limits
 

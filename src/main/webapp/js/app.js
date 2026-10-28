@@ -5,7 +5,7 @@
 (function () {
 	'use strict';
 
-	const state = { user: null, csrf: null, setupRequired: false, version: '', domains: [], timers: [], page: null };
+	const state = { user: null, csrf: null, primary: false, adminDomain: null, setupRequired: false, version: '', domains: [], timers: [], page: null };
 
 	// ------------------------------------------------------------------ themes
 
@@ -177,7 +177,7 @@
 	async function boot() {
 		try {
 			const s = await api('GET', '/session');
-			Object.assign(state, { user: s.user, csrf: s.csrf, setupRequired: s.setupRequired, version: s.version, domains: s.domains || [] });
+			Object.assign(state, { user: s.user, csrf: s.csrf, primary: !!s.primary, adminDomain: s.adminDomain || null, setupRequired: s.setupRequired, version: s.version, domains: s.domains || [] });
 			if (s.authenticated) showShell(); else showLogin();
 		} catch (e) {
 			clear(document.getElementById('app')).appendChild(h('div.boot', 'Can\'t reach the server: ' + e.message));
@@ -209,7 +209,7 @@
 			btn.disabled = true;
 			try {
 				const s = await api('POST', setup ? '/setup' : '/login', { user: user.value, password: pw.value });
-				Object.assign(state, { user: s.user, csrf: s.csrf, setupRequired: s.setupRequired, domains: s.domains || [] });
+				Object.assign(state, { user: s.user, csrf: s.csrf, primary: !!s.primary, adminDomain: s.adminDomain || null, setupRequired: s.setupRequired, domains: s.domains || [] });
 				showShell();
 			} catch (ex) {
 				err.textContent = ex.message;
@@ -224,24 +224,35 @@
 	// ------------------------------------------------------------------ the shell
 
 	const PAGES = [
-		{ id: 'dashboard', label: 'Dashboard', render: dashboardPage },
+		{ id: 'dashboard', label: 'Dashboard', render: dashboardPage, primaryOnly: true },
 		{ sep: 'Mail' },
 		{ id: 'domains', label: 'Domains', render: domainsPage },
 		{ id: 'users', label: 'Users', render: usersPage },
 		{ id: 'aliases', label: 'Aliases', render: aliasesPage },
+		{ id: 'dns', label: 'DNS', render: dnsPage, module: 'dns' },
 		{ sep: 'SMTP' },
 		{ id: 'queue', label: 'Queue', render: queuePage },
 		{ id: 'history', label: 'History', render: historyPage },
-		{ sep: 'System' },
-		{ id: 'logs', label: 'Logs', render: logsPage },
-		{ id: 'settings', label: 'Settings', render: settingsPage }
+		{ sep: 'System', primaryOnly: true },
+		{ id: 'servers', label: 'Servers', render: serversPage, primaryOnly: true },
+		{ id: 'logs', label: 'Logs', render: logsPage, primaryOnly: true },
+		{ id: 'settings', label: 'Settings', render: settingsPage, primaryOnly: true }
 	];
+
+	/** The pages this administrator may use: an administrator of a domain other than the primary one manages only that domain. */
+	function pages() { return PAGES.filter(p => (state.primary || !p.primaryOnly) && (!p.module || (state.modules || []).includes(p.module))); }
 
 	let shell = null;
 
-	function showShell() {
+	/** The type-specific pages that apply: a page appears where the launchers run its kind of server. */
+	async function loadModules() {
+		try { state.modules = (await api('GET', '/modules')).modules || []; } catch (e) { state.modules = state.modules || []; }
+	}
+
+	async function showShell() {
+		await loadModules();
 		const app = clear(document.getElementById('app'));
-		const nav = h('nav.nav', PAGES.map(p => p.sep ? h('div.sep', p.sep) : h('a', { href: '#/' + p.id, 'data-page': p.id }, p.label)));
+		const nav = h('nav.nav', pages().map(p => p.sep ? h('div.sep', p.sep) : h('a', { href: '#/' + p.id, 'data-page': p.id }, p.label)));
 		const title = h('h1');
 		const banner = h('div.banner.hidden');
 		const content = h('div.content');
@@ -270,7 +281,7 @@
 
 	/** The banner offering to restart services whose settings changed. */
 	async function checkRestart() {
-		if (!shell || !state.user) return;
+		if (!shell || !state.user || !state.primary) return;
 		let list;
 		try { list = await api('GET', '/services'); } catch (e) { return; }
 		const need = list.filter(s => s.restartNeeded);
@@ -299,8 +310,9 @@
 
 	function route() {
 		if (!state.user) return showLogin();
-		const id = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('?')[0];
-		const page = PAGES.find(p => p.id === id) || PAGES[0];
+		const visible = pages().filter(p => !p.sep);
+		const id = (location.hash.replace(/^#\/?/, '') || visible[0].id).split('?')[0];
+		const page = visible.find(p => p.id === id) || visible[0];
 		for (const t of state.timers) clearInterval(t);
 		state.timers = [];
 		for (const a of shell.nav.querySelectorAll('a')) a.classList.toggle('active', a.dataset.page === page.id);
@@ -428,14 +440,14 @@
 			e.preventDefault();
 			try {
 				await api('POST', '/domains', { domain: input.value });
-				toast(input.value + ' added. Restart the SMTP services to receive its mail.', 'ok');
+				toast(input.value + ' added. Its mail is received now.', 'ok');
 				input.value = '';
 				refresh();
 				checkRestart();
-			} catch (ex) { fail(ex); }
+			} catch (ex) { fail(ex); refresh(); checkRestart(); }
 		});
 		root.appendChild(h('p.muted', 'Mail for these domains is delivered here. Users and aliases can belong to one domain (tony@example.com) or, without a domain, to all of them.'));
-		root.appendChild(panel('Local domains', addForm, list));
+		root.appendChild(state.primary ? panel('Local domains', addForm, list) : panel('Your domain', list));
 
 		async function refresh() {
 			let domains;
@@ -447,20 +459,37 @@
 					h('td', h('b', d.domain), d.unicode ? h('span.muted', ' (' + d.unicode + ')') : null),
 					h('td', h('a', { href: '#/users', onclick: () => { state.userDomain = d.domain; } }, String(d.users))),
 					h('td', String(d.aliases)),
-					h('td', d.dkim ? h('span', h('span.badge.ok', d.dkim.selector), d.dkim.keyFileExists ? null : h('span.badge.bad', ' key file missing')) : h('span.badge.warn', 'no key')),
+					h('td', d.dkim ? h('span', h('span.badge.ok', d.dkim.selector), d.dkim.own ? null : h('span.muted', ' shared (' + d.dkim.domain + ')'),
+						d.dkim.keyFileExists ? null : h('span.badge.bad', ' key file missing')) : h('span.badge.warn', 'no key')),
 					h('td.actions',
 						h('button.small', { onclick: () => dns(d) }, 'DNS records'),
-						h('button.small', { onclick: () => dkim(d) }, d.dkim ? 'New DKIM key' : 'Make DKIM key'),
-						h('button.small.danger', { onclick: () => remove(d) }, 'Remove'))))))));
+						h('button.small', { onclick: () => dkim(d) }, d.dkim && d.dkim.own ? 'New DKIM key' : 'Make DKIM key'),
+						state.primary ? h('button.small.danger', { onclick: () => remove(d) }, 'Remove') : null)))))));
 		}
 
 		function dns(d) {
+			const lines = d.dns.map(r => r.name + '\tIN\t' + r.type + '\t' + zoneValue(r)).join('\n') + '\n';
 			dialog('DNS records for ' + d.domain, [
-				h('p.muted', 'Publish these at your DNS provider. The MX host must have a PTR record matching the SMTP host name. Start DMARC with p=none and tighten it once reports look right.'),
+				d.dnsServed
+					? h('p.muted', 'Parley DNS serves ' + d.domain + ': it answers with the primary domain\'s records and this domain\'s DKIM key, '
+						+ 'so there is nothing to publish (its records are on the DNS page). Use these only for a DNS provider elsewhere, '
+						+ 'if the domain\'s name servers are there.')
+					: h('p.muted', 'Publish these at your DNS provider. The MX host must have a PTR record matching the SMTP host name. Start DMARC with p=none and tighten it once reports look right.'),
+				h('p', h('button.small', { type: 'button', onclick: () => navigator.clipboard.writeText(lines).then(() => toast('Copied ' + d.dns.length + ' records')) }, 'Copy all records')),
 				h('table.dns', h('thead', h('tr', h('th', 'Type'), h('th', 'Name'), h('th', 'Value'), h('th', ''))),
 					h('tbody', d.dns.map(r => h('tr', h('td', r.type), h('td', r.name), h('td', r.value),
 						h('td', h('button.small', { type: 'button', onclick: () => navigator.clipboard.writeText(r.value).then(() => toast('Copied')) }, 'Copy'))))))
 			], { okLabel: null, wide: true });
+		}
+
+		/** A record's value as a zone file writes it: a TXT value quoted, in strings of at most 255 characters */
+		function zoneValue(r) {
+			if (r.type !== 'TXT') return r.value;
+			const parts = [];
+			for (let i = 0; i < r.value.length; i += 255) {
+				parts.push('"' + r.value.substring(i, i + 255).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"');
+			}
+			return parts.join(' ');
 		}
 
 		async function dkim(d) {
@@ -468,12 +497,16 @@
 			const sel = h('input', { type: 'text', value: 'mail' + y });
 			const type = h('select', h('option', { value: 'rsa' }, 'RSA 2048 (works everywhere)'), h('option', { value: 'ed25519' }, 'Ed25519 (RFC 8463)'));
 			const r = await dialog('DKIM key for ' + d.domain, [
-				h('p.muted', 'Makes a signing key, saves it in the admin home\'s dkim folder and puts it in the DKIM keys setting.'
-					+ (d.dkim ? ' It replaces the key with selector ' + d.dkim.selector + ': publish the new record before restarting SMTP.' : '')),
+				h('p.muted', (d.primaryDomain
+					? 'Makes the primary domain\'s signing key: it is the shared key, which every domain without a key of its own signs with (each inherits its record from the primary domain\'s zone).'
+					: 'Makes a signing key of ' + d.domain + '\'s own: its mail is signed with it instead of the shared key, and its record goes in its own zone, which then has a zone file.')
+					+ ' The key is saved in the admin home\'s dkim folder and put in the DKIM keys setting.'
+					+ (d.dkim && d.dkim.own ? ' It replaces the key with selector ' + d.dkim.selector + ' and mail is signed with it at once: publish the new record first if another DNS provider serves the domain.' : '')),
 				h('div.form', h('label.row', h('span', 'Selector'), sel), h('label.row', h('span', 'Key type'), type))
 			], { okLabel: 'Make key', onOk: () => api('POST', '/domains/' + enc(d.domain) + '/dkim', { selector: sel.value, type: type.value }) });
 			if (r) {
-				toast('Key made. Publish its TXT record, then restart the SMTP services.', 'ok');
+				toast(r.dnsServed ? 'Key made. Parley DNS serves its record and mail is signed with it now.'
+					: 'Key made and mail is signed with it now. Publish its TXT record.', 'ok');
 				refresh();
 				dns(r);
 				checkRestart();
@@ -484,11 +517,215 @@
 			const ok = await confirmDialog('Remove ' + d.domain, 'Mail for ' + d.domain + ' will be refused. Its ' + d.users + ' user(s) and ' + d.aliases
 				+ ' alias(es) are kept, and its DKIM key file too.', 'Remove');
 			if (!ok) return;
-			try { await api('DELETE', '/domains/' + enc(d.domain)); toast('Removed ' + d.domain, 'ok'); refresh(); checkRestart(); } catch (e) { fail(e); }
+			try { await api('DELETE', '/domains/' + enc(d.domain)); toast('Removed ' + d.domain, 'ok'); refresh(); checkRestart(); } catch (e) { fail(e); refresh(); checkRestart(); }
 		}
 
 		refresh();
 		return { refresh };
+	}
+
+	// ------------------------------------------------------------------ servers (any kind)
+
+	/** The pages of the kinds of server this application knows, by the bean type a server has. */
+	const TYPE_PAGES = { Dns: '#/dns', MailQueue: '#/queue' };
+
+	function serversPage(root) {
+		const list = h('div');
+		root.appendChild(h('p.muted', 'Every Parley server the launchers run, whatever its kind: the mail servers, DNS, FTP, SSH, and any other. '
+			+ 'Start, stop or restart one here; its kind\'s own page (if this application has one) is linked.'));
+		root.appendChild(list);
+
+		async function act(s, action) {
+			if (action === 'stop' && s.connections > 0
+				&& !await confirmDialog('Stop ' + s.id, s.connections + ' client(s) are connected and will be disconnected.', 'Stop')) return;
+			try { await api('POST', '/servers/' + enc(s.id) + '/' + action); toast(s.id + ': ' + action + ' done', 'ok'); } catch (e) { fail(e); }
+			refresh();
+			checkRestart();
+		}
+
+		async function connections(s) {
+			let l = [];
+			try { l = await api('GET', '/servers/' + enc(s.id) + '/connections'); } catch (e) { return fail(e); }
+			dialog(s.id + ' connections', l.length === 0 ? h('div.empty', 'No connections') :
+				h('table', h('thead', h('tr', h('th', 'Client'), h('th', 'User'), h('th', 'TLS'))),
+					h('tbody', l.map(c => h('tr', h('td.mono', c.remote), h('td', c.user || h('span.faint', 'not logged in')), h('td', c.tls ? 'yes' : ''))))),
+				{ okLabel: null });
+		}
+
+		async function refresh() {
+			let servers;
+			try { servers = await api('GET', '/servers'); } catch (e) { return; }
+			clear(list);
+			const groups = new Map();
+			for (const s of servers) {
+				const k = s.where + (s.launcher ? ' (' + s.launcher + ')' : '');
+				if (!groups.has(k)) groups.set(k, []);
+				groups.get(k).push(s);
+			}
+			if (!servers.length) list.appendChild(h('div.empty', 'No launcher reached runs a server'));
+			for (const [where, group] of groups) {
+				const cards = h('div.cards');
+				for (const s of group) {
+					if (!s.id) { cards.appendChild(h('div.banner', s.error || 'Can\'t be read')); continue; }
+					cards.appendChild(h('div.card', { class: String(s.state).toLowerCase() },
+						h('div.top', h('div.grow',
+							h('h3', s.id, ' ', stateBadge({ state: s.state, enabled: true }), ' ', s.restartNeeded ? h('span.badge.warn', 'restart') : null),
+							h('div.desc', s.description || ''))),
+						h('dl.facts',
+							h('dt', 'Port'), h('dd', s.port > 0 ? String(s.port) : 'off'),
+							s.state === 'RUNNING' ? [h('dt', 'Up'), h('dd', ago(s.started))] : null,
+							s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', h('button.link', { type: 'button', onclick: () => connections(s) }, String(s.connections)))] : null,
+							s.types && s.types.length ? [h('dt', 'Pages'), h('dd', s.types.map(t => TYPE_PAGES[t] ? h('a', { href: TYPE_PAGES[t] }, t + ' ') : h('span.faint', t + ' ')))] : null),
+						s.error ? h('div.err', s.error) : null,
+						h('div.actions',
+							s.state !== 'RUNNING' ? h('button.small', { disabled: s.state === 'OFF', title: s.state === 'OFF' ? 'Turned off by its settings' : '', onclick: () => act(s, 'start') }, 'Start') : null,
+							s.state === 'RUNNING' ? h('button.small', { onclick: () => act(s, 'stop') }, 'Stop') : null,
+							s.state === 'RUNNING' ? h('button.small', { class: s.restartNeeded ? 'primary' : '', onclick: () => act(s, 'restart') }, 'Restart') : null)));
+				}
+				list.appendChild(panel(where, null, cards));
+			}
+		}
+		refresh();
+		every(5000, refresh);
+		return { refresh };
+	}
+
+	// ------------------------------------------------------------------ DNS
+
+	function relName(name, domain) {
+		const n = String(name).toLowerCase().replace(/\.+$/, ''), d = String(domain).toLowerCase().replace(/\.+$/, '');
+		if (n === d) return '@';
+		return n.endsWith('.' + d) ? n.substring(0, n.length - d.length - 1) : n + '.';
+	}
+
+	function dnsPage(root) {
+		const status = h('div');
+		const tabs = h('div.tabs');
+		const body = h('div');
+		root.appendChild(h('p.muted', 'Each domain\'s zone serves the primary domain\'s records under its own name (inherited), and its own records add to them '
+			+ 'or override them, by name and type. Changes are made on the DNS server at once.'));
+		root.appendChild(status);
+		root.appendChild(tabs);
+		root.appendChild(body);
+		let current = state.dnsDomain || null;
+		let zone = null;
+
+		async function load() {
+			let domains = [];
+			try { domains = (await api('GET', '/domains')).map(d => d.domain); } catch (e) { return fail(e); }
+			if (state.primary) {
+				try { drawStatus(await api('GET', '/dns')); } catch (e) { clear(status).appendChild(h('div.banner', e.message)); }
+			}
+			const first = state.adminDomain && domains.includes(state.adminDomain) ? [state.adminDomain] : [];
+			const order = first.concat(domains.filter(d => d !== state.adminDomain).sort());
+			clear(tabs);
+			for (const d of order) {
+				tabs.appendChild(h('button.tab', { type: 'button', 'data-domain': d, onclick: () => show(d) }, d));
+			}
+			if (!order.length) { clear(body).appendChild(h('div.empty', 'No domains')); return; }
+			show(order.includes(current) ? current : order[0]);
+		}
+
+		function drawStatus(st) {
+			clear(status);
+			if (!st.available) { status.appendChild(h('div.banner', 'No Parley DNS server is running where the servers are managed.')); return; }
+			const reload = h('button.small', { onclick: async () => { try { drawStatus(await api('POST', '/dns/reload')); toast('Zones read again', 'ok'); if (current) show(current); } catch (e) { fail(e); } } }, 'Reload zones');
+			status.appendChild(panel('DNS server', reload,
+				h('dl.facts',
+					h('dt', 'State'), h('dd', stateBadge({ state: st.state, enabled: true })),
+					h('dt', 'Runs at'), h('dd.mono', st.where + ', port ' + st.port),
+					h('dt', 'Recursion'), h('dd', st.recursion ? h('span.warn-text', 'on (it answers for any name)') : 'off'),
+					h('dt', 'Zones'), h('dd', String(st.zones.length)),
+					h('dt', 'Zone folder'), h('dd.mono', st.zoneDirectory || '')),
+				st.keyProblem ? h('div.banner', st.keyProblem) : null,
+				(st.errors || []).map(e => h('div.err', e))));
+		}
+
+		async function show(d) {
+			current = d;
+			state.dnsDomain = d;
+			for (const b of tabs.querySelectorAll('button')) b.classList.toggle('active', b.dataset.domain === d);
+			try { zone = await api('GET', '/dns/zones/' + enc(d)); } catch (e) { clear(body).appendChild(h('div.banner', e.message)); return; }
+			draw();
+		}
+
+		async function call(method, path, body, done) {
+			try { zone = await api(method, '/dns/zones/' + enc(current) + path, body); if (done) toast(done, 'ok'); draw(); return true; } catch (e) { fail(e); return false; }
+		}
+
+		function draw() {
+			const z = zone;
+			clear(body);
+			if (!z.exists) {
+				body.appendChild(panel(z.domain, null,
+					h('p', z.isPrimary
+						? 'The primary domain has no zone yet. Its zone (' + z.domain + '.txt in the DNS server\'s zone folder) is made by hand: every other domain inherits its records.'
+						: 'The DNS server has no zone for ' + z.domain + '. Make one: it serves every record of ' + z.primary + ' under ' + z.domain + ', and you add or override records here.'),
+					!z.isPrimary && !z.primaryServed ? h('div.banner', 'The primary domain (' + z.primary + ') has no zone yet.') : null,
+					!z.isPrimary ? h('button.primary', { disabled: !z.primaryServed, onclick: () => call('POST', '', null, 'Zone made') }, 'Make the zone') : null));
+				return;
+			}
+			body.appendChild(h('p.muted', z.inheritFrom
+				? 'Inherits the records of ' + z.inheritFrom + '. Serial ' + z.serial + ' (own ' + z.ownSerial + '), ' + z.ownRecords + ' own record(s) of ' + z.records + '.'
+				: (z.isPrimary ? 'The primary domain: every domain with a zone inherits these records. Serial ' + z.serial + '.' : 'Serial ' + z.serial + '.')));
+			if (z.mail && z.mail.length) {
+				const needed = z.mail.filter(m => m.status !== 'served').length;
+				const badge = st => h('span.badge', { class: st === 'served' ? 'ok' : st === 'different' ? 'warn' : 'bad' }, st);
+				body.appendChild(panel('Mail records', h('button.primary.small', { disabled: needed === 0, onclick: publish }, needed ? 'Publish ' + needed : 'All served'),
+					h('div.table-wrap', h('table.dns',
+						h('thead', h('tr', h('th', 'Type'), h('th', 'Name'), h('th', 'Value'), h('th', ''))),
+						h('tbody', z.mail.map(m => h('tr', h('td', m.type), h('td.mono', relName(m.name, z.domain)), h('td.mono', m.value), h('td', badge(m.status)))))))));
+			}
+			const recs = z.records || [];
+			body.appendChild(panel('Records', h('button.small', { onclick: () => edit(null) }, 'Add record'),
+				h('div.table-wrap', h('table.dns',
+					h('thead', h('tr', h('th', 'Name'), h('th', 'Type'), h('th', 'TTL'), h('th', 'Value'), h('th', ''), h('th', ''))),
+					h('tbody', recs.map(r => h('tr', { class: r.inherited ? 'inherited' : '' },
+						h('td.mono', relName(r.name, z.domain)), h('td', r.type), h('td', String(r.ttl)), h('td.mono', r.data),
+						h('td', r.inherited ? h('span.badge', 'inherited') : h('span.badge.ok', 'own')),
+						h('td.actions', !z.types.includes(r.type) ? null : r.inherited
+							? h('button.small', { onclick: () => edit(r) }, 'Override')
+							: [h('button.small', { onclick: () => edit(r) }, 'Edit'), h('button.small.danger', { onclick: () => remove(r) }, 'Delete')]))))))));
+		}
+
+		async function publish() {
+			try {
+				zone = await api('POST', '/dns/zones/' + enc(current) + '/publish');
+				toast((zone.published || []).length + ' record(s) published', 'ok');
+				draw();
+			} catch (e) { fail(e); }
+		}
+
+		/** Add a record set, edit an own one, or override an inherited one (the domain's own set of that name and type replaces it). */
+		async function edit(r) {
+			const z = zone;
+			const same = r ? z.records.filter(x => x.name === r.name && x.type === r.type && x.inherited === r.inherited) : [];
+			const name = h('input', { type: 'text', value: r ? relName(r.name, z.domain) : '', placeholder: '@ or www' });
+			const type = h('select', z.types.map(t => h('option', { value: t }, t)));
+			type.value = r ? r.type : 'A';
+			if (r) { name.disabled = true; type.disabled = true; }
+			const ttl = h('input', { type: 'number', min: '0', value: r ? String(r.ttl) : '3600' });
+			const values = h('textarea', { rows: '4', placeholder: 'One value per line, as in a zone file: 192.0.2.1, 10 mx1.example.com., "v=spf1 mx -all"' });
+			values.value = same.map(x => x.data).join('\n');
+			const title = !r ? 'Add records to ' + z.domain : r.inherited ? 'Override ' + relName(r.name, z.domain) + ' ' + r.type : 'Edit ' + relName(r.name, z.domain) + ' ' + r.type;
+			const ok = await dialog(title, [
+				h('p.muted', r && r.inherited
+					? 'These values become ' + z.domain + '\'s own ' + r.type + ' records at this name, in place of every inherited ' + r.type + ' there.'
+					: 'The values replace ' + z.domain + '\'s own records of this name and type' + (z.inheritFrom ? ' (and override any inherited ones of that type).' : '.')),
+				h('div.form', h('label.row', h('span', 'Name'), name), h('label.row', h('span', 'Type'), type),
+					h('label.row', h('span', 'TTL (s)'), ttl), h('label.row', h('span', 'Values'), values))
+			], { okLabel: 'Save', onOk: () => api('PUT', '/dns/zones/' + enc(current) + '/records',
+				{ name: name.value, type: type.value, ttl: ttl.value, values: values.value.split('\n').map(v => v.trim()).filter(v => v) }) });
+			if (ok) { zone = ok; toast('Saved', 'ok'); draw(); }
+		}
+
+		async function remove(r) {
+			if (!await confirmDialog('Delete ' + relName(r.name, zone.domain) + ' ' + r.type, r.data + (zone.inheritFrom ? ' (an inherited record of this name and type shows through again if it was the last)' : ''), 'Delete')) return;
+			call('POST', '/delete', { name: r.name, type: r.type, data: r.data }, 'Deleted');
+		}
+
+		load();
+		return { refresh: () => current && show(current) };
 	}
 
 	// ------------------------------------------------------------------ users
@@ -643,7 +880,7 @@
 					return api('PUT', '/aliases/' + enc(name), { members: m });
 				}
 			});
-			if (r) { refresh(r); toast('Saved. Restart the SMTP services to use it.', 'ok'); checkRestart(); }
+			if (r) { refresh(r); toast('Saved. It is used now.', 'ok'); checkRestart(); }
 		}
 
 		async function remove(x) {
@@ -667,7 +904,7 @@
 		root.appendChild(panel('Messages waiting for delivery', h('div.toolbar',
 			h('label.checks', h('label', auto, 'Refresh every 5 s')),
 			h('button', { onclick: refresh }, 'Refresh'),
-			h('button.primary', { onclick: flush }, 'Retry all now')), list));
+			state.primary ? h('button.primary', { onclick: flush }, 'Retry all now') : null), list));
 
 		async function refresh() {
 			let q;
