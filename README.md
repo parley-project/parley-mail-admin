@@ -233,6 +233,8 @@ domain. The primary domain is the first administrator's (so the first administra
 a domain, like `admin@example.com`), recorded as `parley.mail.admin.primaryDomain` (Settings > Admin)
 when it is made; on an installation that had administrators before, it is the domain of the first
 administrator in the users file, recorded the first time it is needed.
+An administrator of the primary domain may change it (Settings > Admin) to another local domain
+that has an administrator; it is never empty, so someone can always manage every domain.
 
 1. An administrator of the primary domain uses every page, as before.
 2. An administrator of another domain sees Domains (its own: DNS records and DKIM keys), Users (its
