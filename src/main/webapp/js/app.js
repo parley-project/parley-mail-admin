@@ -467,12 +467,28 @@
 		}
 
 		function dns(d) {
+			const lines = d.dns.map(r => r.name + '\tIN\t' + r.type + '\t' + zoneValue(r)).join('\n') + '\n';
 			dialog('DNS records for ' + d.domain, [
-				h('p.muted', 'Publish these at your DNS provider. The MX host must have a PTR record matching the SMTP host name. Start DMARC with p=none and tighten it once reports look right.'),
+				d.dnsServed
+					? h('p.muted', 'Parley DNS serves ' + d.domain + ': it answers with the primary domain\'s records and this domain\'s DKIM key, '
+						+ 'so there is nothing to publish (its records are on the DNS page). Use these only for a DNS provider elsewhere, '
+						+ 'if the domain\'s name servers are there.')
+					: h('p.muted', 'Publish these at your DNS provider. The MX host must have a PTR record matching the SMTP host name. Start DMARC with p=none and tighten it once reports look right.'),
+				h('p', h('button.small', { type: 'button', onclick: () => navigator.clipboard.writeText(lines).then(() => toast('Copied ' + d.dns.length + ' records')) }, 'Copy all records')),
 				h('table.dns', h('thead', h('tr', h('th', 'Type'), h('th', 'Name'), h('th', 'Value'), h('th', ''))),
 					h('tbody', d.dns.map(r => h('tr', h('td', r.type), h('td', r.name), h('td', r.value),
 						h('td', h('button.small', { type: 'button', onclick: () => navigator.clipboard.writeText(r.value).then(() => toast('Copied')) }, 'Copy'))))))
 			], { okLabel: null, wide: true });
+		}
+
+		/** A record's value as a zone file writes it: a TXT value quoted, in strings of at most 255 characters */
+		function zoneValue(r) {
+			if (r.type !== 'TXT') return r.value;
+			const parts = [];
+			for (let i = 0; i < r.value.length; i += 255) {
+				parts.push('"' + r.value.substring(i, i + 255).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"');
+			}
+			return parts.join(' ');
 		}
 
 		async function dkim(d) {
@@ -485,7 +501,8 @@
 				h('div.form', h('label.row', h('span', 'Selector'), sel), h('label.row', h('span', 'Key type'), type))
 			], { okLabel: 'Make key', onOk: () => api('POST', '/domains/' + enc(d.domain) + '/dkim', { selector: sel.value, type: type.value }) });
 			if (r) {
-				toast('Key made. Publish its TXT record, then restart the SMTP services.', 'ok');
+				toast(r.dnsServed ? 'Key made. Parley DNS serves its record; restart the SMTP services to sign with it.'
+					: 'Key made. Publish its TXT record, then restart the SMTP services.', 'ok');
 				refresh();
 				dns(r);
 				checkRestart();

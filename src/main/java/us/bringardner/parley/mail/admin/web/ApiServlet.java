@@ -353,7 +353,7 @@ public class ApiServlet extends HttpServlet {
 				throw new ApiException(403, "The domain " + q.param(0) + " isn't yours");
 			}
 			app.getDomains().generateDkim(q.param(0), q.requiredText("selector"), q.text("type"));
-			return app.getDomains().describe(q.param(0));
+			return withDns(app.getDomains().describe(q.param(0)), app.getDns().servedZones());
 		});
 
 		// users
@@ -877,13 +877,21 @@ public class ApiServlet extends HttpServlet {
 		AdminScope scope = scope(q);
 		List<Object> list = new ArrayList<>();
 		DomainService d = app.getDomains();
+		java.util.Set<String> served = app.getDns().servedZones();
 		for (String domain : d.list()) {
 			if (!scope.allowsDomain(domain)) {
 				continue;
 			}
-			list.add(d.describe(domain));
+			list.add(withDns(d.describe(domain), served));
 		}
 		return list;
+	}
+
+	/** A domain's description, with whether the Parley DNS server serves it (dnsServed) */
+	static Map<String, Object> withDns(Map<String, Object> m, java.util.Set<String> served) {
+		Object d = m.get("domain");
+		m.put("dnsServed", d != null && served.contains(String.valueOf(d).toLowerCase(java.util.Locale.ROOT)));
+		return m;
 	}
 
 	private Object users(Router.Request q) {

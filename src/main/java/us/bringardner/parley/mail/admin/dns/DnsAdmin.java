@@ -74,6 +74,26 @@ public final class DnsAdmin {
 		return n;
 	}
 
+	/**
+	 * The zones the Parley DNS server serves (lower case): those of its zone files, and the mail
+	 * domains it serves from the primary domain's records (parley.dns.mailSettings). None when no
+	 * DNS server is reached.
+	 */
+	public java.util.Set<String> servedZones() {
+		java.util.Set<String> ret = new java.util.HashSet<>();
+		try {
+			MailSuite.Typed<DnsServerMXBean> t = server();
+			if (t != null) {
+				for (DnsZoneInfo z : t.bean.getZones()) {
+					ret.add(norm(z.getName()));
+				}
+			}
+		} catch (RuntimeException e) {
+			// not reached: none
+		}
+		return ret;
+	}
+
 	/** The server's state and its zones, for the primary domain's administrators */
 	public Map<String, Object> status() {
 		Map<String, Object> m = new LinkedHashMap<>();
