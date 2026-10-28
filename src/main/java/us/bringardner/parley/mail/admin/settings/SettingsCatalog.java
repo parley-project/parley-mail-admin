@@ -89,6 +89,10 @@ public final class SettingsCatalog {
 	/** A file whose first line is the JMX password (the parley-servers package makes it): used when the password isn't set */
 	public static final String ADMIN_JMX_PASSWORD_FILE = "parley.mail.admin.jmxPasswordFile";
 	public static final String ADMIN_LOG_FILES = "parley.mail.admin.logFiles";
+	/** The TSIG key file (name algorithm secret per line) the DNS page signs its updates with */
+	public static final String ADMIN_DNS_KEY_FILE = "parley.mail.admin.dnsKeyFile";
+	/** The address the DNS page sends updates to, when it isn't the host of the DNS server's JMX address */
+	public static final String ADMIN_DNS_HOST = "parley.mail.admin.dnsHost";
 	public static final String ACL_RELOAD_SECONDS = "parley.net.acl.reloadSeconds";
 	public static final String ADMIN_LOG_BUFFER = "parley.mail.admin.logBufferSize";
 	public static final String ADMIN_LOG_FILE_SIZE = "parley.mail.admin.logFileSize";
@@ -224,6 +228,11 @@ public final class SettingsCatalog {
 		add(g, ADMIN_JMX_PASSWORD, "JMX password", SECRET, null, "Its password.");
 		add(g, ADMIN_JMX_PASSWORD_FILE, "JMX password file", PATH, null,
 				"A file whose first line is the password (the parley-servers package makes /etc/parley/jmx/admin.password); used when the password above isn't set.");
+		add(g, ADMIN_DNS_KEY_FILE, "DNS key file", PATH, null,
+				"A TSIG key file (one 'name algorithm secret' per line) with a key the DNS server lets send updates (its parley.dns.updateKeys): "
+						+ "the DNS page changes records with it. The parley-servers package makes /etc/parley/dns/admin.key.");
+		add(g, ADMIN_DNS_HOST, "DNS server address", TEXT, "the host of its JMX address",
+				"Where the DNS page sends record changes, when the DNS server doesn't listen on the host of its JMX address.");
 		add(g, ADMIN_PRIMARY_DOMAIN, "Primary domain", TEXT, "the first administrator's domain",
 				"Administrators of this domain manage every domain; an administrator of another domain manages only that domain's users, aliases and DKIM keys, and the queue and history of its mail. "
 						+ "Set when the first administrator is made (or, if empty, from the first administrator in the users file).");

@@ -527,6 +527,33 @@ public class WebAppTest {
 	}
 
 	@Test
+	@Order(8)
+	public void everyServerAndTheModules() throws Exception {
+		// the generic list: every server the launcher runs, here the mail suite's listeners
+		JsonNode servers = ok("GET", "/servers", null);
+		java.util.Set<String> ids = new java.util.TreeSet<>();
+		for (JsonNode s : servers) {
+			ids.add(s.get("id").asText());
+			assertTrue(s.get("mail").asBoolean(), s.toString());
+			assertEquals("this application", s.get("where").asText());
+		}
+		assertTrue(ids.containsAll(List.of("smtp", "imap", "pop3")), ids.toString());
+		JsonNode smtp = null;
+		for (JsonNode s : servers) {
+			if (s.get("id").asText().equals("smtp")) {
+				smtp = s;
+			}
+		}
+		assertEquals("RUNNING", smtp.get("state").asText());
+		assertEquals("[\"MailQueue\"]", smtp.get("types").toString(), "the queue's bean, for the Queue page");
+		JsonNode modules = ok("GET", "/modules", null);
+		assertEquals("[\"queue\"]", modules.get("modules").toString(), "no DNS server runs here");
+		assertEquals(400, call("POST", "/servers/smtp/dance", Map.of()).statusCode());
+		assertEquals(409, call("POST", "/servers/nothing/start", Map.of()).statusCode());
+		assertEquals(200, call("GET", "/servers/pop3/connections", null).statusCode());
+	}
+
+	@Test
 	@Order(9)
 	public void domainAdministrators() throws Exception {
 		// the first administrator's domain is the primary one, recorded in the settings
@@ -609,6 +636,20 @@ public class WebAppTest {
 		assertTrue(json.readTree(callAs(other, token, "GET", "/session", null).body()).get("primary").asBoolean(), "c.test's manages every domain");
 		assertEquals(200, callAs(other, token, "PUT", "/settings", Map.of("changes", Map.of(key, "a.test"))).statusCode(), "and may give it back");
 		assertTrue(ok("GET", "/session", null).get("primary").asBoolean());
+
+		// DNS: its domain's zone only (no DNS server runs here: allowed, then 409 for that reason);
+		// the DNS server itself and the list of every server are the primary domain's administrators'
+		assertEquals(200, callAs(other, token, "GET", "/modules", null).statusCode());
+		assertEquals(409, callAs(other, token, "GET", "/dns/zones/c.test", null).statusCode());
+		assertEquals(409, callAs(other, token, "POST", "/dns/zones/c.test/publish", Map.of()).statusCode());
+		assertEquals(403, callAs(other, token, "GET", "/dns/zones/a.test", null).statusCode());
+		assertEquals(403, callAs(other, token, "PUT", "/dns/zones/a.test/records", Map.of("name", "www", "type", "A", "values", List.of("192.0.2.1"))).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/dns/zones/a.test", Map.of()).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/dns/zones/a.test/delete", Map.of("type", "A", "data", "192.0.2.1")).statusCode());
+		for (String[] c : new String[][] { { "GET", "/dns" }, { "POST", "/dns/reload" }, { "GET", "/servers" }, { "POST", "/servers/smtp/stop" }, { "GET", "/servers/smtp/connections" } }) {
+			assertEquals(403, callAs(other, token, c[0], c[1], c[0].equals("GET") ? null : Map.of()).statusCode(), c[0] + " " + c[1]);
+		}
+		assertEquals(false, ok("GET", "/dns", null).get("available").asBoolean());
 
 		// taking the permission away ends its session
 		ok("PUT", "/users/boss@c.test", Map.of("permissions", List.of("READ", "WRITE")));

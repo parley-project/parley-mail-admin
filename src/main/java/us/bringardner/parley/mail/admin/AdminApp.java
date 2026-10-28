@@ -62,6 +62,7 @@ public final class AdminApp implements AutoCloseable {
 	private final HistoryStore history;
 	private final LogFiles logFiles;
 	private final MailSuite suite;
+	private final us.bringardner.parley.mail.admin.dns.DnsAdmin dns;
 	private final ScheduledExecutorService timer;
 	private final long startedAt = System.currentTimeMillis();
 	/** The last history folder the SMTP queue named (it's known only while SMTP runs). */
@@ -105,6 +106,7 @@ public final class AdminApp implements AutoCloseable {
 		history = new HistoryStore(this::historyDirectory, json);
 		logFiles = new LogFiles(this::logFileSources);
 		suite = new MailSuite(settings);
+		dns = new us.bringardner.parley.mail.admin.dns.DnsAdmin(suite, settings);
 		suite.setServerCreated(this::applyLogLevels);
 		users.addListener(this::usersChanged);
 		settings.addListener(this::settingsChanged);
@@ -459,6 +461,11 @@ public final class AdminApp implements AutoCloseable {
 
 	public LogFiles getLogFiles() {
 		return logFiles;
+	}
+
+	/** The DNS page's work: the Parley DNS server a launcher runs, and the domains' zones */
+	public us.bringardner.parley.mail.admin.dns.DnsAdmin getDns() {
+		return dns;
 	}
 
 	public MailSuite getSuite() {
