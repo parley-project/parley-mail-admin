@@ -65,7 +65,7 @@ public final class AdminApp implements AutoCloseable {
 	private final ScheduledExecutorService timer;
 	private final long startedAt = System.currentTimeMillis();
 	/** The last history folder the SMTP queue named (it's known only while SMTP runs). */
-	private volatile File lastHistoryDirectory;
+	private volatile FileSource lastHistoryDirectory;
 
 	private AdminApp(File homeDir, File settingsDir) throws IOException {
 		// before any Parley object logs: the Parley loggers write to the Logs page too
@@ -296,15 +296,19 @@ public final class AdminApp implements AutoCloseable {
 	/**
 	 * The SMTP history's folder: the one the queue names while an SMTP server runs (and the last one
 	 * it named), else the one the queue's settings give (parley-smtp's QueueHistory: its history folder
-	 * setting, else .smtp-history in a local mail root); null when there's none.
+	 * setting, else .smtp-history in the mail root); null when there's none. It is on the mail root's
+	 * file system, as the servers' is, so it works for a store on any file system.
 	 */
-	public File historyDirectory() {
+	public FileSource historyDirectory() {
 		try {
 			MailQueueMXBean q = suite.getQueue();
 			String d = q == null ? null : q.getHistoryDirectory();
 			if (d != null) {
-				lastHistoryDirectory = new File(d);
-				return lastHistoryDirectory;
+				FileSource f = onMailRoot(d);
+				if (f != null) {
+					lastHistoryDirectory = f;
+					return f;
+				}
 			}
 		} catch (RuntimeException e) {
 			// the launcher went away: the settings say where it is
@@ -317,11 +321,22 @@ public final class AdminApp implements AutoCloseable {
 		}
 		String dir = settings.get(SettingsCatalog.QUEUE_HISTORY_DIRECTORY, null);
 		if (dir != null) {
-			return new File(dir);
+			return onMailRoot(dir);
 		}
-		String root = settings.get(SettingsCatalog.ROOT, null);
-		String fs = settings.get(SettingsCatalog.FILE_SOURCE, null);
-		return root == null || (fs != null && !fs.equalsIgnoreCase("file")) ? null : new File(root, QueueHistory.DEFAULT_DIRECTORY);
+		try {
+			return settings.getMailRoot().getChild(QueueHistory.DEFAULT_DIRECTORY);
+		} catch (IOException | RuntimeException e) {
+			return null; // no mail root, or it can't be reached now
+		}
+	}
+
+	/** A path on the mail root's file system (as QueueHistory takes its folder setting), or null */
+	private FileSource onMailRoot(String path) {
+		try {
+			return settings.getMailRoot().getFileSourceFactory().createFileSource(path);
+		} catch (IOException | RuntimeException e) {
+			return null;
+		}
 	}
 
 	/**
@@ -351,16 +366,15 @@ public final class AdminApp implements AutoCloseable {
 		return ret;
 	}
 
-	/** Bytes and files in a user's maildrop (every mailbox), or null if it doesn't exist yet. */
+	/**
+	 * Bytes and files in a user's maildrop (every mailbox), or null if it doesn't exist yet or there
+	 * is no mail root; on the mail root's file system, opened as the servers open it.
+	 */
 	public long[] mailboxUsage(String maildrop) throws IOException {
-		String root = settings.getEffective(SettingsCatalog.ROOT);
-		if (isBlank(root)) {
+		if (isBlank(settings.getEffective(SettingsCatalog.ROOT))) {
 			return null;
 		}
-		String factoryId = settings.getEffective(SettingsCatalog.FILE_SOURCE);
-		FileSourceFactory factory = isBlank(factoryId) ? FileSourceFactory.getDefaultFactory()
-				: FileSourceFactory.getFileSourceFactory(factoryId.trim().toLowerCase(Locale.ROOT));
-		FileSource dir = factory.createFileSource(root.trim());
+		FileSource dir = settings.getMailRoot();
 		for (String seg : maildrop.split("/")) {
 			if (!seg.isEmpty() && !seg.equals(".") && !seg.equals("..")) {
 				dir = dir.getChild(seg);

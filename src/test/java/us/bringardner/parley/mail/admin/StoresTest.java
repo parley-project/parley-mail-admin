@@ -335,7 +335,8 @@ public class StoresTest {
 				+ "{\"time\":" + (now - 1) + ",\"type\":\"DELIVERED\",\"id\":\"m1\",\"from\":\"a@x\",\"recipient\":\"b@y\",\"result\":\"ok\"}\n"
 				+ "{\"time\":" + now + ",\"type\"\n");
 		write(new File(h, "smtp-" + today.minusDays(1) + ".jsonl"), "{\"time\":1,\"type\":\"QUEUED\",\"id\":\"m0\"}\n");
-		us.bringardner.parley.mail.admin.history.HistoryStore store = new us.bringardner.parley.mail.admin.history.HistoryStore(() -> h,
+		us.bringardner.parley.files.FileSource hs = us.bringardner.parley.files.FileSourceFactory.getDefaultFactory().createFileSource(h.getPath());
+		us.bringardner.parley.mail.admin.history.HistoryStore store = new us.bringardner.parley.mail.admin.history.HistoryStore(() -> hs,
 				new com.fasterxml.jackson.databind.ObjectMapper());
 		List<Map<String, Object>> rows = store.query(today, today, null, null, 100);
 		assertEquals(2, rows.size(), "a line being written is skipped");
