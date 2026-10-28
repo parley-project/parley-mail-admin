@@ -109,7 +109,12 @@ public class DnsAdminTest {
 		write(new File(dnsDir, "zones/a.test.txt"), "$TTL 3600\n@ IN SOA ns1.a.test. hostmaster.a.test. ( 7 3600 1800 1209600 300 )\n"
 				+ "  NS ns1.a.test.\n  MX 10 mx.a.test.\n  TXT \"site-verification=abc\"\n  TXT \"v=spf1 mx -all\"\n"
 				+ "ns1 A 192.0.2.53\nmx A 192.0.2.25\nwww A 192.0.2.80\n");
+		// the shared zone the other domains inherit: the same records, written for any domain
+		write(new File(dnsDir, "shared.zone"), "$TTL 3600\n@ IN SOA ns1.a.test. hostmaster.a.test. ( 7 3600 1800 1209600 300 )\n"
+				+ "  NS ns1.a.test.\n  MX 10 mx.a.test.\n  TXT \"site-verification=abc\"\n  TXT \"v=spf1 mx -all\"\n"
+				+ "www A 192.0.2.80\n");
 		write(new File(conf, "parley-dns.properties"), "parley.dns.dnsDir=" + dnsDir.getAbsolutePath().replace('\\', '/') + "\n"
+				+ "parley.dns.sharedZone=" + new File(dnsDir, "shared.zone").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.dns.zoneDir=" + new File(dnsDir, "zones").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.dns.masterZone=a.test\nparley.dns.bindAddress=127.0.0.1\nparley.dns.port=" + freePort() + "\n"
 				+ "parley.dns.adminPort=" + freePort() + "\nparley.dns.recursionAvailable=false\n"
@@ -174,11 +179,11 @@ public class DnsAdminTest {
 			assertEquals(true, z.get("primaryServed"));
 			assertThrows(IllegalStateException.class, () -> dns.createZone("a.test", "a.test"), "the primary's zone is made by hand");
 
-			// a zone for b.test: every record of a.test, under b.test
+			// a zone for b.test: every record of the shared zone, under b.test
 			dns.createZone("b.test", "a.test");
 			z = dns.zone("b.test", "a.test", want);
 			assertEquals(true, z.get("exists"));
-			assertEquals("a.test", z.get("inheritFrom"));
+			assertEquals("shared", z.get("inheritFrom"));
 			assertEquals(List.of("192.0.2.80 (inherited)"), records(z, "www.b.test", "A"));
 			assertEquals(List.of("b.test. MX served", "b.test. TXT served", "_dmarc.b.test. TXT missing"), mail(z));
 
@@ -208,10 +213,10 @@ public class DnsAdminTest {
 			assertThrows(IllegalArgumentException.class, () -> dns.setRecords("b.test", "x", "SOA", 300, List.of("x")));
 			assertThrows(IllegalArgumentException.class, () -> dns.setRecords("b.test", "www.c.test.", "A", 300, List.of("192.0.2.1")));
 
-			// a change to the primary reaches the domain
+			// a change to the primary doesn't reach the domain: it inherits the shared zone
 			dns.setRecords("a.test", "ftp", "A", 300, List.of("192.0.2.21"));
 			z = dns.zone("b.test", "a.test", want);
-			assertEquals(List.of("192.0.2.21 (inherited)"), records(z, "ftp.b.test", "A"));
+			assertEquals(List.of(), records(z, "ftp.b.test", "A"));
 
 			// stop it from the Servers list: its page has nothing to show; start it again
 			suite.serverAction("dns", "stop");

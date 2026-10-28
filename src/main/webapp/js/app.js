@@ -666,7 +666,7 @@
 				return;
 			}
 			body.appendChild(h('p.muted', z.inheritFrom
-				? 'Inherits the records of ' + z.inheritFrom + '. Serial ' + z.serial + ' (own ' + z.ownSerial + '), ' + z.ownRecords + ' own record(s) of ' + z.records + '.'
+				? 'Inherits the records of ' + (z.inheritFrom === 'shared' ? 'the shared zone' : z.inheritFrom) + '. Serial ' + z.serial + ' (own ' + z.ownSerial + '), ' + z.ownRecords + ' own record(s) of ' + z.records + '.'
 				: (z.isPrimary ? 'The primary domain: every domain with a zone inherits these records. Serial ' + z.serial + '.' : 'Serial ' + z.serial + '.')));
 			if (z.mail && z.mail.length) {
 				const needed = z.mail.filter(m => m.status !== 'served').length;

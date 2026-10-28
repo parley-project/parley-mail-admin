@@ -75,9 +75,9 @@ public final class DnsAdmin {
 	}
 
 	/**
-	 * The zones the Parley DNS server serves (lower case): those of its zone files, and the mail
-	 * domains it serves from the primary domain's records (parley.dns.mailSettings). None when no
-	 * DNS server is reached.
+	 * The zones the Parley DNS server serves (lower case): those of its zone files, and the listed
+	 * domains it serves from the shared zone (parley.dns.domainList, parley.dns.sharedZone). None
+	 * when no DNS server is reached.
 	 */
 	public java.util.Set<String> servedZones() {
 		java.util.Set<String> ret = new java.util.HashSet<>();
@@ -271,14 +271,14 @@ public final class DnsAdmin {
 		return b.toString();
 	}
 
-	/** Make the domain's zone: it inherits every record of the primary domain's zone */
+	/** Make the domain's zone file: it inherits every record of the shared zone (parley.dns.sharedZone) */
 	public void createZone(String domain, String primary) throws Exception {
 		String d = norm(domain);
 		String p = norm(primary);
 		if (d.equals(p)) {
-			throw new IllegalStateException("The primary domain's zone is made by hand: it is the one the others inherit");
+			throw new IllegalStateException("The primary domain's zone is made by hand");
 		}
-		require().bean.createInheritingZone(d, p);
+		require().bean.createInheritingZone(d);
 	}
 
 	/**
