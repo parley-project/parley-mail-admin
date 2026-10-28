@@ -150,6 +150,13 @@ POP3 tabs have a server picker: the submission server's `parley.mail.submission.
 not the relay's `parley.mail.smtp.requireTls`. A change marks only the servers that read it as
 needing a restart.
 
+A change on the Domains and Aliases pages (a domain added or removed, a DKIM key made, an alias
+saved or deleted) is used at once, with no restart: the admin has every running SMTP server that
+uses the relay's queue read its domains, aliases file and DKIM keys again (parley-smtp's
+`MailQueueMXBean.reload`), and, for a domain or a DKIM key, the Parley DNS server read its zones
+again, so the domain and its DKIM record are served now. If a server can't, the change is still
+saved, the page says why, and a restart uses it.
+
 The mail store and the SMTP queue carry their own settings, in their own files, which every server
 using them reads (parley-mail's and parley-smtp's READMEs); the Store and Queue tabs edit them where
 the servers read them, on the mail root's file system:
@@ -200,7 +207,8 @@ before users, and the full address before the local part.
   start, stop, restart, connections and who they are) and `ParleyLauncherMBean` (read the settings again), and
   parley-smtp's `MailQueueMXBean` for the Queue page; in this application's own launcher or over
   `parley.mail.admin.jmxUrl`. A running service whose settings (or, for SMTP, aliases file) changed
-  since it started says "restart". The SMTP services of a process share one queue (made when the
+  since it started says "restart", except the queue's domains, aliases and DKIM keys once
+  `reloadQueue` had the SMTP servers read them again. The SMTP services of a process share one queue (made when the
   first one starts), so a change to an SMTP setting restarts that process's running SMTP services
   together.
 - `settings.SettingsService` edits the settings files; `settings.SettingsCatalog` describes the

@@ -225,10 +225,14 @@ public class WebAppTest {
 		assertEquals(400, call("POST", "/users", Map.of("name", "x@c.test", "password", "xxxxxxxx1")).statusCode(), "not a local domain");
 		ok("PUT", "/aliases/sales@b.test", Map.of("members", java.util.List.of("tony")));
 
-		// SMTP settings changed (domains, DKIM, aliases): the SMTP services say they need a restart
-		JsonNode services = ok("GET", "/services", null);
+		// domains, DKIM and aliases are used at once: no service needs a restart for them
+		for (JsonNode s : ok("GET", "/services", null)) {
+			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+		}
+		// a queue setting the reload doesn't apply still needs one
+		ok("PUT", "/settings", Map.of("changes", Map.of("queue.workers", "3")));
 		boolean restart = false;
-		for (JsonNode s : services) {
+		for (JsonNode s : ok("GET", "/services", null)) {
 			if (s.get("id").asText().equals("smtp")) {
 				restart = s.get("restartNeeded").asBoolean();
 			}
@@ -241,7 +245,6 @@ public class WebAppTest {
 		for (JsonNode s : ok("GET", "/services", null)) {
 			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
 		}
-
 		// mail to the alias of the new domain, through SMTP, reaches tony@b.test's maildrop
 		smtp(smtpPort, "x@far.test", "sales@b.test", "Subject: hello\r\n\r\nHi Tony\r\n");
 		waitFor(() -> {
@@ -270,6 +273,21 @@ public class WebAppTest {
 		JsonNode usage = ok("GET", "/users/" + URLEncoder.encode("tony@b.test", StandardCharsets.UTF_8) + "/usage", null);
 		assertTrue(usage.get("exists").asBoolean());
 		assertTrue(usage.get("bytes").asLong() > 0);
+
+		// and a domain added to the running servers is received at once (no restart)
+		ok("POST", "/domains", Map.of("domain", "d.test"));
+		ok("PUT", "/aliases/info@d.test", Map.of("members", java.util.List.of("tony@b.test")));
+		smtp(smtpPort, "x@far.test", "info@d.test", "Subject: first\r\n\r\nTo d.test\r\n");
+		waitFor(() -> {
+			try {
+				return pop3Count("tony@b.test", "tonypass1") == 2;
+			} catch (Exception e) {
+				return false;
+			}
+		}, "the mail to the new domain's alias delivered");
+		for (JsonNode s : ok("GET", "/services", null)) {
+			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+		}
 	}
 
 	@Test

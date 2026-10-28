@@ -599,6 +599,70 @@ public final class MailSuite implements AutoCloseable {
 		return ids;
 	}
 
+	/**
+	 * Have the running SMTP servers that use the relay's queue read its domains, aliases file and DKIM
+	 * keys again and use them at once, with no restart (parley-smtp's {@link MailQueueMXBean#reload}):
+	 * each one on every launcher reached. Those changes then no longer count as a reason to restart
+	 * ({@link #isRestartNeeded}); any other change still does.
+	 *
+	 * @return what each queue reached uses now (none when no SMTP server runs: they read them when they
+	 *         start)
+	 * @throws IOException if one couldn't read them (it keeps what it had); the others have
+	 */
+	public synchronized List<String> reloadQueue() throws IOException {
+		connect();
+		String queue = queueOf(ServiceId.SMTP);
+		List<String> used = new ArrayList<>();
+		List<String> errors = new ArrayList<>();
+		List<ServiceId> reloaded = new ArrayList<>();
+		for (ServiceId id : getQueueServers()) {
+			if (!queue.equals(queueOf(id)) || !isRunning(id)) {
+				continue;
+			}
+			boolean ok = true;
+			for (Target t : new ArrayList<>(targets)) {
+				if (t.broken) {
+					continue;
+				}
+				MailQueueMXBean q;
+				try {
+					q = t.queue(id.id());
+				} catch (Exception e) {
+					broken(t, e);
+					continue;
+				}
+				if (q == null) {
+					continue;
+				}
+				try {
+					used.add(id.label + ": " + q.reload());
+				} catch (Exception e) {
+					ok = false;
+					errors.add(id.label + ": " + message(e));
+					LOG.log(System.Logger.Level.ERROR, id.label + " couldn't read the queue's settings again: " + message(e), e);
+				}
+			}
+			if (ok) {
+				reloaded.add(id);
+			}
+		}
+		for (ServiceId id : reloaded) {
+			Seen s = seen.get(id);
+			int bar = s == null ? -1 : s.fingerprint.indexOf('|');
+			if (bar >= 0) {
+				String now = fingerprint(id);
+				seen.put(id, new Seen(s.started, s.fingerprint.substring(0, bar) + now.substring(now.indexOf('|'))));
+			}
+		}
+		for (String u : used) {
+			LOG.log(System.Logger.Level.INFO, u);
+		}
+		if (!errors.isEmpty()) {
+			throw new IOException(String.join("; ", errors));
+		}
+		return used;
+	}
+
 	public synchronized boolean isRunning(ServiceId id) {
 		return getState(id) == State.RUNNING;
 	}
@@ -1037,39 +1101,71 @@ public final class MailSuite implements AutoCloseable {
 		return a == null || a.trim().isEmpty() ? null : new File(a.trim());
 	}
 
-	/** A hash of what a service reads when it starts (to tell when it needs a restart). */
+	/** The queue's settings its reload reads again (with the aliases file's contents) */
+	private static final java.util.Set<String> RELOADED = java.util.Set.of("domains", "aliases", "dkim.keys", "dkim.headers");
+
+	/** True if a queue setting (with or without the queue. prefix) is read again by a reload */
+	static boolean reloaded(String key) {
+		return RELOADED.contains(key.startsWith(SettingsCatalog.QUEUE_PREFIX) ? key.substring(SettingsCatalog.QUEUE_PREFIX.length()) : key);
+	}
+
+	/**
+	 * A hash of what a service reads when it starts (to tell when it needs a restart), in two parts:
+	 * what only a restart applies, then "|" and what the queue's reload applies too
+	 * ({@link #reloadQueue}).
+	 */
 	String fingerprint(ServiceId id) {
+		boolean smtp = id.protocol == ServiceId.Protocol.SMTP;
 		TreeMap<String, String> relevant = new TreeMap<>();
+		TreeMap<String, String> reloadable = new TreeMap<>();
 		for (Map.Entry<String, String> e : settings.readBy(id.protocol).entrySet()) {
 			if (id.isAffectedBy(e.getKey()) && !settings.isSetByJvm(e.getKey())) {
-				relevant.put(e.getKey(), e.getValue().trim());
+				(smtp && e.getKey().startsWith(SettingsCatalog.QUEUE_PREFIX) && reloaded(e.getKey()) ? reloadable : relevant).put(e.getKey(),
+						e.getValue().trim());
 			}
 		}
 		try {
 			MessageDigest md = MessageDigest.getInstance("SHA-256");
-			for (Map.Entry<String, String> e : relevant.entrySet()) {
-				md.update(e.getKey().getBytes(StandardCharsets.UTF_8));
-				md.update((byte) 0);
-				md.update(e.getValue().getBytes(StandardCharsets.UTF_8));
-				md.update((byte) 0);
-			}
+			MessageDigest md2 = MessageDigest.getInstance("SHA-256");
+			update(md, relevant);
+			update(md2, reloadable);
+			PropertiesFile queueFile = smtp ? settings.getQueueFile() : null;
 			for (PropertiesFile f : assetFiles(id)) {
+				TreeMap<String, String> all = new TreeMap<>(f.getValues());
+				TreeMap<String, String> again = new TreeMap<>();
+				if (f == queueFile) {
+					for (String k : new ArrayList<>(all.keySet())) {
+						if (reloaded(k)) {
+							again.put(k, all.remove(k));
+						}
+					}
+				}
 				md.update(f.getPath().getBytes(StandardCharsets.UTF_8));
 				md.update((byte) 0);
-				md.update(new TreeMap<>(f.getValues()).toString().getBytes(StandardCharsets.UTF_8));
+				md.update(all.toString().getBytes(StandardCharsets.UTF_8));
 				md.update((byte) 0);
+				md2.update(again.toString().getBytes(StandardCharsets.UTF_8));
 			}
 			File aliases = aliasesFile(id);
 			if (aliases != null && aliases.isFile()) {
 				try {
-					md.update(Files.readAllBytes(aliases.toPath()));
+					md2.update(Files.readAllBytes(aliases.toPath()));
 				} catch (IOException e) {
-					md.update((byte) 1);
+					md2.update((byte) 1);
 				}
 			}
-			return java.util.Base64.getEncoder().encodeToString(md.digest());
+			return java.util.Base64.getEncoder().encodeToString(md.digest()) + "|" + java.util.Base64.getEncoder().encodeToString(md2.digest());
 		} catch (NoSuchAlgorithmException e) {
 			throw new IllegalStateException(e);
+		}
+	}
+
+	private static void update(MessageDigest md, Map<String, String> values) {
+		for (Map.Entry<String, String> e : values.entrySet()) {
+			md.update(e.getKey().getBytes(StandardCharsets.UTF_8));
+			md.update((byte) 0);
+			md.update(e.getValue().getBytes(StandardCharsets.UTF_8));
+			md.update((byte) 0);
 		}
 	}
 

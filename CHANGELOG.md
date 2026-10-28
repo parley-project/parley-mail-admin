@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Domains, aliases and DKIM keys are used at once, with no restart: after a change on the Domains or Aliases
+  page the admin has the running SMTP servers read the queue's domains, aliases file and DKIM keys again
+  (parley-smtp's `MailQueueMXBean.reload`, `MailSuite.reloadQueue`) and, for a domain or a DKIM key, the
+  Parley DNS server its zones. Those changes no longer mark SMTP as needing a restart; when a server can't use
+  one, the change is saved and the page says why.
 - Administrators manage their own domain only, unless their domain is the primary one (the first
   administrator's, `parley.mail.admin.primaryDomain`), whose administrators manage every domain. A domain's
   administrator has its domain's users, aliases and DKIM keys, and the queue and history of its mail; the
