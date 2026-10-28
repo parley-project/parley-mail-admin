@@ -80,6 +80,8 @@ public final class SettingsCatalog {
 	public static final String QUEUE_HISTORY = QUEUE_PREFIX + "history";
 	public static final String QUEUE_HISTORY_DIRECTORY = QUEUE_PREFIX + "historyDirectory";
 	public static final String ADMIN_AUTO_START = "parley.mail.admin.autoStart";
+	/** The primary domain: its administrators manage every domain, other administrators only their own. */
+	public static final String ADMIN_PRIMARY_DOMAIN = "parley.mail.admin.primaryDomain";
 	/** One or more JMX service URLs of launcher processes; empty: the servers run in this application. */
 	public static final String ADMIN_JMX_URL = "parley.mail.admin.jmxUrl";
 	public static final String ADMIN_JMX_USER = "parley.mail.admin.jmxUser";
@@ -222,6 +224,9 @@ public final class SettingsCatalog {
 		add(g, ADMIN_JMX_PASSWORD, "JMX password", SECRET, null, "Its password.");
 		add(g, ADMIN_JMX_PASSWORD_FILE, "JMX password file", PATH, null,
 				"A file whose first line is the password (the parley-servers package makes /etc/parley/jmx/admin.password); used when the password above isn't set.");
+		add(g, ADMIN_PRIMARY_DOMAIN, "Primary domain", TEXT, "the first administrator's domain",
+				"Administrators of this domain manage every domain; an administrator of another domain manages only that domain's users, aliases and DKIM keys, and the queue and history of its mail. "
+						+ "Set when the first administrator is made (or, if empty, from the first administrator in the users file).");
 		add(g, ADMIN_AUTO_START, "Start services with the application", BOOLEAN, "true",
 				"When the servers run in this application: start every service whose port isn't 0 when the web application starts.");
 		add(g, ADMIN_LOG_BUFFER, "Log entries kept in memory", NUMBER, "5000", "The Logs page shows these.");

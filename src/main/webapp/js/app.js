@@ -5,7 +5,7 @@
 (function () {
 	'use strict';
 
-	const state = { user: null, csrf: null, setupRequired: false, version: '', domains: [], timers: [], page: null };
+	const state = { user: null, csrf: null, primary: false, adminDomain: null, setupRequired: false, version: '', domains: [], timers: [], page: null };
 
 	// ------------------------------------------------------------------ themes
 
@@ -177,7 +177,7 @@
 	async function boot() {
 		try {
 			const s = await api('GET', '/session');
-			Object.assign(state, { user: s.user, csrf: s.csrf, setupRequired: s.setupRequired, version: s.version, domains: s.domains || [] });
+			Object.assign(state, { user: s.user, csrf: s.csrf, primary: !!s.primary, adminDomain: s.adminDomain || null, setupRequired: s.setupRequired, version: s.version, domains: s.domains || [] });
 			if (s.authenticated) showShell(); else showLogin();
 		} catch (e) {
 			clear(document.getElementById('app')).appendChild(h('div.boot', 'Can\'t reach the server: ' + e.message));
@@ -209,7 +209,7 @@
 			btn.disabled = true;
 			try {
 				const s = await api('POST', setup ? '/setup' : '/login', { user: user.value, password: pw.value });
-				Object.assign(state, { user: s.user, csrf: s.csrf, setupRequired: s.setupRequired, domains: s.domains || [] });
+				Object.assign(state, { user: s.user, csrf: s.csrf, primary: !!s.primary, adminDomain: s.adminDomain || null, setupRequired: s.setupRequired, domains: s.domains || [] });
 				showShell();
 			} catch (ex) {
 				err.textContent = ex.message;
@@ -224,7 +224,7 @@
 	// ------------------------------------------------------------------ the shell
 
 	const PAGES = [
-		{ id: 'dashboard', label: 'Dashboard', render: dashboardPage },
+		{ id: 'dashboard', label: 'Dashboard', render: dashboardPage, primaryOnly: true },
 		{ sep: 'Mail' },
 		{ id: 'domains', label: 'Domains', render: domainsPage },
 		{ id: 'users', label: 'Users', render: usersPage },
@@ -232,16 +232,19 @@
 		{ sep: 'SMTP' },
 		{ id: 'queue', label: 'Queue', render: queuePage },
 		{ id: 'history', label: 'History', render: historyPage },
-		{ sep: 'System' },
-		{ id: 'logs', label: 'Logs', render: logsPage },
-		{ id: 'settings', label: 'Settings', render: settingsPage }
+		{ sep: 'System', primaryOnly: true },
+		{ id: 'logs', label: 'Logs', render: logsPage, primaryOnly: true },
+		{ id: 'settings', label: 'Settings', render: settingsPage, primaryOnly: true }
 	];
+
+	/** The pages this administrator may use: an administrator of a domain other than the primary one manages only that domain. */
+	function pages() { return PAGES.filter(p => state.primary || !p.primaryOnly); }
 
 	let shell = null;
 
 	function showShell() {
 		const app = clear(document.getElementById('app'));
-		const nav = h('nav.nav', PAGES.map(p => p.sep ? h('div.sep', p.sep) : h('a', { href: '#/' + p.id, 'data-page': p.id }, p.label)));
+		const nav = h('nav.nav', pages().map(p => p.sep ? h('div.sep', p.sep) : h('a', { href: '#/' + p.id, 'data-page': p.id }, p.label)));
 		const title = h('h1');
 		const banner = h('div.banner.hidden');
 		const content = h('div.content');
@@ -270,7 +273,7 @@
 
 	/** The banner offering to restart services whose settings changed. */
 	async function checkRestart() {
-		if (!shell || !state.user) return;
+		if (!shell || !state.user || !state.primary) return;
 		let list;
 		try { list = await api('GET', '/services'); } catch (e) { return; }
 		const need = list.filter(s => s.restartNeeded);
@@ -299,8 +302,9 @@
 
 	function route() {
 		if (!state.user) return showLogin();
-		const id = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('?')[0];
-		const page = PAGES.find(p => p.id === id) || PAGES[0];
+		const visible = pages().filter(p => !p.sep);
+		const id = (location.hash.replace(/^#\/?/, '') || visible[0].id).split('?')[0];
+		const page = visible.find(p => p.id === id) || visible[0];
 		for (const t of state.timers) clearInterval(t);
 		state.timers = [];
 		for (const a of shell.nav.querySelectorAll('a')) a.classList.toggle('active', a.dataset.page === page.id);
@@ -435,7 +439,7 @@
 			} catch (ex) { fail(ex); }
 		});
 		root.appendChild(h('p.muted', 'Mail for these domains is delivered here. Users and aliases can belong to one domain (tony@example.com) or, without a domain, to all of them.'));
-		root.appendChild(panel('Local domains', addForm, list));
+		root.appendChild(state.primary ? panel('Local domains', addForm, list) : panel('Your domain', list));
 
 		async function refresh() {
 			let domains;
@@ -451,7 +455,7 @@
 					h('td.actions',
 						h('button.small', { onclick: () => dns(d) }, 'DNS records'),
 						h('button.small', { onclick: () => dkim(d) }, d.dkim ? 'New DKIM key' : 'Make DKIM key'),
-						h('button.small.danger', { onclick: () => remove(d) }, 'Remove'))))))));
+						state.primary ? h('button.small.danger', { onclick: () => remove(d) }, 'Remove') : null)))))));
 		}
 
 		function dns(d) {
@@ -667,7 +671,7 @@
 		root.appendChild(panel('Messages waiting for delivery', h('div.toolbar',
 			h('label.checks', h('label', auto, 'Refresh every 5 s')),
 			h('button', { onclick: refresh }, 'Refresh'),
-			h('button.primary', { onclick: flush }, 'Retry all now')), list));
+			state.primary ? h('button.primary', { onclick: flush }, 'Retry all now') : null), list));
 
 		async function refresh() {
 			let q;

@@ -226,6 +226,22 @@ first page creates one. After 10 login attempts from one address in 15 minutes w
 that address must wait (behind a reverse proxy every client has the proxy's address, so they share
 that limit). A user who loses ADMIN, or is deleted, is logged out at their next request.
 
+### Primary and domain administrators
+
+An administrator manages its own domain, unless its domain is the primary one: then it manages every
+domain. The primary domain is the first administrator's (so the first administrator's name must have
+a domain, like `admin@example.com`), recorded as `parley.mail.admin.primaryDomain` (Settings > Admin)
+when it is made; on an installation that had administrators before, it is the domain of the first
+administrator in the users file, recorded the first time it is needed.
+
+1. An administrator of the primary domain uses every page, as before.
+2. An administrator of another domain sees Domains (its own: DNS records and DKIM keys), Users (its
+   domain's: it may make them administrators of it, and a maildrop must be under its domain's folder),
+   Aliases (its domain's), and the Queue and History of mail from or to its domain (retry, delete, read).
+   The Dashboard, Logs and Settings, adding or removing domains, the services and retrying the whole
+   queue are the primary domain's administrators' only; the API answers 403.
+3. A user with ADMIN but no domain in its name (`root`) administers nothing and can't log in here.
+
 ## Known limits
 
 - Starting and stopping services is done one at a time: while a service stops (the SMTP queue
