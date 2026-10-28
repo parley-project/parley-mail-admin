@@ -433,8 +433,8 @@ public class ApiServlet extends HttpServlet {
 			queue.put("messages", 0);
 		}
 		m.put("queue", queue);
-		File history = app.historyDirectory();
-		m.put("historyDirectory", history == null ? null : history.getPath());
+		us.bringardner.parley.files.FileSource history = app.historyDirectory();
+		m.put("historyDirectory", history == null ? null : history.getAbsolutePath());
 		m.put("domains", app.getDomains().list());
 		m.put("users", app.getUsers().list().size());
 		MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
