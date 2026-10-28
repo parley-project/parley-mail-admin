@@ -175,9 +175,9 @@ public final class DomainService {
 	}
 
 	/**
-	 * Make a DKIM key for a domain and put it in parley.mail.smtp.dkim.keys (replacing the
-	 * domain's key there). The key file goes in the admin home's dkim directory, with the TXT
-	 * record to publish next to it.
+	 * Make a DKIM key of a domain's own and put it in the queue's dkim.keys (replacing the domain's
+	 * key there); mail from the domain is signed with it instead of the shared key. The key file goes
+	 * in the admin home's dkim directory, with the TXT record to publish next to it.
 	 *
 	 * @param type "rsa" (2048 bits) or "ed25519"
 	 */
@@ -215,6 +215,37 @@ public final class DomainService {
 
 	private static File dnsFile(File key) {
 		return new File(key.getPath() + ".txt");
+	}
+
+	/**
+	 * The domain whose key signs mail from every local domain without one of its own (the queue's
+	 * dkim.shared, parley-smtp), or null.
+	 */
+	public String sharedDomain() {
+		String v = settings.getEffective(SettingsCatalog.QUEUE_DKIM_SHARED);
+		return v == null || v.trim().isEmpty() ? null : normalize(v);
+	}
+
+	/** The shared key's entry, or null when no key is shared or the shared domain has none. */
+	public DkimEntry sharedKey() {
+		String s = sharedDomain();
+		return s == null ? null : dkimFor(s);
+	}
+
+	/**
+	 * Keep the shared key the primary domain's: dkim.shared names the primary domain while it has a
+	 * key, and nothing otherwise. A domain without a key of its own signs with it, and with Parley DNS
+	 * inherits its record from the primary domain's zone, so it needs no zone file.
+	 *
+	 * @return true if the setting changed
+	 */
+	public boolean shareKeyOf(String primary) throws IOException {
+		String want = primary == null || primary.trim().isEmpty() || dkimFor(normalize(primary)) == null ? null : normalize(primary);
+		if (java.util.Objects.equals(want, sharedDomain())) {
+			return false;
+		}
+		settings.set(SettingsCatalog.QUEUE_DKIM_SHARED, want);
+		return true;
 	}
 
 	/** The DKIM TXT record of a domain's key, or null if it can't be worked out. */
@@ -264,19 +295,31 @@ public final class DomainService {
 		}
 		m.put("aliases", aliasCount);
 		DkimEntry k = dkimFor(d);
-		if (k != null) {
+		String shared = sharedDomain();
+		DkimEntry signing = k != null ? k : sharedKey();
+		if (signing != null) {
 			Map<String, Object> dk = new LinkedHashMap<>();
-			dk.put("selector", k.selector);
-			dk.put("keyFile", k.keyFile);
-			dk.put("keyFileExists", new File(k.keyFile).isFile());
+			dk.put("selector", signing.selector);
+			dk.put("keyFile", signing.keyFile);
+			dk.put("keyFileExists", new File(signing.keyFile).isFile());
+			// own: the domain has a key of its own; shared: it's the key the others sign with
+			dk.put("own", k != null);
+			dk.put("shared", signing.domain.equals(shared));
+			dk.put("domain", signing.domain);
 			m.put("dkim", dk);
 		}
 		m.put("dns", dnsRecords(d, k));
 		return m;
 	}
 
-	/** The records to publish for a domain. */
+	/**
+	 * The records to publish for a domain: with no key of its own, the shared key's record at its
+	 * selector in this domain (with Parley DNS, inherited from the primary domain's zone).
+	 */
 	public List<Map<String, String>> dnsRecords(String d, DkimEntry k) {
+		if (k == null) {
+			k = sharedKey();
+		}
 		String host = hostname();
 		List<Map<String, String>> ret = new ArrayList<>();
 		ret.add(record("MX", d + ".", host == null ? "10 (set the host name on Settings > SMTP)" : "10 " + host + "."));

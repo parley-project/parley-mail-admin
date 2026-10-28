@@ -459,10 +459,11 @@
 					h('td', h('b', d.domain), d.unicode ? h('span.muted', ' (' + d.unicode + ')') : null),
 					h('td', h('a', { href: '#/users', onclick: () => { state.userDomain = d.domain; } }, String(d.users))),
 					h('td', String(d.aliases)),
-					h('td', d.dkim ? h('span', h('span.badge.ok', d.dkim.selector), d.dkim.keyFileExists ? null : h('span.badge.bad', ' key file missing')) : h('span.badge.warn', 'no key')),
+					h('td', d.dkim ? h('span', h('span.badge.ok', d.dkim.selector), d.dkim.own ? null : h('span.muted', ' shared (' + d.dkim.domain + ')'),
+						d.dkim.keyFileExists ? null : h('span.badge.bad', ' key file missing')) : h('span.badge.warn', 'no key')),
 					h('td.actions',
 						h('button.small', { onclick: () => dns(d) }, 'DNS records'),
-						h('button.small', { onclick: () => dkim(d) }, d.dkim ? 'New DKIM key' : 'Make DKIM key'),
+						h('button.small', { onclick: () => dkim(d) }, d.dkim && d.dkim.own ? 'New DKIM key' : 'Make DKIM key'),
 						state.primary ? h('button.small.danger', { onclick: () => remove(d) }, 'Remove') : null)))))));
 		}
 
@@ -496,8 +497,11 @@
 			const sel = h('input', { type: 'text', value: 'mail' + y });
 			const type = h('select', h('option', { value: 'rsa' }, 'RSA 2048 (works everywhere)'), h('option', { value: 'ed25519' }, 'Ed25519 (RFC 8463)'));
 			const r = await dialog('DKIM key for ' + d.domain, [
-				h('p.muted', 'Makes a signing key, saves it in the admin home\'s dkim folder and puts it in the DKIM keys setting.'
-					+ (d.dkim ? ' It replaces the key with selector ' + d.dkim.selector + ' and mail is signed with it at once: publish the new record first if another DNS provider serves the domain.' : '')),
+				h('p.muted', (d.primaryDomain
+					? 'Makes the primary domain\'s signing key: it is the shared key, which every domain without a key of its own signs with (each inherits its record from the primary domain\'s zone).'
+					: 'Makes a signing key of ' + d.domain + '\'s own: its mail is signed with it instead of the shared key, and its record goes in its own zone, which then has a zone file.')
+					+ ' The key is saved in the admin home\'s dkim folder and put in the DKIM keys setting.'
+					+ (d.dkim && d.dkim.own ? ' It replaces the key with selector ' + d.dkim.selector + ' and mail is signed with it at once: publish the new record first if another DNS provider serves the domain.' : '')),
 				h('div.form', h('label.row', h('span', 'Selector'), sel), h('label.row', h('span', 'Key type'), type))
 			], { okLabel: 'Make key', onOk: () => api('POST', '/domains/' + enc(d.domain) + '/dkim', { selector: sel.value, type: type.value }) });
 			if (r) {

@@ -75,6 +75,7 @@ public final class SettingsCatalog {
 	public static final String QUEUE_DOMAINS = QUEUE_PREFIX + "domains";
 	public static final String QUEUE_ALIASES = QUEUE_PREFIX + "aliases";
 	public static final String QUEUE_DKIM_KEYS = QUEUE_PREFIX + "dkim.keys";
+	public static final String QUEUE_DKIM_SHARED = QUEUE_PREFIX + "dkim.shared";
 	/** Days of history the queue keeps (parley-smtp's QueueHistory). */
 	public static final String QUEUE_HISTORY_DAYS = QUEUE_PREFIX + "historyDays";
 	public static final String QUEUE_HISTORY = QUEUE_PREFIX + "history";
@@ -170,6 +171,8 @@ public final class SettingsCatalog {
 		add(g, QUEUE_HISTORY_DIRECTORY, "SMTP history folder", PATH, "<mail root>/.smtp-history", "Where the queue writes it.");
 		add(g, QUEUE_HISTORY_DAYS, "Keep SMTP history (days)", NUMBER, "30", "Older history files are deleted; 0 keeps every day.");
 		add(g, QUEUE_DKIM_KEYS, "DKIM keys", LIST, null, "Signing keys, domain:selector:keyfile, comma separated. Made on the Domains page.");
+		add(g, QUEUE_DKIM_SHARED, "Shared DKIM key", TEXT, null,
+				"The domain whose key signs mail from every domain without one of its own. Kept as the primary domain while it has a key.");
 		add(g, QUEUE_PREFIX + "dkim.headers", "DKIM signed fields", LIST, "From, To, Cc, Subject, Date, Message-ID, MIME and List-* fields", "Fields to sign, comma separated (From is required).");
 		add(g, QUEUE_PREFIX + "arc.seal", "ARC seal", BOOLEAN, "true", "Seal received mail that is forwarded (when a DKIM key fits the seal domain).");
 		add(g, QUEUE_PREFIX + "arc.domain", "ARC domain", TEXT, null, "The d= of our ARC seals; none: no seal.");

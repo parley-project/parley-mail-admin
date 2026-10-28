@@ -3,6 +3,7 @@ package us.bringardner.parley.mail.admin;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
@@ -285,6 +286,40 @@ public class WebAppTest {
 				return false;
 			}
 		}, "the mail to the new domain's alias delivered");
+
+		// the primary domain's key is the shared one: a domain without its own signs with it
+		JsonNode d = null;
+		for (JsonNode x : ok("GET", "/domains", null)) {
+			if (x.get("domain").asText().equals("d.test")) {
+				d = x;
+			}
+		}
+		assertNull(d.get("dkim"), "no key yet: the primary domain has none");
+		ok("POST", "/domains/a.test/dkim", Map.of("selector", "prim", "type", "rsa"));
+		String queue = new String(Files.readAllBytes(new File(home, "mail/.smtp-queue/queue.properties").toPath()), StandardCharsets.UTF_8);
+		assertTrue(queue.contains("dkim.shared=a.test"), queue);
+		for (JsonNode x : ok("GET", "/domains", null)) {
+			String name = x.get("domain").asText();
+			JsonNode k = x.get("dkim");
+			if (name.equals("d.test")) {
+				assertEquals("prim", k.get("selector").asText());
+				assertFalse(k.get("own").asBoolean());
+				assertEquals("a.test", k.get("domain").asText());
+				boolean record = false;
+				for (JsonNode r : x.get("dns")) {
+					record |= r.get("name").asText().equals("prim._domainkey.d.test.") && r.get("value").asText().startsWith("v=DKIM1");
+				}
+				assertTrue(record, x.toString());
+			} else if (name.equals("b.test")) {
+				assertTrue(k.get("own").asBoolean(), "b.test keeps its own key");
+				assertEquals("sel1", k.get("selector").asText());
+			} else if (name.equals("a.test")) {
+				assertTrue(k.get("own").asBoolean() && k.get("shared").asBoolean(), x.toString());
+			}
+		}
+		for (JsonNode s : ok("GET", "/services", null)) {
+			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+		}
 		for (JsonNode s : ok("GET", "/services", null)) {
 			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
 		}
