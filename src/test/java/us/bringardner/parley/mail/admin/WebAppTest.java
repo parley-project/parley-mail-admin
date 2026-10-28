@@ -597,6 +597,19 @@ public class WebAppTest {
 		JsonNode history = json.readTree(callAs(other, token, "GET", "/history", null).body());
 		assertEquals(0, history.size(), history.toString());
 
+		// the primary domain's administrators may change it: to a local domain with an administrator
+		String key = "parley.mail.admin.primaryDomain";
+		assertEquals(403, callAs(other, token, "PUT", "/settings", Map.of("changes", Map.of(key, "c.test"))).statusCode(), "not by another domain's");
+		assertEquals(400, call("PUT", "/settings", Map.of("changes", Map.of(key, "nowhere.test"))).statusCode(), "not a local domain");
+		assertEquals(400, call("PUT", "/settings", Map.of("changes", Map.of(key, "b.test"))).statusCode(), "b.test has no administrator");
+		assertEquals(400, call("PUT", "/settings", Map.of("changes", Map.of(key, ""))).statusCode(), "never empty");
+		ok("PUT", "/settings", Map.of("changes", Map.of(key, "C.Test")));
+		assertFalse(ok("GET", "/session", null).get("primary").asBoolean(), "a.test's administrator manages only a.test now");
+		assertEquals(403, call("GET", "/settings", null).statusCode());
+		assertTrue(json.readTree(callAs(other, token, "GET", "/session", null).body()).get("primary").asBoolean(), "c.test's manages every domain");
+		assertEquals(200, callAs(other, token, "PUT", "/settings", Map.of("changes", Map.of(key, "a.test"))).statusCode(), "and may give it back");
+		assertTrue(ok("GET", "/session", null).get("primary").asBoolean());
+
 		// taking the permission away ends its session
 		ok("PUT", "/users/boss@c.test", Map.of("permissions", List.of("READ", "WRITE")));
 		assertEquals(401, callAs(other, token, "GET", "/users", null).statusCode());

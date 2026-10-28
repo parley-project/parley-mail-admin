@@ -724,6 +724,9 @@ public class ApiServlet extends HttpServlet {
 		}
 		Map<String, String> map = new LinkedHashMap<>();
 		changes.fields().forEachRemaining(e -> map.put(e.getKey(), e.getValue().isNull() ? null : e.getValue().asText()));
+		if (map.containsKey(SettingsCatalog.ADMIN_PRIMARY_DOMAIN)) {
+			map.put(SettingsCatalog.ADMIN_PRIMARY_DOMAIN, checkPrimaryDomain(map.get(SettingsCatalog.ADMIN_PRIMARY_DOMAIN)));
+		}
 		Set<String> changed = app.getSettings().update(map);
 		LOG.log(System.Logger.Level.INFO, q.user() + " changed the settings " + changed);
 		Map<String, Object> m = new LinkedHashMap<>();
@@ -736,6 +739,26 @@ public class ApiServlet extends HttpServlet {
 		}
 		m.put("restartNeeded", restart);
 		return m;
+	}
+
+	/**
+	 * A new primary domain (only the current primary domain's administrators reach the Settings): a
+	 * local domain with an administrator, so someone can always manage every domain and change it again.
+	 */
+	private String checkPrimaryDomain(String value) {
+		String d = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+		if (d.isEmpty()) {
+			throw ApiException.badRequest("The primary domain can't be empty: its administrators manage every domain");
+		}
+		if (!app.getDomains().isLocal(d)) {
+			throw ApiException.badRequest("The primary domain must be a local domain (Domains page): " + d + " isn't");
+		}
+		for (UserRecord u : app.getUsers().list()) {
+			if (d.equals(u.getDomain()) && u.hasPermission(UserRecord.ADMIN)) {
+				return d;
+			}
+		}
+		throw ApiException.badRequest("The primary domain needs an administrator: " + d + " has no user with ADMIN");
 	}
 
 	// ------------------------------------------------------------------ domains, users, aliases
