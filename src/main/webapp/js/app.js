@@ -440,11 +440,11 @@
 			e.preventDefault();
 			try {
 				await api('POST', '/domains', { domain: input.value });
-				toast(input.value + ' added. Restart the SMTP services to receive its mail.', 'ok');
+				toast(input.value + ' added. Its mail is received now.', 'ok');
 				input.value = '';
 				refresh();
 				checkRestart();
-			} catch (ex) { fail(ex); }
+			} catch (ex) { fail(ex); refresh(); checkRestart(); }
 		});
 		root.appendChild(h('p.muted', 'Mail for these domains is delivered here. Users and aliases can belong to one domain (tony@example.com) or, without a domain, to all of them.'));
 		root.appendChild(state.primary ? panel('Local domains', addForm, list) : panel('Your domain', list));
@@ -497,12 +497,12 @@
 			const type = h('select', h('option', { value: 'rsa' }, 'RSA 2048 (works everywhere)'), h('option', { value: 'ed25519' }, 'Ed25519 (RFC 8463)'));
 			const r = await dialog('DKIM key for ' + d.domain, [
 				h('p.muted', 'Makes a signing key, saves it in the admin home\'s dkim folder and puts it in the DKIM keys setting.'
-					+ (d.dkim ? ' It replaces the key with selector ' + d.dkim.selector + ': publish the new record before restarting SMTP.' : '')),
+					+ (d.dkim ? ' It replaces the key with selector ' + d.dkim.selector + ' and mail is signed with it at once: publish the new record first if another DNS provider serves the domain.' : '')),
 				h('div.form', h('label.row', h('span', 'Selector'), sel), h('label.row', h('span', 'Key type'), type))
 			], { okLabel: 'Make key', onOk: () => api('POST', '/domains/' + enc(d.domain) + '/dkim', { selector: sel.value, type: type.value }) });
 			if (r) {
-				toast(r.dnsServed ? 'Key made. Parley DNS serves its record; restart the SMTP services to sign with it.'
-					: 'Key made. Publish its TXT record, then restart the SMTP services.', 'ok');
+				toast(r.dnsServed ? 'Key made. Parley DNS serves its record and mail is signed with it now.'
+					: 'Key made and mail is signed with it now. Publish its TXT record.', 'ok');
 				refresh();
 				dns(r);
 				checkRestart();
@@ -513,7 +513,7 @@
 			const ok = await confirmDialog('Remove ' + d.domain, 'Mail for ' + d.domain + ' will be refused. Its ' + d.users + ' user(s) and ' + d.aliases
 				+ ' alias(es) are kept, and its DKIM key file too.', 'Remove');
 			if (!ok) return;
-			try { await api('DELETE', '/domains/' + enc(d.domain)); toast('Removed ' + d.domain, 'ok'); refresh(); checkRestart(); } catch (e) { fail(e); }
+			try { await api('DELETE', '/domains/' + enc(d.domain)); toast('Removed ' + d.domain, 'ok'); refresh(); checkRestart(); } catch (e) { fail(e); refresh(); checkRestart(); }
 		}
 
 		refresh();
@@ -876,7 +876,7 @@
 					return api('PUT', '/aliases/' + enc(name), { members: m });
 				}
 			});
-			if (r) { refresh(r); toast('Saved. Restart the SMTP services to use it.', 'ok'); checkRestart(); }
+			if (r) { refresh(r); toast('Saved. It is used now.', 'ok'); checkRestart(); }
 		}
 
 		async function remove(x) {

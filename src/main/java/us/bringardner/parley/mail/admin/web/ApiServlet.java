@@ -342,10 +342,12 @@ public class ApiServlet extends HttpServlet {
 		r.get("/domains", q -> domains(q));
 		r.post("/domains", q -> {
 			app.getDomains().add(q.requiredText("domain"));
+			useNow(true);
 			return domains(q);
 		});
 		r.delete("/domains/{domain}", q -> {
 			app.getDomains().remove(q.param(0));
+			useNow(true);
 			return domains(q);
 		});
 		r.post("/domains/{domain}/dkim", q -> {
@@ -353,6 +355,7 @@ public class ApiServlet extends HttpServlet {
 				throw new ApiException(403, "The domain " + q.param(0) + " isn't yours");
 			}
 			app.getDomains().generateDkim(q.param(0), q.requiredText("selector"), q.text("type"));
+			useNow(true);
 			return withDns(app.getDomains().describe(q.param(0)), app.getDns().servedZones());
 		});
 
@@ -391,6 +394,7 @@ public class ApiServlet extends HttpServlet {
 			requireAddress(q, q.param(0), "The alias");
 			app.getAliases().put(q.param(0), required(q.list("members"), "members"));
 			app.queueNamesAliases();
+			useNow(false);
 			return aliases(q);
 		});
 		r.delete("/aliases/{name}", q -> {
@@ -398,6 +402,7 @@ public class ApiServlet extends HttpServlet {
 			if (!app.getAliases().delete(q.param(0))) {
 				throw ApiException.notFound("The alias " + q.param(0));
 			}
+			useNow(false);
 			return aliases(q);
 		});
 
@@ -555,6 +560,33 @@ public class ApiServlet extends HttpServlet {
 	private static String printable(String s) {
 		String t = s.replaceAll("\\p{Cntrl}", "?");
 		return t.length() > 100 ? t.substring(0, 100) + "..." : t;
+	}
+
+	/**
+	 * The running servers use a domain, alias or DKIM change at once, with no restart: the SMTP servers
+	 * read their queue's settings again and, for a domain or DKIM change, the Parley DNS server (when
+	 * one is managed here) its zones, so a mail domain and its DKIM record are served now.
+	 *
+	 * @throws ApiException if one couldn't: the change is saved, and a restart uses it
+	 */
+	private void useNow(boolean dns) {
+		List<String> errors = new ArrayList<>();
+		try {
+			app.getSuite().reloadQueue();
+		} catch (IOException | RuntimeException e) {
+			errors.add("SMTP: " + MailSuite.message(e));
+		}
+		if (dns && app.getDns().server() != null) {
+			try {
+				app.getDns().reload();
+			} catch (Exception e) {
+				errors.add("DNS: " + MailSuite.message(e));
+			}
+		}
+		if (!errors.isEmpty()) {
+			LOG.log(System.Logger.Level.ERROR, "A change was saved but the running servers couldn't use it: " + String.join("; ", errors));
+			throw new ApiException(500, "Saved, but the running servers couldn't use it yet (a restart will): " + String.join("; ", errors));
+		}
 	}
 
 	/** Make the first administrator (only while there is none). */
