@@ -157,6 +157,13 @@ uses the relay's queue read its domains, aliases file and DKIM keys again (parle
 again, so the domain and its DKIM record are served now. If a server can't, the change is still
 saved, the page says why, and a restart uses it.
 
+DKIM: the primary domain's key is the shared one. The admin keeps the queue's `dkim.shared` set to
+the primary domain while it has a key, and every domain without a key of its own signs with it, as
+itself (parley-smtp); with Parley DNS each such domain inherits the key's record from the primary
+domain's zone, so it needs no zone file. "Make DKIM key" on another domain gives it a key of its
+own, whose record the admin puts in that domain's zone (which then has a file). The DNS records
+list shows the record a domain needs either way, for a DNS provider elsewhere.
+
 The mail store and the SMTP queue carry their own settings, in their own files, which every server
 using them reads (parley-mail's and parley-smtp's READMEs); the Store and Queue tabs edit them where
 the servers read them, on the mail root's file system:

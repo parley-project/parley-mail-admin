@@ -354,7 +354,8 @@ public class ApiServlet extends HttpServlet {
 			if (!scope(q).allowsDomain(q.param(0))) {
 				throw new ApiException(403, "The domain " + q.param(0) + " isn't yours");
 			}
-			app.getDomains().generateDkim(q.param(0), q.requiredText("selector"), q.text("type"));
+			DomainService.DkimEntry key = app.getDomains().generateDkim(q.param(0), q.requiredText("selector"), q.text("type"));
+			ownKeyRecord(key);
 			useNow(true);
 			return withDns(app.getDomains().describe(q.param(0)), app.getDns().servedZones());
 		});
@@ -560,6 +561,26 @@ public class ApiServlet extends HttpServlet {
 	private static String printable(String s) {
 		String t = s.replaceAll("\\p{Cntrl}", "?");
 		return t.length() > 100 ? t.substring(0, 100) + "..." : t;
+	}
+
+	/**
+	 * A domain's own DKIM key goes in its own zone when Parley DNS serves the domain: a record the
+	 * primary domain's zone doesn't give it, so the zone gets a file (the primary's key is the shared
+	 * one, in its own zone, inherited by the others).
+	 *
+	 * @throws ApiException if DNS refused it: the key is made, and its record is on the DNS records list
+	 */
+	private void ownKeyRecord(DomainService.DkimEntry key) {
+		if (app.getDns().server() == null || !app.getDns().servedZones().contains(key.domain)) {
+			return;
+		}
+		String txt = app.getDomains().dkimRecord(key);
+		try {
+			app.getDns().setRecords(key.domain, key.selector + "._domainkey", "TXT", 3600, java.util.Collections.singletonList(txt));
+		} catch (Exception e) {
+			throw new ApiException(500, "The key is made, but Parley DNS refused its record (" + MailSuite.message(e)
+					+ "): add it on the DNS page");
+		}
 	}
 
 	/**
@@ -914,7 +935,9 @@ public class ApiServlet extends HttpServlet {
 			if (!scope.allowsDomain(domain)) {
 				continue;
 			}
-			list.add(withDns(d.describe(domain), served));
+			Map<String, Object> m = withDns(d.describe(domain), served);
+			m.put("primaryDomain", domain.equals(app.getPrimaryDomain()));
+			list.add(m);
 		}
 		return list;
 	}

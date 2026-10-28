@@ -117,6 +117,21 @@ public final class AdminApp implements AutoCloseable {
 			return t;
 		});
 		timer.scheduleWithFixedDelay(this::checkFiles, 15, 15, TimeUnit.SECONDS);
+		shareKeyOfPrimary();
+	}
+
+	/**
+	 * Keep the shared DKIM key the primary domain's (DomainService.shareKeyOf): every domain without
+	 * a key of its own signs with it.
+	 */
+	private void shareKeyOfPrimary() {
+		try {
+			if (settings.getQueueFile() != null && domains.shareKeyOf(getPrimaryDomain())) {
+				LOG.log(System.Logger.Level.INFO, "The shared DKIM key is now " + (domains.sharedDomain() == null ? "none" : domains.sharedDomain() + "'s"));
+			}
+		} catch (IOException | RuntimeException e) {
+			LOG.log(System.Logger.Level.WARNING, "Can't set the shared DKIM key: " + e.getMessage());
+		}
 	}
 
 	/**
@@ -220,6 +235,10 @@ public final class AdminApp implements AutoCloseable {
 				if (!f.equals(aliases.getFile())) {
 					aliases.setFile(f);
 				}
+			}
+			if (changed.contains(SettingsCatalog.ADMIN_PRIMARY_DOMAIN) || changed.contains(SettingsCatalog.QUEUE_DKIM_KEYS)
+					|| changed.contains(SettingsCatalog.QUEUE_DKIM_SHARED) || changed.contains(SettingsCatalog.QUEUE_DOMAINS)) {
+				shareKeyOfPrimary();
 			}
 			if (changed.contains(SettingsCatalog.ADMIN_LOG_BUFFER)) {
 				logs.setCapacity((int) settings.getLong(SettingsCatalog.ADMIN_LOG_BUFFER, 5000));
@@ -431,7 +450,7 @@ public final class AdminApp implements AutoCloseable {
 	/** Record the primary domain (when the first administrator is made). */
 	public synchronized void setPrimaryDomain(String domain) {
 		try {
-			settings.set(SettingsCatalog.ADMIN_PRIMARY_DOMAIN, domain);
+			settings.set(SettingsCatalog.ADMIN_PRIMARY_DOMAIN, domain); // the shared DKIM key follows (settingsChanged)
 			LOG.log(System.Logger.Level.INFO, "The primary domain is " + domain + ": its administrators manage every domain");
 		} catch (IOException e) {
 			LOG.log(System.Logger.Level.WARNING, "Can't record the primary domain " + domain + ": " + e.getMessage());

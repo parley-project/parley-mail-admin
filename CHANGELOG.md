@@ -4,6 +4,11 @@
 
 ### Changed
 
+- One DKIM key for every domain: the primary domain's key is the shared one (the queue's `dkim.shared`, which the admin
+  keeps set to the primary domain while it has a key), and a domain without a key of its own signs with it; with Parley
+  DNS it inherits the key's record from the primary domain's zone, so it needs no zone file. A key made for another
+  domain is its own, and its record goes in that domain's zone. The Domains page shows which key each domain signs
+  with, and its DNS records list the shared key's record for a domain without its own.
 - Domains, aliases and DKIM keys are used at once, with no restart: after a change on the Domains or Aliases
   page the admin has the running SMTP servers read the queue's domains, aliases file and DKIM keys again
   (parley-smtp's `MailQueueMXBean.reload`, `MailSuite.reloadQueue`) and, for a domain or a DKIM key, the

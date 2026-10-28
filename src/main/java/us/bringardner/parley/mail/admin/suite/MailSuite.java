@@ -1102,7 +1102,7 @@ public final class MailSuite implements AutoCloseable {
 	}
 
 	/** The queue's settings its reload reads again (with the aliases file's contents) */
-	private static final java.util.Set<String> RELOADED = java.util.Set.of("domains", "aliases", "dkim.keys", "dkim.headers");
+	private static final java.util.Set<String> RELOADED = java.util.Set.of("domains", "aliases", "dkim.keys", "dkim.headers", "dkim.shared");
 
 	/** True if a queue setting (with or without the queue. prefix) is read again by a reload */
 	static boolean reloaded(String key) {
