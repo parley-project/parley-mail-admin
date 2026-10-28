@@ -20,6 +20,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 
@@ -512,5 +513,92 @@ public class WebAppTest {
 		if (!l.startsWith("+OK")) {
 			throw new IOException("POP3: " + l);
 		}
+	}
+
+	/** A call as another browser: its own cookies (session) and CSRF token. */
+	private static HttpResponse<String> callAs(HttpClient client, String token, String method, String path, Object body) throws Exception {
+		HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + "api" + path)).header("X-CSRF-Token", token);
+		if (body != null) {
+			b.header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
+		} else {
+			b.method(method, HttpRequest.BodyPublishers.noBody());
+		}
+		return client.send(b.build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	@Test
+	@Order(9)
+	public void domainAdministrators() throws Exception {
+		// the first administrator's domain is the primary one, recorded in the settings
+		JsonNode s = ok("GET", "/session", null);
+		assertTrue(s.get("primary").asBoolean(), s.toString());
+		assertEquals("a.test", s.get("adminDomain").asText());
+		boolean recorded = false;
+		for (JsonNode g : ok("GET", "/settings", null).get("groups")) {
+			for (JsonNode d : g.get("settings")) {
+				if (d.get("key").asText().equals("parley.mail.admin.primaryDomain")) {
+					assertEquals("a.test", d.get("value").asText());
+					recorded = true;
+				}
+			}
+		}
+		assertTrue(recorded, "the primary domain is a setting");
+
+		ok("POST", "/domains", Map.of("domain", "c.test"));
+		ok("POST", "/users", Map.of("name", "boss@c.test", "password", "bosspass12", "permissions", List.of("READ", "WRITE", "ADMIN")));
+		ok("POST", "/users", Map.of("name", "nodomain", "password", "nodomain12", "permissions", List.of("READ", "WRITE", "ADMIN")));
+		ok("PUT", "/aliases/" + "sales@c.test", Map.of("members", List.of("boss@c.test")));
+
+		HttpClient other = HttpClient.newBuilder().cookieHandler(new CookieManager()).build();
+		// an administrator with no domain administers nothing
+		assertEquals(401, callAs(other, "none", "POST", "/login", Map.of("user", "nodomain", "password", "nodomain12")).statusCode());
+
+		HttpResponse<String> r = callAs(other, "none", "POST", "/login", Map.of("user", "boss@c.test", "password", "bosspass12"));
+		assertEquals(200, r.statusCode(), r.body());
+		s = json.readTree(r.body());
+		String token = s.get("csrf").asText();
+		assertFalse(s.get("primary").asBoolean());
+		assertEquals("c.test", s.get("adminDomain").asText());
+		assertEquals("[\"c.test\"]", s.get("domains").toString(), "only its domain");
+
+		// its domain's users, aliases and domain only
+		JsonNode users = json.readTree(callAs(other, token, "GET", "/users", null).body());
+		for (JsonNode u : users) {
+			assertEquals("c.test", u.get("domain").asText(), users.toString());
+		}
+		JsonNode aliases = json.readTree(callAs(other, token, "GET", "/aliases", null).body()).get("aliases");
+		assertEquals(1, aliases.size(), aliases.toString());
+		JsonNode domains = json.readTree(callAs(other, token, "GET", "/domains", null).body());
+		assertEquals(1, domains.size(), domains.toString());
+
+		// it manages users of its domain, and may make them administrators of it
+		assertEquals(200, callAs(other, token, "POST", "/users", Map.of("name", "clerk@c.test", "password", "clerkpass1", "permissions", List.of("READ", "WRITE", "ADMIN"))).statusCode());
+		assertEquals(200, callAs(other, token, "PUT", "/users/clerk@c.test", Map.of("permissions", List.of("READ", "WRITE"))).statusCode());
+		assertEquals(200, callAs(other, token, "DELETE", "/users/clerk@c.test", null).statusCode());
+		// but not another domain's, nor users of every domain, nor a maildrop outside its folder
+		assertEquals(403, callAs(other, token, "POST", "/users", Map.of("name", "spy@a.test", "password", "spypass123")).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/users", Map.of("name", "spy", "password", "spypass123")).statusCode());
+		assertEquals(403, callAs(other, token, "PUT", "/users/admin@a.test", Map.of("password", "takeover12")).statusCode());
+		assertEquals(403, callAs(other, token, "DELETE", "/users/admin@a.test", null).statusCode());
+		assertEquals(403, callAs(other, token, "GET", "/users/admin@a.test/usage", null).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/users", Map.of("name", "peek@c.test", "password", "peekpass12", "maildrop", "a.test/admin")).statusCode());
+		assertEquals(403, callAs(other, token, "PUT", "/aliases/admin@a.test", Map.of("members", List.of("boss@c.test"))).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/domains/a.test/dkim", Map.of("selector", "x")).statusCode());
+
+		// what spans every domain is the primary domain's administrators' only
+		for (String[] c : new String[][] { { "GET", "/status" }, { "GET", "/services" }, { "GET", "/settings" }, { "PUT", "/settings" }, { "GET", "/logs" },
+				{ "POST", "/domains" }, { "DELETE", "/domains/c.test" }, { "POST", "/queue/flush" }, { "POST", "/services/all/stop" } }) {
+			assertEquals(403, callAs(other, token, c[0], c[1], c[0].equals("GET") ? null : Map.of()).statusCode(), c[0] + " " + c[1]);
+		}
+
+		// the queue and history only of its domain's mail (the mail so far was a.test's and b.test's)
+		assertEquals(200, callAs(other, token, "GET", "/queue", null).statusCode());
+		assertTrue(ok("GET", "/history?days=1", null).size() > 0, "the primary sees the history");
+		JsonNode history = json.readTree(callAs(other, token, "GET", "/history", null).body());
+		assertEquals(0, history.size(), history.toString());
+
+		// taking the permission away ends its session
+		ok("PUT", "/users/boss@c.test", Map.of("permissions", List.of("READ", "WRITE")));
+		assertEquals(401, callAs(other, token, "GET", "/users", null).statusCode());
 	}
 }

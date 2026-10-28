@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Administrators manage their own domain only, unless their domain is the primary one (the first
+  administrator's, `parley.mail.admin.primaryDomain`), whose administrators manage every domain. A domain's
+  administrator has its domain's users, aliases and DKIM keys, and the queue and history of its mail; the
+  other pages and calls are the primary's (403). An administrator whose name has no domain can't log in, and
+  the first administrator's name needs a domain.
 - Each server is alone with its own settings (Parley's server design rule): the SMTP, Authentication, IMAP and
   POP3 tabs have a server picker and edit each server's own prefix (`parley.mail.submission.*` is no longer
   taken for the relay's), and a change marks only the servers that read it as needing a restart.

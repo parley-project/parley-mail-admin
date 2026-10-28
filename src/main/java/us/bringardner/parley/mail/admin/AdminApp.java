@@ -407,6 +407,40 @@ public final class AdminApp implements AutoCloseable {
 		return logs;
 	}
 
+	/**
+	 * The primary domain: the setting, or, when it is empty, the domain of the first administrator
+	 * in the users file, which is then recorded in the setting (once, so it stays the same when
+	 * administrators are added or removed). Null if there is neither.
+	 */
+	public synchronized String getPrimaryDomain() {
+		String d = settings.get(SettingsCatalog.ADMIN_PRIMARY_DOMAIN);
+		if (!isBlank(d)) {
+			return d.trim().toLowerCase(java.util.Locale.ROOT);
+		}
+		for (us.bringardner.parley.mail.admin.users.UserRecord u : users.list()) {
+			if (u.hasPermission(us.bringardner.parley.mail.admin.users.UserRecord.ADMIN) && u.getDomain() != null && !u.getDomain().isEmpty()) {
+				setPrimaryDomain(u.getDomain());
+				return u.getDomain();
+			}
+		}
+		return null;
+	}
+
+	/** Record the primary domain (when the first administrator is made). */
+	public synchronized void setPrimaryDomain(String domain) {
+		try {
+			settings.set(SettingsCatalog.ADMIN_PRIMARY_DOMAIN, domain);
+			LOG.log(System.Logger.Level.INFO, "The primary domain is " + domain + ": its administrators manage every domain");
+		} catch (IOException e) {
+			LOG.log(System.Logger.Level.WARNING, "Can't record the primary domain " + domain + ": " + e.getMessage());
+		}
+	}
+
+	/** What the user may manage, or null if the user administers no domain. */
+	public us.bringardner.parley.mail.admin.users.AdminScope scopeOf(String user) {
+		return us.bringardner.parley.mail.admin.users.AdminScope.of(user == null ? null : users.get(user), getPrimaryDomain());
+	}
+
 	public UserStore getUsers() {
 		return users;
 	}
