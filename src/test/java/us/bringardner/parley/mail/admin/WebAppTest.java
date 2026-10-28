@@ -3,6 +3,7 @@ package us.bringardner.parley.mail.admin;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
@@ -20,6 +21,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 
@@ -224,10 +226,14 @@ public class WebAppTest {
 		assertEquals(400, call("POST", "/users", Map.of("name", "x@c.test", "password", "xxxxxxxx1")).statusCode(), "not a local domain");
 		ok("PUT", "/aliases/sales@b.test", Map.of("members", java.util.List.of("tony")));
 
-		// SMTP settings changed (domains, DKIM, aliases): the SMTP services say they need a restart
-		JsonNode services = ok("GET", "/services", null);
+		// domains, DKIM and aliases are used at once: no service needs a restart for them
+		for (JsonNode s : ok("GET", "/services", null)) {
+			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+		}
+		// a queue setting the reload doesn't apply still needs one
+		ok("PUT", "/settings", Map.of("changes", Map.of("queue.workers", "3")));
 		boolean restart = false;
-		for (JsonNode s : services) {
+		for (JsonNode s : ok("GET", "/services", null)) {
 			if (s.get("id").asText().equals("smtp")) {
 				restart = s.get("restartNeeded").asBoolean();
 			}
@@ -240,7 +246,6 @@ public class WebAppTest {
 		for (JsonNode s : ok("GET", "/services", null)) {
 			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
 		}
-
 		// mail to the alias of the new domain, through SMTP, reaches tony@b.test's maildrop
 		smtp(smtpPort, "x@far.test", "sales@b.test", "Subject: hello\r\n\r\nHi Tony\r\n");
 		waitFor(() -> {
@@ -269,6 +274,55 @@ public class WebAppTest {
 		JsonNode usage = ok("GET", "/users/" + URLEncoder.encode("tony@b.test", StandardCharsets.UTF_8) + "/usage", null);
 		assertTrue(usage.get("exists").asBoolean());
 		assertTrue(usage.get("bytes").asLong() > 0);
+
+		// and a domain added to the running servers is received at once (no restart)
+		ok("POST", "/domains", Map.of("domain", "d.test"));
+		ok("PUT", "/aliases/info@d.test", Map.of("members", java.util.List.of("tony@b.test")));
+		smtp(smtpPort, "x@far.test", "info@d.test", "Subject: first\r\n\r\nTo d.test\r\n");
+		waitFor(() -> {
+			try {
+				return pop3Count("tony@b.test", "tonypass1") == 2;
+			} catch (Exception e) {
+				return false;
+			}
+		}, "the mail to the new domain's alias delivered");
+
+		// the primary domain's key is the shared one: a domain without its own signs with it
+		JsonNode d = null;
+		for (JsonNode x : ok("GET", "/domains", null)) {
+			if (x.get("domain").asText().equals("d.test")) {
+				d = x;
+			}
+		}
+		assertNull(d.get("dkim"), "no key yet: the primary domain has none");
+		ok("POST", "/domains/a.test/dkim", Map.of("selector", "prim", "type", "rsa"));
+		String queue = new String(Files.readAllBytes(new File(home, "mail/.smtp-queue/queue.properties").toPath()), StandardCharsets.UTF_8);
+		assertTrue(queue.contains("dkim.shared=a.test"), queue);
+		for (JsonNode x : ok("GET", "/domains", null)) {
+			String name = x.get("domain").asText();
+			JsonNode k = x.get("dkim");
+			if (name.equals("d.test")) {
+				assertEquals("prim", k.get("selector").asText());
+				assertFalse(k.get("own").asBoolean());
+				assertEquals("a.test", k.get("domain").asText());
+				boolean record = false;
+				for (JsonNode r : x.get("dns")) {
+					record |= r.get("name").asText().equals("prim._domainkey.d.test.") && r.get("value").asText().startsWith("v=DKIM1");
+				}
+				assertTrue(record, x.toString());
+			} else if (name.equals("b.test")) {
+				assertTrue(k.get("own").asBoolean(), "b.test keeps its own key");
+				assertEquals("sel1", k.get("selector").asText());
+			} else if (name.equals("a.test")) {
+				assertTrue(k.get("own").asBoolean() && k.get("shared").asBoolean(), x.toString());
+			}
+		}
+		for (JsonNode s : ok("GET", "/services", null)) {
+			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+		}
+		for (JsonNode s : ok("GET", "/services", null)) {
+			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+		}
 	}
 
 	@Test
@@ -512,5 +566,146 @@ public class WebAppTest {
 		if (!l.startsWith("+OK")) {
 			throw new IOException("POP3: " + l);
 		}
+	}
+
+	/** A call as another browser: its own cookies (session) and CSRF token. */
+	private static HttpResponse<String> callAs(HttpClient client, String token, String method, String path, Object body) throws Exception {
+		HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + "api" + path)).header("X-CSRF-Token", token);
+		if (body != null) {
+			b.header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
+		} else {
+			b.method(method, HttpRequest.BodyPublishers.noBody());
+		}
+		return client.send(b.build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	@Test
+	@Order(8)
+	public void everyServerAndTheModules() throws Exception {
+		// the generic list: every server the launcher runs, here the mail suite's listeners
+		JsonNode servers = ok("GET", "/servers", null);
+		java.util.Set<String> ids = new java.util.TreeSet<>();
+		for (JsonNode s : servers) {
+			ids.add(s.get("id").asText());
+			assertTrue(s.get("mail").asBoolean(), s.toString());
+			assertEquals("this application", s.get("where").asText());
+		}
+		assertTrue(ids.containsAll(List.of("smtp", "imap", "pop3")), ids.toString());
+		JsonNode smtp = null;
+		for (JsonNode s : servers) {
+			if (s.get("id").asText().equals("smtp")) {
+				smtp = s;
+			}
+		}
+		assertEquals("RUNNING", smtp.get("state").asText());
+		assertEquals("[\"MailQueue\"]", smtp.get("types").toString(), "the queue's bean, for the Queue page");
+		JsonNode modules = ok("GET", "/modules", null);
+		assertEquals("[\"queue\"]", modules.get("modules").toString(), "no DNS server runs here");
+		assertEquals(400, call("POST", "/servers/smtp/dance", Map.of()).statusCode());
+		assertEquals(409, call("POST", "/servers/nothing/start", Map.of()).statusCode());
+		assertEquals(200, call("GET", "/servers/pop3/connections", null).statusCode());
+	}
+
+	@Test
+	@Order(9)
+	public void domainAdministrators() throws Exception {
+		// the first administrator's domain is the primary one, recorded in the settings
+		JsonNode s = ok("GET", "/session", null);
+		assertTrue(s.get("primary").asBoolean(), s.toString());
+		assertEquals("a.test", s.get("adminDomain").asText());
+		boolean recorded = false;
+		for (JsonNode g : ok("GET", "/settings", null).get("groups")) {
+			for (JsonNode d : g.get("settings")) {
+				if (d.get("key").asText().equals("parley.mail.admin.primaryDomain")) {
+					assertEquals("a.test", d.get("value").asText());
+					recorded = true;
+				}
+			}
+		}
+		assertTrue(recorded, "the primary domain is a setting");
+
+		ok("POST", "/domains", Map.of("domain", "c.test"));
+		ok("POST", "/users", Map.of("name", "boss@c.test", "password", "bosspass12", "permissions", List.of("READ", "WRITE", "ADMIN")));
+		ok("POST", "/users", Map.of("name", "nodomain", "password", "nodomain12", "permissions", List.of("READ", "WRITE", "ADMIN")));
+		ok("PUT", "/aliases/" + "sales@c.test", Map.of("members", List.of("boss@c.test")));
+
+		HttpClient other = HttpClient.newBuilder().cookieHandler(new CookieManager()).build();
+		// an administrator with no domain administers nothing
+		assertEquals(401, callAs(other, "none", "POST", "/login", Map.of("user", "nodomain", "password", "nodomain12")).statusCode());
+
+		HttpResponse<String> r = callAs(other, "none", "POST", "/login", Map.of("user", "boss@c.test", "password", "bosspass12"));
+		assertEquals(200, r.statusCode(), r.body());
+		s = json.readTree(r.body());
+		String token = s.get("csrf").asText();
+		assertFalse(s.get("primary").asBoolean());
+		assertEquals("c.test", s.get("adminDomain").asText());
+		assertEquals("[\"c.test\"]", s.get("domains").toString(), "only its domain");
+
+		// its domain's users, aliases and domain only
+		JsonNode users = json.readTree(callAs(other, token, "GET", "/users", null).body());
+		for (JsonNode u : users) {
+			assertEquals("c.test", u.get("domain").asText(), users.toString());
+		}
+		JsonNode aliases = json.readTree(callAs(other, token, "GET", "/aliases", null).body()).get("aliases");
+		assertEquals(1, aliases.size(), aliases.toString());
+		JsonNode domains = json.readTree(callAs(other, token, "GET", "/domains", null).body());
+		assertEquals(1, domains.size(), domains.toString());
+
+		// it manages users of its domain, and may make them administrators of it
+		assertEquals(200, callAs(other, token, "POST", "/users", Map.of("name", "clerk@c.test", "password", "clerkpass1", "permissions", List.of("READ", "WRITE", "ADMIN"))).statusCode());
+		assertEquals(200, callAs(other, token, "PUT", "/users/clerk@c.test", Map.of("permissions", List.of("READ", "WRITE"))).statusCode());
+		assertEquals(200, callAs(other, token, "DELETE", "/users/clerk@c.test", null).statusCode());
+		// but not another domain's, nor users of every domain, nor a maildrop outside its folder
+		assertEquals(403, callAs(other, token, "POST", "/users", Map.of("name", "spy@a.test", "password", "spypass123")).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/users", Map.of("name", "spy", "password", "spypass123")).statusCode());
+		assertEquals(403, callAs(other, token, "PUT", "/users/admin@a.test", Map.of("password", "takeover12")).statusCode());
+		assertEquals(403, callAs(other, token, "DELETE", "/users/admin@a.test", null).statusCode());
+		assertEquals(403, callAs(other, token, "GET", "/users/admin@a.test/usage", null).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/users", Map.of("name", "peek@c.test", "password", "peekpass12", "maildrop", "a.test/admin")).statusCode());
+		assertEquals(403, callAs(other, token, "PUT", "/aliases/admin@a.test", Map.of("members", List.of("boss@c.test"))).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/domains/a.test/dkim", Map.of("selector", "x")).statusCode());
+
+		// what spans every domain is the primary domain's administrators' only
+		for (String[] c : new String[][] { { "GET", "/status" }, { "GET", "/services" }, { "GET", "/settings" }, { "PUT", "/settings" }, { "GET", "/logs" },
+				{ "POST", "/domains" }, { "DELETE", "/domains/c.test" }, { "POST", "/queue/flush" }, { "POST", "/services/all/stop" } }) {
+			assertEquals(403, callAs(other, token, c[0], c[1], c[0].equals("GET") ? null : Map.of()).statusCode(), c[0] + " " + c[1]);
+		}
+
+		// the queue and history only of its domain's mail (the mail so far was a.test's and b.test's)
+		assertEquals(200, callAs(other, token, "GET", "/queue", null).statusCode());
+		assertTrue(ok("GET", "/history?days=1", null).size() > 0, "the primary sees the history");
+		JsonNode history = json.readTree(callAs(other, token, "GET", "/history", null).body());
+		assertEquals(0, history.size(), history.toString());
+
+		// the primary domain's administrators may change it: to a local domain with an administrator
+		String key = "parley.mail.admin.primaryDomain";
+		assertEquals(403, callAs(other, token, "PUT", "/settings", Map.of("changes", Map.of(key, "c.test"))).statusCode(), "not by another domain's");
+		assertEquals(400, call("PUT", "/settings", Map.of("changes", Map.of(key, "nowhere.test"))).statusCode(), "not a local domain");
+		assertEquals(400, call("PUT", "/settings", Map.of("changes", Map.of(key, "b.test"))).statusCode(), "b.test has no administrator");
+		assertEquals(400, call("PUT", "/settings", Map.of("changes", Map.of(key, ""))).statusCode(), "never empty");
+		ok("PUT", "/settings", Map.of("changes", Map.of(key, "C.Test")));
+		assertFalse(ok("GET", "/session", null).get("primary").asBoolean(), "a.test's administrator manages only a.test now");
+		assertEquals(403, call("GET", "/settings", null).statusCode());
+		assertTrue(json.readTree(callAs(other, token, "GET", "/session", null).body()).get("primary").asBoolean(), "c.test's manages every domain");
+		assertEquals(200, callAs(other, token, "PUT", "/settings", Map.of("changes", Map.of(key, "a.test"))).statusCode(), "and may give it back");
+		assertTrue(ok("GET", "/session", null).get("primary").asBoolean());
+
+		// DNS: its domain's zone only (no DNS server runs here: allowed, then 409 for that reason);
+		// the DNS server itself and the list of every server are the primary domain's administrators'
+		assertEquals(200, callAs(other, token, "GET", "/modules", null).statusCode());
+		assertEquals(409, callAs(other, token, "GET", "/dns/zones/c.test", null).statusCode());
+		assertEquals(409, callAs(other, token, "POST", "/dns/zones/c.test/publish", Map.of()).statusCode());
+		assertEquals(403, callAs(other, token, "GET", "/dns/zones/a.test", null).statusCode());
+		assertEquals(403, callAs(other, token, "PUT", "/dns/zones/a.test/records", Map.of("name", "www", "type", "A", "values", List.of("192.0.2.1"))).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/dns/zones/a.test", Map.of()).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/dns/zones/a.test/delete", Map.of("type", "A", "data", "192.0.2.1")).statusCode());
+		for (String[] c : new String[][] { { "GET", "/dns" }, { "POST", "/dns/reload" }, { "GET", "/servers" }, { "POST", "/servers/smtp/stop" }, { "GET", "/servers/smtp/connections" } }) {
+			assertEquals(403, callAs(other, token, c[0], c[1], c[0].equals("GET") ? null : Map.of()).statusCode(), c[0] + " " + c[1]);
+		}
+		assertEquals(false, ok("GET", "/dns", null).get("available").asBoolean());
+
+		// taking the permission away ends its session
+		ok("PUT", "/users/boss@c.test", Map.of("permissions", List.of("READ", "WRITE")));
+		assertEquals(401, callAs(other, token, "GET", "/users", null).statusCode());
 	}
 }

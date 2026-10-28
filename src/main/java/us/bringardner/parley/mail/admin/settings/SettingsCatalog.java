@@ -75,11 +75,14 @@ public final class SettingsCatalog {
 	public static final String QUEUE_DOMAINS = QUEUE_PREFIX + "domains";
 	public static final String QUEUE_ALIASES = QUEUE_PREFIX + "aliases";
 	public static final String QUEUE_DKIM_KEYS = QUEUE_PREFIX + "dkim.keys";
+	public static final String QUEUE_DKIM_SHARED = QUEUE_PREFIX + "dkim.shared";
 	/** Days of history the queue keeps (parley-smtp's QueueHistory). */
 	public static final String QUEUE_HISTORY_DAYS = QUEUE_PREFIX + "historyDays";
 	public static final String QUEUE_HISTORY = QUEUE_PREFIX + "history";
 	public static final String QUEUE_HISTORY_DIRECTORY = QUEUE_PREFIX + "historyDirectory";
 	public static final String ADMIN_AUTO_START = "parley.mail.admin.autoStart";
+	/** The primary domain: its administrators manage every domain, other administrators only their own. */
+	public static final String ADMIN_PRIMARY_DOMAIN = "parley.mail.admin.primaryDomain";
 	/** One or more JMX service URLs of launcher processes; empty: the servers run in this application. */
 	public static final String ADMIN_JMX_URL = "parley.mail.admin.jmxUrl";
 	public static final String ADMIN_JMX_USER = "parley.mail.admin.jmxUser";
@@ -87,6 +90,10 @@ public final class SettingsCatalog {
 	/** A file whose first line is the JMX password (the parley-servers package makes it): used when the password isn't set */
 	public static final String ADMIN_JMX_PASSWORD_FILE = "parley.mail.admin.jmxPasswordFile";
 	public static final String ADMIN_LOG_FILES = "parley.mail.admin.logFiles";
+	/** The TSIG key file (name algorithm secret per line) the DNS page signs its updates with */
+	public static final String ADMIN_DNS_KEY_FILE = "parley.mail.admin.dnsKeyFile";
+	/** The address the DNS page sends updates to, when it isn't the host of the DNS server's JMX address */
+	public static final String ADMIN_DNS_HOST = "parley.mail.admin.dnsHost";
 	public static final String ACL_RELOAD_SECONDS = "parley.net.acl.reloadSeconds";
 	public static final String ADMIN_LOG_BUFFER = "parley.mail.admin.logBufferSize";
 	public static final String ADMIN_LOG_FILE_SIZE = "parley.mail.admin.logFileSize";
@@ -164,6 +171,8 @@ public final class SettingsCatalog {
 		add(g, QUEUE_HISTORY_DIRECTORY, "SMTP history folder", PATH, "<mail root>/.smtp-history", "Where the queue writes it.");
 		add(g, QUEUE_HISTORY_DAYS, "Keep SMTP history (days)", NUMBER, "30", "Older history files are deleted; 0 keeps every day.");
 		add(g, QUEUE_DKIM_KEYS, "DKIM keys", LIST, null, "Signing keys, domain:selector:keyfile, comma separated. Made on the Domains page.");
+		add(g, QUEUE_DKIM_SHARED, "Shared DKIM key", TEXT, null,
+				"The domain whose key signs mail from every domain without one of its own. Kept as the primary domain while it has a key.");
 		add(g, QUEUE_PREFIX + "dkim.headers", "DKIM signed fields", LIST, "From, To, Cc, Subject, Date, Message-ID, MIME and List-* fields", "Fields to sign, comma separated (From is required).");
 		add(g, QUEUE_PREFIX + "arc.seal", "ARC seal", BOOLEAN, "true", "Seal received mail that is forwarded (when a DKIM key fits the seal domain).");
 		add(g, QUEUE_PREFIX + "arc.domain", "ARC domain", TEXT, null, "The d= of our ARC seals; none: no seal.");
@@ -222,6 +231,14 @@ public final class SettingsCatalog {
 		add(g, ADMIN_JMX_PASSWORD, "JMX password", SECRET, null, "Its password.");
 		add(g, ADMIN_JMX_PASSWORD_FILE, "JMX password file", PATH, null,
 				"A file whose first line is the password (the parley-servers package makes /etc/parley/jmx/admin.password); used when the password above isn't set.");
+		add(g, ADMIN_DNS_KEY_FILE, "DNS key file", PATH, null,
+				"A TSIG key file (one 'name algorithm secret' per line) with a key the DNS server lets send updates (its parley.dns.updateKeys): "
+						+ "the DNS page changes records with it. The parley-servers package makes /etc/parley/dns/admin.key.");
+		add(g, ADMIN_DNS_HOST, "DNS server address", TEXT, "the host of its JMX address",
+				"Where the DNS page sends record changes, when the DNS server doesn't listen on the host of its JMX address.");
+		add(g, ADMIN_PRIMARY_DOMAIN, "Primary domain", TEXT, "the first administrator's domain",
+				"Administrators of this domain manage every domain; an administrator of another domain manages only that domain's users, aliases and DKIM keys, and the queue and history of its mail. "
+						+ "Set when the first administrator is made (or, if empty, from the first administrator in the users file).");
 		add(g, ADMIN_AUTO_START, "Start services with the application", BOOLEAN, "true",
 				"When the servers run in this application: start every service whose port isn't 0 when the web application starts.");
 		add(g, ADMIN_LOG_BUFFER, "Log entries kept in memory", NUMBER, "5000", "The Logs page shows these.");

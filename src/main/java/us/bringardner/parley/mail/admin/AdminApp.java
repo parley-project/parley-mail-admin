@@ -62,6 +62,7 @@ public final class AdminApp implements AutoCloseable {
 	private final HistoryStore history;
 	private final LogFiles logFiles;
 	private final MailSuite suite;
+	private final us.bringardner.parley.mail.admin.dns.DnsAdmin dns;
 	private final ScheduledExecutorService timer;
 	private final long startedAt = System.currentTimeMillis();
 	/** The last history folder the SMTP queue named (it's known only while SMTP runs). */
@@ -105,6 +106,7 @@ public final class AdminApp implements AutoCloseable {
 		history = new HistoryStore(this::historyDirectory, json);
 		logFiles = new LogFiles(this::logFileSources);
 		suite = new MailSuite(settings);
+		dns = new us.bringardner.parley.mail.admin.dns.DnsAdmin(suite, settings);
 		suite.setServerCreated(this::applyLogLevels);
 		users.addListener(this::usersChanged);
 		settings.addListener(this::settingsChanged);
@@ -115,6 +117,21 @@ public final class AdminApp implements AutoCloseable {
 			return t;
 		});
 		timer.scheduleWithFixedDelay(this::checkFiles, 15, 15, TimeUnit.SECONDS);
+		shareKeyOfPrimary();
+	}
+
+	/**
+	 * Keep the shared DKIM key the primary domain's (DomainService.shareKeyOf): every domain without
+	 * a key of its own signs with it.
+	 */
+	private void shareKeyOfPrimary() {
+		try {
+			if (settings.getQueueFile() != null && domains.shareKeyOf(getPrimaryDomain())) {
+				LOG.log(System.Logger.Level.INFO, "The shared DKIM key is now " + (domains.sharedDomain() == null ? "none" : domains.sharedDomain() + "'s"));
+			}
+		} catch (IOException | RuntimeException e) {
+			LOG.log(System.Logger.Level.WARNING, "Can't set the shared DKIM key: " + e.getMessage());
+		}
 	}
 
 	/**
@@ -218,6 +235,10 @@ public final class AdminApp implements AutoCloseable {
 				if (!f.equals(aliases.getFile())) {
 					aliases.setFile(f);
 				}
+			}
+			if (changed.contains(SettingsCatalog.ADMIN_PRIMARY_DOMAIN) || changed.contains(SettingsCatalog.QUEUE_DKIM_KEYS)
+					|| changed.contains(SettingsCatalog.QUEUE_DKIM_SHARED) || changed.contains(SettingsCatalog.QUEUE_DOMAINS)) {
+				shareKeyOfPrimary();
 			}
 			if (changed.contains(SettingsCatalog.ADMIN_LOG_BUFFER)) {
 				logs.setCapacity((int) settings.getLong(SettingsCatalog.ADMIN_LOG_BUFFER, 5000));
@@ -421,6 +442,40 @@ public final class AdminApp implements AutoCloseable {
 		return logs;
 	}
 
+	/**
+	 * The primary domain: the setting, or, when it is empty, the domain of the first administrator
+	 * in the users file, which is then recorded in the setting (once, so it stays the same when
+	 * administrators are added or removed). Null if there is neither.
+	 */
+	public synchronized String getPrimaryDomain() {
+		String d = settings.get(SettingsCatalog.ADMIN_PRIMARY_DOMAIN);
+		if (!isBlank(d)) {
+			return d.trim().toLowerCase(java.util.Locale.ROOT);
+		}
+		for (us.bringardner.parley.mail.admin.users.UserRecord u : users.list()) {
+			if (u.hasPermission(us.bringardner.parley.mail.admin.users.UserRecord.ADMIN) && u.getDomain() != null && !u.getDomain().isEmpty()) {
+				setPrimaryDomain(u.getDomain());
+				return u.getDomain();
+			}
+		}
+		return null;
+	}
+
+	/** Record the primary domain (when the first administrator is made). */
+	public synchronized void setPrimaryDomain(String domain) {
+		try {
+			settings.set(SettingsCatalog.ADMIN_PRIMARY_DOMAIN, domain); // the shared DKIM key follows (settingsChanged)
+			LOG.log(System.Logger.Level.INFO, "The primary domain is " + domain + ": its administrators manage every domain");
+		} catch (IOException e) {
+			LOG.log(System.Logger.Level.WARNING, "Can't record the primary domain " + domain + ": " + e.getMessage());
+		}
+	}
+
+	/** What the user may manage, or null if the user administers no domain. */
+	public us.bringardner.parley.mail.admin.users.AdminScope scopeOf(String user) {
+		return us.bringardner.parley.mail.admin.users.AdminScope.of(user == null ? null : users.get(user), getPrimaryDomain());
+	}
+
 	public UserStore getUsers() {
 		return users;
 	}
@@ -439,6 +494,11 @@ public final class AdminApp implements AutoCloseable {
 
 	public LogFiles getLogFiles() {
 		return logFiles;
+	}
+
+	/** The DNS page's work: the Parley DNS server a launcher runs, and the domains' zones */
+	public us.bringardner.parley.mail.admin.dns.DnsAdmin getDns() {
+		return dns;
 	}
 
 	public MailSuite getSuite() {

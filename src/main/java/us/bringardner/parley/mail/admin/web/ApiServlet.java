@@ -31,6 +31,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import us.bringardner.parley.mail.admin.AdminApp;
 import us.bringardner.parley.mail.admin.domains.DomainService;
+import us.bringardner.parley.mail.admin.users.AdminScope;
 import us.bringardner.parley.mail.admin.history.HistoryStore;
 import us.bringardner.parley.mail.admin.log.LogBuffer;
 import us.bringardner.parley.mail.admin.log.LogFiles;
@@ -85,11 +86,16 @@ public class ApiServlet extends HttpServlet {
 			}
 			String user = AdminFilter.user(req);
 			if (user != null) {
-				UserRecord u = app.getUsers().get(user);
-				if (u == null || !u.hasPermission(UserRecord.ADMIN)) {
+				AdminScope scope = app.scopeOf(user);
+				if (scope == null) {
 					AdminFilter.logout(req);
 					if (!isOpen(path)) {
 						throw new ApiException(401, "Please log in");
+					}
+				} else {
+					req.setAttribute(SCOPE, scope);
+					if (!scope.isPrimary() && !isOpen(path) && !isDomainCall(req.getMethod(), path)) {
+						throw new ApiException(403, "Only an administrator of the primary domain can do this");
 					}
 				}
 			}
@@ -105,6 +111,111 @@ public class ApiServlet extends HttpServlet {
 		} catch (Exception e) {
 			LOG.log(System.Logger.Level.ERROR, req.getMethod() + " " + path + " failed", e);
 			error(res, 500, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+		}
+	}
+
+	/** The request attribute holding the logged-in administrator's {@link AdminScope}. */
+	static final String SCOPE = "parley.admin.scope";
+
+	/**
+	 * The calls an administrator of a domain other than the primary may make: its domain's users,
+	 * aliases, DKIM keys and DNS zone, and the queue and history of its mail. Everything else (services,
+	 * settings, the store, logs, adding or removing domains, flushing the queue) is the primary
+	 * domain's administrators' only.
+	 */
+	private static final String[][] DOMAIN_CALLS = {
+			{ "GET", "/domains" }, { "POST", "/domains/[^/]+/dkim" },
+			{ "GET", "/users" }, { "POST", "/users" }, { "PUT", "/users/[^/]+" }, { "DELETE", "/users/[^/]+" }, { "GET", "/users/[^/]+/usage" },
+			{ "GET", "/aliases" }, { "PUT", "/aliases/[^/]+" }, { "DELETE", "/aliases/[^/]+" },
+			{ "GET", "/queue" }, { "POST", "/queue/[^/]+/retry" }, { "DELETE", "/queue/[^/]+" }, { "GET", "/queue/[^/]+/message" },
+			{ "GET", "/history" }, { "GET", "/history/[^/]+" },
+			{ "GET", "/modules" }, { "GET", "/dns/zones/[^/]+" }, { "POST", "/dns/zones/[^/]+" }, { "PUT", "/dns/zones/[^/]+/records" },
+			{ "POST", "/dns/zones/[^/]+/delete" }, { "POST", "/dns/zones/[^/]+/publish" } };
+
+	/** The type-specific pages that apply: the bean types the launchers have, and the pages for them */
+	private Map<String, Object> modules() {
+		List<String> types = app.getSuite().types();
+		List<String> modules = new ArrayList<>();
+		if (types.contains(us.bringardner.parley.mail.admin.dns.DnsAdmin.TYPE)) {
+			modules.add("dns");
+		}
+		if (types.contains("MailQueue")) {
+			modules.add("queue");
+		}
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("types", types);
+		m.put("modules", modules);
+		return m;
+	}
+
+	/** The domain of a DNS call, which must be the administrator's */
+	private String dnsDomain(Router.Request q) {
+		String d = q.param(0).trim().toLowerCase(Locale.ROOT).replaceAll("\\.+$", "");
+		if (!scope(q).allowsDomain(d)) {
+			throw new ApiException(403, "The domain " + d + " isn't yours");
+		}
+		return d;
+	}
+
+	private static long ttl(Router.Request q) throws IOException {
+		String t = q.text("ttl");
+		if (t == null || t.trim().isEmpty()) {
+			return 3600;
+		}
+		try {
+			long v = Long.parseLong(t.trim());
+			if (v < 0 || v > 0x7fffffffL) {
+				throw new NumberFormatException();
+			}
+			return v;
+		} catch (NumberFormatException e) {
+			throw ApiException.badRequest("ttl must be a number of seconds");
+		}
+	}
+
+	/** The mail records the Domains page recommends for a local domain (none for another domain) */
+	@SuppressWarnings("unchecked")
+	private List<Map<String, String>> mailRecords(String d) {
+		if (!app.getDomains().isLocal(d)) {
+			return new ArrayList<>();
+		}
+		Object dns = app.getDomains().describe(d).get("dns");
+		return dns instanceof List ? (List<Map<String, String>>) dns : new ArrayList<>();
+	}
+
+	private Map<String, Object> dnsZone(Router.Request q) {
+		String d = dnsDomain(q);
+		return app.getDns().zone(d, app.getPrimaryDomain(), mailRecords(d));
+	}
+
+	static boolean isDomainCall(String method, String path) {
+		for (String[] c : DOMAIN_CALLS) {
+			if (c[0].equals(method) && path.matches(c[1])) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** The logged-in administrator's scope (set by service for every call but the open ones). */
+	private static AdminScope scope(Router.Request q) {
+		AdminScope s = (AdminScope) q.http.getAttribute(SCOPE);
+		if (s == null) {
+			throw new ApiException(401, "Please log in");
+		}
+		return s;
+	}
+
+	/** Refuse an address outside the administrator's domains. */
+	private static void requireAddress(Router.Request q, String address, String what) {
+		if (!scope(q).allowsAddress(address)) {
+			throw new ApiException(403, what + " " + address + " isn't in your domain");
+		}
+	}
+
+	private static void requireMaildrop(Router.Request q, String maildrop) {
+		if (!scope(q).allowsMaildrop(maildrop)) {
+			throw new ApiException(403, "A maildrop must be under your domain's folder (" + scope(q).getDomain() + "/...)");
 		}
 	}
 
@@ -171,61 +282,129 @@ public class ApiServlet extends HttpServlet {
 		r.post("/services/{id}/{action}", this::serviceAction);
 		r.get("/services/{id}/connections", q -> app.getSuite().connections(service(q.param(0))));
 
+		// any Parley server: what parley-net's launchers show over JMX, whatever the server's type
+		r.get("/servers", q -> app.getSuite().servers());
+		r.post("/servers/{id}/{action}", q -> {
+			LOG.log(System.Logger.Level.INFO, q.user() + ": " + q.param(1) + " " + q.param(0));
+			app.getSuite().serverAction(q.param(0), q.param(1));
+			return app.getSuite().servers();
+		});
+		r.get("/servers/{id}/connections", q -> app.getSuite().serverConnections(q.param(0)));
+		// the type-specific pages that apply (a page appears where its server's bean is)
+		r.get("/modules", q -> modules());
+
+		// DNS: the Parley DNS server's zones; each domain inherits the primary domain's records
+		r.get("/dns", q -> app.getDns().status());
+		r.post("/dns/reload", q -> {
+			LOG.log(System.Logger.Level.INFO, q.user() + ": reload the DNS zones");
+			app.getDns().reload();
+			return app.getDns().status();
+		});
+		r.get("/dns/zones/{domain}", q -> dnsZone(q));
+		r.post("/dns/zones/{domain}", q -> {
+			String d = dnsDomain(q);
+			LOG.log(System.Logger.Level.INFO, q.user() + ": make the DNS zone of " + d);
+			app.getDns().createZone(d, app.getPrimaryDomain());
+			return dnsZone(q);
+		});
+		r.put("/dns/zones/{domain}/records", q -> {
+			String d = dnsDomain(q);
+			String name = q.text("name");
+			String type = q.requiredText("type");
+			List<String> values = q.list("values");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " " + name + " " + type + " = " + values);
+			app.getDns().setRecords(d, name, type, ttl(q), values);
+			return dnsZone(q);
+		});
+		r.post("/dns/zones/{domain}/delete", q -> {
+			String d = dnsDomain(q);
+			String name = q.text("name");
+			String type = q.requiredText("type");
+			String data = q.requiredText("data");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " delete " + name + " " + type + " " + data);
+			app.getDns().deleteRecord(d, name, type, data);
+			return dnsZone(q);
+		});
+		r.post("/dns/zones/{domain}/publish", q -> {
+			String d = dnsDomain(q);
+			List<Map<String, String>> changed = app.getDns().publishMail(d, mailRecords(d));
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " published the mail records " + changed);
+			Map<String, Object> m = dnsZone(q);
+			m.put("published", changed);
+			return m;
+		});
+
 		// settings
 		r.get("/settings", q -> settings());
 		r.put("/settings", this::updateSettings);
 
 		// domains
-		r.get("/domains", q -> domains());
+		r.get("/domains", q -> domains(q));
 		r.post("/domains", q -> {
 			app.getDomains().add(q.requiredText("domain"));
-			return domains();
+			useNow(true);
+			return domains(q);
 		});
 		r.delete("/domains/{domain}", q -> {
 			app.getDomains().remove(q.param(0));
-			return domains();
+			useNow(true);
+			return domains(q);
 		});
 		r.post("/domains/{domain}/dkim", q -> {
-			app.getDomains().generateDkim(q.param(0), q.requiredText("selector"), q.text("type"));
-			return app.getDomains().describe(q.param(0));
+			if (!scope(q).allowsDomain(q.param(0))) {
+				throw new ApiException(403, "The domain " + q.param(0) + " isn't yours");
+			}
+			DomainService.DkimEntry key = app.getDomains().generateDkim(q.param(0), q.requiredText("selector"), q.text("type"));
+			ownKeyRecord(key);
+			useNow(true);
+			return withDns(app.getDomains().describe(q.param(0)), app.getDns().servedZones());
 		});
 
 		// users
-		r.get("/users", q -> users());
+		r.get("/users", q -> users(q));
 		r.post("/users", q -> {
+			requireAddress(q, q.requiredText("name"), "The user");
+			requireMaildrop(q, q.text("maildrop"));
 			app.getUsers().add(q.requiredText("name"), required(q.password("password"), "password"), permissions(q.list("permissions")),
 					q.text("maildrop"));
 			LOG.log(System.Logger.Level.INFO, q.user() + " added the user " + q.text("name"));
-			return users();
+			return users(q);
 		});
 		r.put("/users/{name}", q -> {
+			requireAddress(q, q.param(0), "The user");
+			requireMaildrop(q, q.text("maildrop"));
 			List<String> perms = q.list("permissions");
 			app.getUsers().update(q.param(0), q.password("password"), perms == null ? null : permissions(perms), q.text("maildrop"));
 			LOG.log(System.Logger.Level.INFO, q.user() + " changed the user " + q.param(0));
-			return users();
+			return users(q);
 		});
 		r.delete("/users/{name}", q -> {
+			requireAddress(q, q.param(0), "The user");
 			if (q.param(0).equalsIgnoreCase(q.user())) {
 				throw ApiException.badRequest("You can't delete yourself");
 			}
 			app.getUsers().delete(q.param(0));
 			LOG.log(System.Logger.Level.INFO, q.user() + " deleted the user " + q.param(0));
-			return users();
+			return users(q);
 		});
 		r.get("/users/{name}/usage", this::usage);
 
 		// aliases
-		r.get("/aliases", q -> aliases());
+		r.get("/aliases", q -> aliases(q));
 		r.put("/aliases/{name}", q -> {
+			requireAddress(q, q.param(0), "The alias");
 			app.getAliases().put(q.param(0), required(q.list("members"), "members"));
 			app.queueNamesAliases();
-			return aliases();
+			useNow(false);
+			return aliases(q);
 		});
 		r.delete("/aliases/{name}", q -> {
+			requireAddress(q, q.param(0), "The alias");
 			if (!app.getAliases().delete(q.param(0))) {
 				throw ApiException.notFound("The alias " + q.param(0));
 			}
-			return aliases();
+			useNow(false);
+			return aliases(q);
 		});
 
 		// logs
@@ -256,30 +435,32 @@ public class ApiServlet extends HttpServlet {
 		});
 
 		// SMTP queue
-		r.get("/queue", q -> queue());
+		r.get("/queue", q -> queue(q));
 		r.post("/queue/flush", q -> {
 			requireQueue().flush();
 			LOG.log(System.Logger.Level.INFO, q.user() + " flushed the SMTP queue");
-			return queue();
+			return queue(q);
 		});
 		r.post("/queue/{id}/retry", q -> {
+			requireQueuedMessage(q, q.param(0));
 			if (!requireQueue().retry(q.param(0))) {
 				throw ApiException.notFound("The message " + q.param(0));
 			}
-			return queue();
+			return queue(q);
 		});
 		r.delete("/queue/{id}", q -> {
 			MailQueueMXBean mq = requireQueue();
-			if (mq.getMessage(q.param(0)) == null) {
-				throw ApiException.notFound("The message " + q.param(0));
-			}
+			requireQueuedMessage(q, q.param(0));
 			if (!mq.delete(q.param(0))) {
 				throw new ApiException(409, "The message is being delivered right now; try again in a moment");
 			}
 			LOG.log(System.Logger.Level.INFO, q.user() + " deleted " + q.param(0) + " from the SMTP queue");
-			return queue();
+			return queue(q);
 		});
 		r.get("/queue/{id}/message", q -> {
+			if (!scope(q).isPrimary()) {
+				requireQueuedMessage(q, q.param(0));
+			}
 			String text = app.readQueuedMessage(q.param(0));
 			if (text == null) {
 				throw ApiException.notFound("The message " + q.param(0));
@@ -293,8 +474,9 @@ public class ApiServlet extends HttpServlet {
 			LocalDate to = LocalDate.now();
 			LocalDate from = to.minusDays(Math.max(0, Math.min(HistoryStore.MAX_DAYS, q.queryLong("days", 30))));
 			List<Map<String, Object>> ret = new ArrayList<>();
+			AdminScope scope = scope(q);
 			for (Map<String, Object> m : app.getHistory().query(from, to, q.param(0), null, 10000)) {
-				if (q.param(0).equals(m.get("id"))) {
+				if (q.param(0).equals(m.get("id")) && isMine(scope, m)) {
 					ret.add(m);
 				}
 			}
@@ -330,9 +512,18 @@ public class ApiServlet extends HttpServlet {
 		m.put("authenticated", user != null);
 		m.put("user", user);
 		m.put("csrf", user == null ? null : AdminFilter.csrf(q.http));
+		AdminScope scope = user == null ? null : app.scopeOf(user);
+		m.put("primary", scope != null && scope.isPrimary());
+		m.put("adminDomain", scope == null ? null : scope.getDomain());
 		m.put("setupRequired", !app.getUsers().hasAdmin());
 		m.put("version", AdminApp.version());
-		m.put("domains", app.getDomains().list());
+		List<String> domains = new ArrayList<>();
+		for (String d : app.getDomains().list()) {
+			if (scope == null || scope.allowsDomain(d)) {
+				domains.add(d);
+			}
+		}
+		m.put("domains", domains);
 		return m;
 	}
 
@@ -350,7 +541,7 @@ public class ApiServlet extends HttpServlet {
 		String name = q.requiredText("user");
 		char[] password = q.password("password");
 		UserRecord u = app.getUsers().authenticate(name, password);
-		if (u == null || !u.hasPermission(UserRecord.ADMIN)) {
+		if (u == null || AdminScope.of(u, app.getPrimaryDomain()) == null) {
 			LOG.log(System.Logger.Level.WARNING, "Failed admin login for '" + printable(name) + "' from " + ip);
 			try {
 				Thread.sleep(500);
@@ -372,6 +563,53 @@ public class ApiServlet extends HttpServlet {
 		return t.length() > 100 ? t.substring(0, 100) + "..." : t;
 	}
 
+	/**
+	 * A domain's own DKIM key goes in its own zone when Parley DNS serves the domain: a record the
+	 * primary domain's zone doesn't give it, so the zone gets a file (the primary's key is the shared
+	 * one, in its own zone, inherited by the others).
+	 *
+	 * @throws ApiException if DNS refused it: the key is made, and its record is on the DNS records list
+	 */
+	private void ownKeyRecord(DomainService.DkimEntry key) {
+		if (app.getDns().server() == null || !app.getDns().servedZones().contains(key.domain)) {
+			return;
+		}
+		String txt = app.getDomains().dkimRecord(key);
+		try {
+			app.getDns().setRecords(key.domain, key.selector + "._domainkey", "TXT", 3600, java.util.Collections.singletonList(txt));
+		} catch (Exception e) {
+			throw new ApiException(500, "The key is made, but Parley DNS refused its record (" + MailSuite.message(e)
+					+ "): add it on the DNS page");
+		}
+	}
+
+	/**
+	 * The running servers use a domain, alias or DKIM change at once, with no restart: the SMTP servers
+	 * read their queue's settings again and, for a domain or DKIM change, the Parley DNS server (when
+	 * one is managed here) its zones, so a mail domain and its DKIM record are served now.
+	 *
+	 * @throws ApiException if one couldn't: the change is saved, and a restart uses it
+	 */
+	private void useNow(boolean dns) {
+		List<String> errors = new ArrayList<>();
+		try {
+			app.getSuite().reloadQueue();
+		} catch (IOException | RuntimeException e) {
+			errors.add("SMTP: " + MailSuite.message(e));
+		}
+		if (dns && app.getDns().server() != null) {
+			try {
+				app.getDns().reload();
+			} catch (Exception e) {
+				errors.add("DNS: " + MailSuite.message(e));
+			}
+		}
+		if (!errors.isEmpty()) {
+			LOG.log(System.Logger.Level.ERROR, "A change was saved but the running servers couldn't use it: " + String.join("; ", errors));
+			throw new ApiException(500, "Saved, but the running servers couldn't use it yet (a restart will): " + String.join("; ", errors));
+		}
+	}
+
 	/** Make the first administrator (only while there is none). */
 	private Object setup(Router.Request q) throws IOException {
 		synchronized (this) {
@@ -382,6 +620,9 @@ public class ApiServlet extends HttpServlet {
 			char[] password = required(q.password("password"), "password");
 			// the first administrator's domain becomes a local domain (there's no page to add it before logging in)
 			int at = name.lastIndexOf('@');
+			if (at <= 0 || at == name.length() - 1) {
+				throw ApiException.badRequest("The first administrator's name needs a domain, like admin@example.com: that domain becomes the primary domain");
+			}
 			boolean added = false;
 			if (at > 0 && !app.getDomains().isLocal(name.substring(at + 1))) {
 				app.getDomains().add(name.substring(at + 1));
@@ -400,6 +641,7 @@ public class ApiServlet extends HttpServlet {
 				LOG.log(System.Logger.Level.INFO, "Added the local domain " + name.substring(at + 1) + " for the first administrator");
 			}
 			UserRecord u = app.getUsers().get(name);
+			app.setPrimaryDomain(u.getDomain());
 			AdminFilter.login(q.http, u.getName());
 			LOG.log(System.Logger.Level.INFO, "Created the first administrator " + u.getName() + " from " + q.http.getRemoteAddr());
 		}
@@ -645,6 +887,9 @@ public class ApiServlet extends HttpServlet {
 		}
 		Map<String, String> map = new LinkedHashMap<>();
 		changes.fields().forEachRemaining(e -> map.put(e.getKey(), e.getValue().isNull() ? null : e.getValue().asText()));
+		if (map.containsKey(SettingsCatalog.ADMIN_PRIMARY_DOMAIN)) {
+			map.put(SettingsCatalog.ADMIN_PRIMARY_DOMAIN, checkPrimaryDomain(map.get(SettingsCatalog.ADMIN_PRIMARY_DOMAIN)));
+		}
 		Set<String> changed = app.getSettings().update(map);
 		LOG.log(System.Logger.Level.INFO, q.user() + " changed the settings " + changed);
 		Map<String, Object> m = new LinkedHashMap<>();
@@ -659,20 +904,58 @@ public class ApiServlet extends HttpServlet {
 		return m;
 	}
 
+	/**
+	 * A new primary domain (only the current primary domain's administrators reach the Settings): a
+	 * local domain with an administrator, so someone can always manage every domain and change it again.
+	 */
+	private String checkPrimaryDomain(String value) {
+		String d = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+		if (d.isEmpty()) {
+			throw ApiException.badRequest("The primary domain can't be empty: its administrators manage every domain");
+		}
+		if (!app.getDomains().isLocal(d)) {
+			throw ApiException.badRequest("The primary domain must be a local domain (Domains page): " + d + " isn't");
+		}
+		for (UserRecord u : app.getUsers().list()) {
+			if (d.equals(u.getDomain()) && u.hasPermission(UserRecord.ADMIN)) {
+				return d;
+			}
+		}
+		throw ApiException.badRequest("The primary domain needs an administrator: " + d + " has no user with ADMIN");
+	}
+
 	// ------------------------------------------------------------------ domains, users, aliases
 
-	private Object domains() {
+	private Object domains(Router.Request q) {
+		AdminScope scope = scope(q);
 		List<Object> list = new ArrayList<>();
 		DomainService d = app.getDomains();
+		java.util.Set<String> served = app.getDns().servedZones();
 		for (String domain : d.list()) {
-			list.add(d.describe(domain));
+			if (!scope.allowsDomain(domain)) {
+				continue;
+			}
+			Map<String, Object> m = withDns(d.describe(domain), served);
+			m.put("primaryDomain", domain.equals(app.getPrimaryDomain()));
+			list.add(m);
 		}
 		return list;
 	}
 
-	private Object users() {
+	/** A domain's description, with whether the Parley DNS server serves it (dnsServed) */
+	static Map<String, Object> withDns(Map<String, Object> m, java.util.Set<String> served) {
+		Object d = m.get("domain");
+		m.put("dnsServed", d != null && served.contains(String.valueOf(d).toLowerCase(java.util.Locale.ROOT)));
+		return m;
+	}
+
+	private Object users(Router.Request q) {
+		AdminScope scope = scope(q);
 		List<Object> list = new ArrayList<>();
 		for (UserRecord u : app.getUsers().list()) {
+			if (!scope.allowsDomain(u.getDomain())) {
+				continue;
+			}
 			Map<String, Object> m = new LinkedHashMap<>();
 			m.put("name", u.getName());
 			m.put("domain", u.getDomain());
@@ -686,6 +969,7 @@ public class ApiServlet extends HttpServlet {
 	}
 
 	private Object usage(Router.Request q) throws IOException {
+		requireAddress(q, q.param(0), "The user");
 		UserRecord u = app.getUsers().get(q.param(0));
 		if (u == null) {
 			throw ApiException.notFound("The user " + q.param(0));
@@ -698,9 +982,13 @@ public class ApiServlet extends HttpServlet {
 		return m;
 	}
 
-	private Object aliases() {
+	private Object aliases(Router.Request q) {
+		AdminScope scope = scope(q);
 		List<Object> list = new ArrayList<>();
 		for (Map.Entry<String, List<String>> e : app.getAliases().list().entrySet()) {
+			if (!scope.allowsAddress(e.getKey())) {
+				continue;
+			}
 			Map<String, Object> m = new LinkedHashMap<>();
 			m.put("name", e.getKey());
 			int at = e.getKey().lastIndexOf('@');
@@ -748,16 +1036,69 @@ public class ApiServlet extends HttpServlet {
 		return q;
 	}
 
-	private Object queue() {
+	/** Refuse a queued message that is neither from nor to the administrator's domain (404 if it isn't queued). */
+	private void requireQueuedMessage(Router.Request q, String id) {
+		QueuedMessageInfo e;
+		try {
+			e = requireQueue().getMessage(id);
+		} catch (RuntimeException ex) {
+			throw new ApiException(503, "Can't read the SMTP queue: " + MailSuite.message(ex));
+		}
+		if (e == null || !isMine(scope(q), e)) {
+			throw ApiException.notFound("The message " + id);
+		}
+	}
+
+	/** True if the queued message is from or to one of the administrator's domains. */
+	private static boolean isMine(AdminScope scope, QueuedMessageInfo e) {
+		if (scope.isPrimary()) {
+			return true;
+		}
+		List<String> addresses = new ArrayList<>();
+		addresses.add(e.getFrom());
+		for (QueuedRecipientInfo r : e.getRecipients()) {
+			addresses.add(r.getAddress());
+		}
+		return scope.allowsAny(addresses);
+	}
+
+	/** True if the history event is about mail from or to one of the administrator's domains. */
+	@SuppressWarnings("unchecked")
+	static boolean isMine(AdminScope scope, Map<String, Object> event) {
+		if (scope.isPrimary()) {
+			return true;
+		}
+		List<String> addresses = new ArrayList<>();
+		for (String k : new String[] { "from", "recipient" }) {
+			Object v = event.get(k);
+			if (v != null) {
+				addresses.add(v.toString());
+			}
+		}
+		Object list = event.get("recipients");
+		if (list instanceof List) {
+			for (Object o : (List<Object>) list) {
+				if (o != null) {
+					addresses.add(o.toString());
+				}
+			}
+		}
+		return scope.allowsAny(addresses);
+	}
+
+	private Object queue(Router.Request q) {
+		AdminScope scope = scope(q);
 		Map<String, Object> m = new LinkedHashMap<>();
-		MailQueueMXBean q = app.getSuite().getQueue();
+		MailQueueMXBean mq = app.getSuite().getQueue();
 		List<Map<String, Object>> list = new ArrayList<>();
 		boolean running = false;
-		if (q != null) {
+		if (mq != null) {
 			try {
-				running = q.isRunning();
-				for (QueuedMessageInfo e : q.getMessages()) {
-					list.add(entry(e));
+				running = mq.isRunning();
+				for (QueuedMessageInfo e : mq.getMessages()) {
+					if (isMine(scope, e)) {
+						list.add(entry(e));
+					}
 				}
 			} catch (RuntimeException e) {
 				throw new ApiException(503, "Can't read the SMTP queue: " + MailSuite.message(e));
@@ -814,6 +1155,20 @@ public class ApiServlet extends HttpServlet {
 			types = new HashSet<>(Arrays.asList(t.toUpperCase(Locale.ROOT).split("\\s*,\\s*")));
 		}
 		int limit = (int) Math.max(1, Math.min(10000, q.queryLong("limit", 1000)));
-		return app.getHistory().query(from, to, q.query("q", null), types, limit);
+		AdminScope scope = scope(q);
+		if (scope.isPrimary()) {
+			return app.getHistory().query(from, to, q.query("q", null), types, limit);
+		}
+		// another domain's administrator: only events about its mail, from the most the store reads
+		List<Map<String, Object>> ret = new ArrayList<>();
+		for (Map<String, Object> m : app.getHistory().query(from, to, q.query("q", null), types, 10000)) {
+			if (ret.size() >= limit) {
+				break;
+			}
+			if (isMine(scope, m)) {
+				ret.add(m);
+			}
+		}
+		return ret;
 	}
 }
