@@ -717,6 +717,237 @@ public final class MailSuite implements AutoCloseable {
 		return ret;
 	}
 
+	// ------------------------------------------------------------------ any Parley server
+
+	/**
+	 * Every server the launchers reached run, whatever its type: the mail suite's listeners, DNS, FTP,
+	 * SSH, or a server this application knows nothing about. Each is a {@code type=Server} bean of
+	 * parley-net's launcher: its id, description, state, port, when it started, why it failed, its
+	 * connections, where it runs (the JMX address, or this application), the launcher's name, and
+	 * the other beans it has (their types, e.g. Dns or MailQueue), which the type-specific pages use.
+	 * A launcher that can't be read is listed with its error.
+	 */
+	public synchronized List<Map<String, Object>> servers() {
+		connect();
+		List<Map<String, Object>> ret = new ArrayList<>();
+		for (Target t : targets) {
+			if (t.broken) {
+				continue;
+			}
+			try {
+				for (ObjectName ln : t.mbeans.queryNames(name("Launcher", "*"), null)) {
+					String launcher = ln.getKeyProperty("name");
+					ParleyLauncherMBean l = t.local != null ? t.local : JMX.newMBeanProxy(t.mbeans, ln, ParleyLauncherMBean.class);
+					for (String id : l.getServers()) {
+						ParleyServerMBean b = t.server(id);
+						if (b != null) {
+							ret.add(describe(id, b, t, launcher));
+						}
+					}
+				}
+			} catch (Exception e) {
+				broken(t, e);
+				Map<String, Object> m = new LinkedHashMap<>();
+				m.put("where", t.where());
+				m.put("error", message(e));
+				ret.add(m);
+			}
+		}
+		return ret;
+	}
+
+	private Map<String, Object> describe(String id, ParleyServerMBean b, Target t, String launcher) throws IOException, javax.management.JMException {
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("id", id);
+		m.put("where", t.where());
+		m.put("local", t.local != null);
+		m.put("launcher", launcher);
+		ServiceId known = ServiceId.parse(id);
+		m.put("mail", known != null);
+		String state = b.getState();
+		m.put("state", state);
+		m.put("description", b.getDescription());
+		m.put("port", b.getPort());
+		m.put("started", "RUNNING".equals(state) ? b.getStarted() : 0);
+		m.put("connections", "RUNNING".equals(state) ? Math.max(0, b.getConnections()) : 0);
+		m.put("error", b.getError());
+		m.put("restartNeeded", known != null && "RUNNING".equals(state) && isRestartNeeded(known));
+		List<String> types = new ArrayList<>();
+		for (ObjectName n : t.mbeans.queryNames(new ObjectName(ServerContext.JMX_DOMAIN + ":name=" + id + ",*"), null)) {
+			String type = n.getKeyProperty("type");
+			if (type != null && !type.equals("Server") && !type.equals("Launcher") && !types.contains(type)) {
+				types.add(type);
+			}
+		}
+		java.util.Collections.sort(types);
+		m.put("types", types);
+		return m;
+	}
+
+	/** A server's bean and where it runs, by its id (any server), or null. */
+	private Object[] findServer(String id) {
+		connect();
+		for (Target t : targets) {
+			if (t.broken) {
+				continue;
+			}
+			try {
+				ParleyServerMBean b = t.server(id);
+				if (b != null) {
+					return new Object[] { b, t };
+				}
+			} catch (Exception e) {
+				broken(t, e);
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Start, stop or restart any server by its id. A mail suite listener goes through
+	 * {@link #start(ServiceId)} and the others, so its restart bookkeeping is kept.
+	 * @throws IllegalArgumentException for another action
+	 * @throws IllegalStateException if no launcher reached runs it
+	 */
+	public synchronized void serverAction(String id, String action) throws IOException {
+		ServiceId known = ServiceId.parse(id);
+		if (known != null) {
+			switch (action) {
+			case "start": start(known); return;
+			case "stop": stop(known); return;
+			case "restart": restart(known); return;
+			default: throw new IllegalArgumentException("Unknown action " + action);
+			}
+		}
+		Object[] f = findServer(id);
+		if (f == null) {
+			throw new IllegalStateException(id + " isn't run by " + where() + (connectError != null ? " (" + connectError + ")" : ""));
+		}
+		ParleyServerMBean b = (ParleyServerMBean) f[0];
+		try {
+			switch (action) {
+			case "start": b.start(); break;
+			case "stop": b.stop(); break;
+			case "restart": b.restart(); break;
+			default: throw new IllegalArgumentException("Unknown action " + action);
+			}
+		} catch (IllegalArgumentException e) {
+			throw e;
+		} catch (Exception e) {
+			broken((Target) f[1], e);
+			throw new IOException(id + ": " + action + " failed: " + message(e), e);
+		}
+		if (!"stop".equals(action)) {
+			serverCreated.run();
+		}
+	}
+
+	/** The open connections of any server, as {@link #connections(ServiceId)} gives them. */
+	public synchronized List<Map<String, Object>> serverConnections(String id) {
+		ServiceId known = ServiceId.parse(id);
+		if (known != null) {
+			return connections(known);
+		}
+		List<Map<String, Object>> ret = new ArrayList<>();
+		Object[] f = findServer(id);
+		if (f == null) {
+			return ret;
+		}
+		ParleyConnection[] list;
+		try {
+			list = ((ParleyServerMBean) f[0]).getConnectionList();
+		} catch (RuntimeException e) {
+			broken((Target) f[1], e);
+			throw new IllegalStateException("Can't read the connections of " + id + ": " + message(e), e);
+		}
+		for (ParleyConnection c : list == null ? new ParleyConnection[0] : list) {
+			Map<String, Object> m = new LinkedHashMap<>();
+			m.put("remote", c.getRemote());
+			m.put("user", c.getUser());
+			m.put("tls", c.isSecure());
+			ret.add(m);
+		}
+		return ret;
+	}
+
+	/** A type-specific bean (e.g. Dns) found on a launcher, and the host it runs on. */
+	public static final class Typed<T> {
+		/** the proxy */
+		public final T bean;
+		/** its server's id (the bean's name) */
+		public final String server;
+		/** where it runs: the JMX address, or "this application" */
+		public final String where;
+		/** the host of the JMX address (a server's other ports are on it), or 127.0.0.1 for this application */
+		public final String host;
+
+		Typed(T bean, String server, String where, String host) {
+			this.bean = bean;
+			this.server = server;
+			this.where = where;
+			this.host = host;
+		}
+	}
+
+	/**
+	 * The first bean of this type ({@code us.bringardner.parley:type=TYPE,name=SERVER}) any launcher
+	 * reached has, as an MXBean proxy; null when none has one (its server isn't running, or isn't
+	 * run). This is how a page for one kind of server finds it, without this class knowing the kind.
+	 */
+	public synchronized <T> Typed<T> typed(String type, Class<T> mxbean) {
+		connect();
+		for (Target t : targets) {
+			if (t.broken) {
+				continue;
+			}
+			try {
+				for (ObjectName n : t.mbeans.queryNames(name(type, "*"), null)) {
+					return new Typed<>(JMX.newMXBeanProxy(t.mbeans, n, mxbean), n.getKeyProperty("name"), t.where(), hostOf(t.url));
+				}
+			} catch (Exception e) {
+				broken(t, e);
+			}
+		}
+		return null;
+	}
+
+	/** The bean types any launcher reached has (Dns, MailQueue, ...): which type-specific pages apply. */
+	public synchronized List<String> types() {
+		connect();
+		java.util.TreeSet<String> ret = new java.util.TreeSet<>();
+		for (Target t : targets) {
+			if (t.broken) {
+				continue;
+			}
+			try {
+				for (ObjectName n : t.mbeans.queryNames(new ObjectName(ServerContext.JMX_DOMAIN + ":*"), null)) {
+					String type = n.getKeyProperty("type");
+					if (type != null && !type.equals("Server") && !type.equals("Launcher")) {
+						ret.add(type);
+					}
+				}
+			} catch (Exception e) {
+				broken(t, e);
+			}
+		}
+		return new ArrayList<>(ret);
+	}
+
+	/** The host of a JMX service URL (service:jmx:rmi:///jndi/rmi://HOST:PORT/jmxrmi), or 127.0.0.1 */
+	static String hostOf(String url) {
+		if (url != null) {
+			java.util.regex.Matcher m = java.util.regex.Pattern.compile("//(\\[[^\\]]+\\]|[^:/\\[]+)(:\\d+)?/").matcher(url.replace("///", "/x/"));
+			String last = null;
+			while (m.find()) {
+				last = m.group(1);
+			}
+			if (last != null && !last.equals("x")) {
+				return last.startsWith("[") ? last.substring(1, last.length() - 1) : last;
+			}
+		}
+		return "127.0.0.1";
+	}
+
 	/** True if the service has a key store (its own or the TLS page's). */
 	public boolean tlsConfigured(ServiceId id) {
 		return notBlank(settings.getEffective(id.prefix + ".keyStoreName")) || notBlank(settings.getEffective(SettingsCatalog.TLS_KEY_STORE));

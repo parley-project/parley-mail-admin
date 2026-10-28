@@ -119,7 +119,7 @@ public class ApiServlet extends HttpServlet {
 
 	/**
 	 * The calls an administrator of a domain other than the primary may make: its domain's users,
-	 * aliases and DKIM keys, and the queue and history of its mail. Everything else (services,
+	 * aliases, DKIM keys and DNS zone, and the queue and history of its mail. Everything else (services,
 	 * settings, the store, logs, adding or removing domains, flushing the queue) is the primary
 	 * domain's administrators' only.
 	 */
@@ -128,7 +128,65 @@ public class ApiServlet extends HttpServlet {
 			{ "GET", "/users" }, { "POST", "/users" }, { "PUT", "/users/[^/]+" }, { "DELETE", "/users/[^/]+" }, { "GET", "/users/[^/]+/usage" },
 			{ "GET", "/aliases" }, { "PUT", "/aliases/[^/]+" }, { "DELETE", "/aliases/[^/]+" },
 			{ "GET", "/queue" }, { "POST", "/queue/[^/]+/retry" }, { "DELETE", "/queue/[^/]+" }, { "GET", "/queue/[^/]+/message" },
-			{ "GET", "/history" }, { "GET", "/history/[^/]+" } };
+			{ "GET", "/history" }, { "GET", "/history/[^/]+" },
+			{ "GET", "/modules" }, { "GET", "/dns/zones/[^/]+" }, { "POST", "/dns/zones/[^/]+" }, { "PUT", "/dns/zones/[^/]+/records" },
+			{ "POST", "/dns/zones/[^/]+/delete" }, { "POST", "/dns/zones/[^/]+/publish" } };
+
+	/** The type-specific pages that apply: the bean types the launchers have, and the pages for them */
+	private Map<String, Object> modules() {
+		List<String> types = app.getSuite().types();
+		List<String> modules = new ArrayList<>();
+		if (types.contains(us.bringardner.parley.mail.admin.dns.DnsAdmin.TYPE)) {
+			modules.add("dns");
+		}
+		if (types.contains("MailQueue")) {
+			modules.add("queue");
+		}
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("types", types);
+		m.put("modules", modules);
+		return m;
+	}
+
+	/** The domain of a DNS call, which must be the administrator's */
+	private String dnsDomain(Router.Request q) {
+		String d = q.param(0).trim().toLowerCase(Locale.ROOT).replaceAll("\\.+$", "");
+		if (!scope(q).allowsDomain(d)) {
+			throw new ApiException(403, "The domain " + d + " isn't yours");
+		}
+		return d;
+	}
+
+	private static long ttl(Router.Request q) throws IOException {
+		String t = q.text("ttl");
+		if (t == null || t.trim().isEmpty()) {
+			return 3600;
+		}
+		try {
+			long v = Long.parseLong(t.trim());
+			if (v < 0 || v > 0x7fffffffL) {
+				throw new NumberFormatException();
+			}
+			return v;
+		} catch (NumberFormatException e) {
+			throw ApiException.badRequest("ttl must be a number of seconds");
+		}
+	}
+
+	/** The mail records the Domains page recommends for a local domain (none for another domain) */
+	@SuppressWarnings("unchecked")
+	private List<Map<String, String>> mailRecords(String d) {
+		if (!app.getDomains().isLocal(d)) {
+			return new ArrayList<>();
+		}
+		Object dns = app.getDomains().describe(d).get("dns");
+		return dns instanceof List ? (List<Map<String, String>>) dns : new ArrayList<>();
+	}
+
+	private Map<String, Object> dnsZone(Router.Request q) {
+		String d = dnsDomain(q);
+		return app.getDns().zone(d, app.getPrimaryDomain(), mailRecords(d));
+	}
 
 	static boolean isDomainCall(String method, String path) {
 		for (String[] c : DOMAIN_CALLS) {
@@ -223,6 +281,58 @@ public class ApiServlet extends HttpServlet {
 		r.post("/services/all/{action}", this::allServices);
 		r.post("/services/{id}/{action}", this::serviceAction);
 		r.get("/services/{id}/connections", q -> app.getSuite().connections(service(q.param(0))));
+
+		// any Parley server: what parley-net's launchers show over JMX, whatever the server's type
+		r.get("/servers", q -> app.getSuite().servers());
+		r.post("/servers/{id}/{action}", q -> {
+			LOG.log(System.Logger.Level.INFO, q.user() + ": " + q.param(1) + " " + q.param(0));
+			app.getSuite().serverAction(q.param(0), q.param(1));
+			return app.getSuite().servers();
+		});
+		r.get("/servers/{id}/connections", q -> app.getSuite().serverConnections(q.param(0)));
+		// the type-specific pages that apply (a page appears where its server's bean is)
+		r.get("/modules", q -> modules());
+
+		// DNS: the Parley DNS server's zones; each domain inherits the primary domain's records
+		r.get("/dns", q -> app.getDns().status());
+		r.post("/dns/reload", q -> {
+			LOG.log(System.Logger.Level.INFO, q.user() + ": reload the DNS zones");
+			app.getDns().reload();
+			return app.getDns().status();
+		});
+		r.get("/dns/zones/{domain}", q -> dnsZone(q));
+		r.post("/dns/zones/{domain}", q -> {
+			String d = dnsDomain(q);
+			LOG.log(System.Logger.Level.INFO, q.user() + ": make the DNS zone of " + d);
+			app.getDns().createZone(d, app.getPrimaryDomain());
+			return dnsZone(q);
+		});
+		r.put("/dns/zones/{domain}/records", q -> {
+			String d = dnsDomain(q);
+			String name = q.text("name");
+			String type = q.requiredText("type");
+			List<String> values = q.list("values");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " " + name + " " + type + " = " + values);
+			app.getDns().setRecords(d, name, type, ttl(q), values);
+			return dnsZone(q);
+		});
+		r.post("/dns/zones/{domain}/delete", q -> {
+			String d = dnsDomain(q);
+			String name = q.text("name");
+			String type = q.requiredText("type");
+			String data = q.requiredText("data");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " delete " + name + " " + type + " " + data);
+			app.getDns().deleteRecord(d, name, type, data);
+			return dnsZone(q);
+		});
+		r.post("/dns/zones/{domain}/publish", q -> {
+			String d = dnsDomain(q);
+			List<Map<String, String>> changed = app.getDns().publishMail(d, mailRecords(d));
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " published the mail records " + changed);
+			Map<String, Object> m = dnsZone(q);
+			m.put("published", changed);
+			return m;
+		});
 
 		// settings
 		r.get("/settings", q -> settings());
