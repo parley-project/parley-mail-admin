@@ -83,6 +83,17 @@ public class DnsAdminTest {
 	}
 
 	@SuppressWarnings("unchecked")
+	private static List<Long> ttls(Map<String, Object> zone, String name, String type) {
+		List<Long> ret = new ArrayList<>();
+		for (Map<String, Object> r : (List<Map<String, Object>>) zone.get("records")) {
+			if (r.get("name").equals(name) && r.get("type").equals(type)) {
+				ret.add(((Number) r.get("ttl")).longValue());
+			}
+		}
+		return ret;
+	}
+
+	@SuppressWarnings("unchecked")
 	private static List<String> mail(Map<String, Object> zone) {
 		List<String> ret = new ArrayList<>();
 		for (Map<String, Object> r : (List<Map<String, Object>>) zone.get("mail")) {
@@ -92,6 +103,7 @@ public class DnsAdminTest {
 	}
 
 	@Test
+	@SuppressWarnings("unchecked")
 	public void dnsServerIsManagedGenericallyAndItsZonesFromTheDnsPage() throws Exception {
 		File home = new File(dir, "home");
 		File conf = new File(dir, "conf");
@@ -218,19 +230,62 @@ public class DnsAdminTest {
 			z = dns.zone("b.test", "a.test", want);
 			assertEquals(List.of(), records(z, "ftp.b.test", "A"));
 
-			// the shared zone, edited from the DNS page: b.test serves the new record at once
+			// the record types and their examples come from the DNS server: SOA and RP too, not the DNSSEC ones
+			List<String> types = new ArrayList<>();
+			for (Map<String, Object> t : (List<Map<String, Object>>) z.get("types")) {
+				types.add((String) t.get("name"));
+				assertNotNull(t.get("example"), t.toString());
+			}
+			assertTrue(types.containsAll(List.of("A", "SOA", "RP", "SPF", "HINFO", "DS", "TXT", "MX")), types.toString());
+			assertFalse(types.contains("RRSIG"), types.toString());
+
+			// added to a set: the records there stay, the TTL is the set's
+			dns.addRecords("b.test", "ftp", "A", 600, List.of("192.0.2.21"));
+			dns.addRecords("b.test", "ftp", "A", 900, List.of("192.0.2.22"));
+			z = dns.zone("b.test", "a.test", want);
+			assertEquals(List.of("192.0.2.21", "192.0.2.22"), records(z, "ftp.b.test", "A"));
+			assertEquals(List.of(900L, 900L), ttls(z, "ftp.b.test", "A"));
+			// every field of a record changed: name, type, TTL and value
+			dns.changeRecord("b.test", "ftp", "A", "192.0.2.22", "files", "CNAME", 1200, "www.b.test.");
+			z = dns.zone("b.test", "a.test", want);
+			assertEquals(List.of("192.0.2.21"), records(z, "ftp.b.test", "A"));
+			assertEquals(List.of("www.b.test."), records(z, "files.b.test", "CNAME"));
+			assertEquals(List.of(1200L), ttls(z, "files.b.test", "CNAME"));
+			assertThrows(IllegalStateException.class, () -> dns.changeRecord("b.test", "ftp", "A", "192.0.2.99", "ftp", "A", 300, "192.0.2.98"), "not there");
+			// the SOA, listed first: changed, its serial raised past the zone's own though it was lower
+			List<Map<String, Object>> recs = (List<Map<String, Object>>) z.get("records");
+			assertEquals("SOA", recs.get(0).get("type"));
+			long own = ((Number) z.get("ownSerial")).longValue();
+			dns.changeRecord("b.test", "@", "SOA", (String) recs.get(0).get("data"), "@", "SOA", 300, "ns1.a.test. hostmaster.b.test. 1 3600 1800 1209600 600");
+			z = dns.zone("b.test", "a.test", want);
+			assertEquals(own + 1, ((Number) z.get("ownSerial")).longValue());
+			assertTrue(records(z, "b.test", "SOA").get(0).contains("hostmaster.b.test. "), records(z, "b.test", "SOA").toString());
+			assertThrows(IllegalArgumentException.class, () -> dns.deleteRecord("b.test", "@", "SOA", "x"));
+			assertThrows(IllegalArgumentException.class, () -> dns.addRecords("b.test", "@", "SOA", 300, List.of("a. b. 1 1 1 1 1")));
+			assertThrows(IllegalArgumentException.class, () -> dns.addRecords("b.test", "x", "RRSIG", 300, List.of("x")));
+			dns.deleteRecord("b.test", "files", "CNAME", "www.b.test.");
+			dns.deleteRecord("b.test", "ftp", "A", "192.0.2.21");
+
+			// the shared zone, edited the same way: b.test serves the change at once
 			assertTrue(String.valueOf(st.get("sharedZone")).endsWith("shared.zone"), String.valueOf(st.get("sharedZone")));
 			Map<String, Object> sh = dns.sharedZone();
 			assertEquals(st.get("sharedZone"), sh.get("file"));
-			String text = (String) sh.get("text");
-			assertTrue(text.contains("www A 192.0.2.80"), text);
-			assertThrows(IllegalArgumentException.class, () -> dns.setSharedZone(text + "ftp A 192.0.2.21\n", text), "the serial not raised");
-			String edited = text.replace("( 7 ", "( 8 ") + "ftp A 192.0.2.21\n";
-			dns.setSharedZone(edited, text);
-			assertEquals(edited, dns.sharedZone().get("text"));
+			List<String> shared = new ArrayList<>();
+			for (Map<String, Object> r : (List<Map<String, Object>>) sh.get("records")) {
+				shared.add(r.get("name") + " " + r.get("type") + " " + r.get("data"));
+			}
+			assertTrue(shared.get(0).startsWith("@ SOA "), shared.toString());
+			assertTrue(shared.contains("www A 192.0.2.80"), shared.toString());
+			dns.addSharedRecords("ftp", "A", 300, List.of("192.0.2.21"));
 			z = dns.zone("b.test", "a.test", want);
 			assertEquals(List.of("192.0.2.21 (inherited)"), records(z, "ftp.b.test", "A"));
-			assertThrows(IllegalStateException.class, () -> dns.setSharedZone(edited.replace("( 8 ", "( 9 "), text), "changed since it was read");
+			dns.changeSharedRecord("ftp", "A", "192.0.2.21", "ftp", "AAAA", 300, "2001:db8::21");
+			z = dns.zone("b.test", "a.test", want);
+			assertEquals(List.of(), records(z, "ftp.b.test", "A"));
+			assertEquals(List.of("2001:db8::21 (inherited)"), records(z, "ftp.b.test", "AAAA"));
+			dns.deleteSharedRecord("ftp", "AAAA", "2001:db8::21");
+			z = dns.zone("b.test", "a.test", want);
+			assertEquals(List.of(), records(z, "ftp.b.test", "AAAA"));
 			assertTrue(new File(dnsDir, "shared.zone.previous").exists());
 
 			// stop it from the Servers list: its page has nothing to show; start it again

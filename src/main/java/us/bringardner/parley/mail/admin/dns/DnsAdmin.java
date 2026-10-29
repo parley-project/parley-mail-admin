@@ -23,6 +23,7 @@ import us.bringardner.parley.dns.RR;
 import us.bringardner.parley.dns.Tsig;
 import us.bringardner.parley.dns.Utility;
 import us.bringardner.parley.dns.server.DnsRecordInfo;
+import us.bringardner.parley.dns.server.DnsRecordType;
 import us.bringardner.parley.dns.server.DnsServerMXBean;
 import us.bringardner.parley.dns.server.DnsZoneInfo;
 import us.bringardner.parley.dns.server.Zone;
@@ -41,8 +42,6 @@ public final class DnsAdmin {
 
 	/** The bean type a launcher registers for its DNS server */
 	public static final String TYPE = "Dns";
-	/** Record types a domain's administrator may add or change (the DNS server's dynamic update takes these) */
-	public static final List<String> TYPES = List.of("A", "AAAA", "CNAME", "MX", "TXT", "SRV", "CAA", "NS", "PTR", "HTTPS", "SVCB", "SSHFP");
 	static final int TIMEOUT = 10000;
 
 	private final MailSuite suite;
@@ -132,7 +131,24 @@ public final class DnsAdmin {
 		}
 	}
 
-	/** The shared zone's file and its text (parley.dns.sharedZone), for the primary domain's administrators */
+	/**
+	 * The record types the DNS server can add and change, in its order, each with an example of
+	 * its data (for the record form). They come from the server, so a type it learns shows here.
+	 */
+	public static List<Map<String, Object>> types(DnsServerMXBean b) {
+		List<Map<String, Object>> ret = new ArrayList<>();
+		for (DnsRecordType t : b.getRecordTypes()) {
+			if (t.isEditable()) {
+				Map<String, Object> m = new LinkedHashMap<>();
+				m.put("name", t.getName());
+				m.put("example", t.getExample());
+				ret.add(m);
+			}
+		}
+		return ret;
+	}
+
+	/** The shared zone (parley.dns.sharedZone): its file, its records (relative names) and the types, for the primary's administrators */
 	public Map<String, Object> sharedZone() throws Exception {
 		DnsServerMXBean b = require().bean;
 		String f = sharedZoneFile(b);
@@ -141,17 +157,38 @@ public final class DnsAdmin {
 		}
 		Map<String, Object> m = new LinkedHashMap<>();
 		m.put("file", f);
-		m.put("text", b.getSharedZoneText());
+		List<Map<String, Object>> records = new ArrayList<>();
+		for (DnsRecordInfo r : b.getSharedRecords()) {
+			records.add(record(r));
+		}
+		m.put("records", records);
+		m.put("types", types(b));
 		return m;
 	}
 
-	/**
-	 * Replace the shared zone's text: the DNS server checks it (a valid zone, a higher serial),
-	 * writes the file, keeping the one it replaces as file.previous, and serves it at once.
-	 * @param expected the text it replaces, as {@link #sharedZone()} gave it, so a change made since isn't lost
-	 */
-	public void setSharedZone(String text, String expected) throws Exception {
-		require().bean.setSharedZoneText(text, expected);
+	/** Add records to the shared zone (one per value); the TTL becomes the set's */
+	public void addSharedRecords(String name, String type, long ttl, List<String> values) throws Exception {
+		require().bean.addSharedRecords(name, type, ttl, values == null ? new String[0] : values.toArray(new String[0]));
+	}
+
+	/** Replace one record of the shared zone with another (any name, type, TTL and data) */
+	public void changeSharedRecord(String name, String type, String data, String newName, String newType, long ttl, String newData) throws Exception {
+		require().bean.changeSharedRecord(name, type, data, newName, newType, ttl, newData);
+	}
+
+	/** Delete one record of the shared zone */
+	public void deleteSharedRecord(String name, String type, String data) throws Exception {
+		require().bean.deleteSharedRecord(name, type, data);
+	}
+
+	private static Map<String, Object> record(DnsRecordInfo r) {
+		Map<String, Object> x = new LinkedHashMap<>();
+		x.put("name", r.getName());
+		x.put("type", r.getType());
+		x.put("ttl", r.getTtl());
+		x.put("data", r.getData());
+		x.put("inherited", r.isInherited());
+		return x;
 	}
 
 	private static Map<String, Object> zone(DnsZoneInfo z) {
@@ -191,7 +228,7 @@ public final class DnsAdmin {
 		}
 		m.put("exists", info != null);
 		m.put("primaryServed", primary != null && hasZone(b, norm(primary)));
-		m.put("types", TYPES);
+		m.put("types", types(b));
 		if (info == null) {
 			return m;
 		}
@@ -199,13 +236,7 @@ public final class DnsAdmin {
 		List<Map<String, Object>> records = new ArrayList<>();
 		DnsRecordInfo[] list = b.getRecords(d);
 		for (DnsRecordInfo r : list) {
-			Map<String, Object> x = new LinkedHashMap<>();
-			x.put("name", r.getName());
-			x.put("type", r.getType());
-			x.put("ttl", r.getTtl());
-			x.put("data", r.getData());
-			x.put("inherited", r.isInherited());
-			records.add(x);
+			records.add(record(r));
 		}
 		m.put("records", records);
 		List<Map<String, Object>> mail = new ArrayList<>();
@@ -321,7 +352,10 @@ public final class DnsAdmin {
 	public void setRecords(String domain, String name, String type, long ttl, List<String> values) throws Exception {
 		String d = norm(domain);
 		String owner = owner(name, d);
-		String t = checkType(type);
+		String t = checkType(require().bean, type);
+		if (t.equals("SOA")) {
+			throw new IllegalArgumentException("A zone has one SOA: change it instead");
+		}
 		Message m = update(d);
 		m.getAuthority().add(empty(owner, typeOf(t), DNS_CLASS_ANY));
 		Set<String> seen = new LinkedHashSet<>();
@@ -334,11 +368,122 @@ public final class DnsAdmin {
 		send(d, m);
 	}
 
+	/**
+	 * Add records (one per value) of a type at a name to the domain's own records; those it has
+	 * stay. The TTL becomes the TTL of the whole set (RFC 2181 5.2). At a name and type where the
+	 * domain inherits records, its own set replaces the inherited one (an override).
+	 */
+	public void addRecords(String domain, String name, String type, long ttl, List<String> values) throws Exception {
+		String d = norm(domain);
+		String owner = owner(name, d);
+		String t = checkType(require().bean, type);
+		List<String> all = ownValues(d, owner, t, null);
+		for (String v : values == null ? List.<String>of() : values) {
+			if (v != null && !v.trim().isEmpty()) {
+				all.add(v.trim());
+			}
+		}
+		if (all.isEmpty()) {
+			throw new IllegalArgumentException("No value to add");
+		}
+		setRecords(d, owner, t, ttl, all);
+	}
+
+	/**
+	 * Replace one of the domain's own records with another: any name, type, TTL and data, in one
+	 * update. The TTL becomes the TTL of every record of the new name and type. The SOA stays the
+	 * zone's SOA; its serial is raised past the zone's own if the new one isn't higher.
+	 */
+	public void changeRecord(String domain, String name, String type, String data, String newName, String newType, long ttl, String newData) throws Exception {
+		String d = norm(domain);
+		DnsServerMXBean b = require().bean;
+		String owner = owner(name, d);
+		String t = checkType(b, type);
+		String nOwner = owner(newName, d);
+		String nt = checkType(b, newType);
+		if (newData == null || newData.trim().isEmpty()) {
+			throw new IllegalArgumentException("The record needs data");
+		}
+		if (t.equals("SOA") || nt.equals("SOA")) {
+			if (!t.equals(nt) || !nOwner.equals(d)) {
+				throw new IllegalArgumentException("The SOA stays the zone's SOA, at @");
+			}
+			changeSoa(d, b, ttl, newData.trim());
+			return;
+		}
+		boolean own = false;
+		for (DnsRecordInfo r : b.getRecords(d)) {
+			own |= !r.isInherited() && norm(r.getName()).equals(owner) && r.getType().equals(t) && sameData(t, r.getData(), data);
+		}
+		if (!own) {
+			throw new IllegalStateException(relative(owner, d) + " " + t + " " + data + " isn't one of " + d + "'s own records (changed meanwhile? read it again)");
+		}
+		Message m = update(d);
+		RR old = record(owner, 0, t, data);
+		old.setDnsClass(DNS_CLASS_NONE);
+		old.setTTL(0);
+		m.getAuthority().add(old);
+		List<String> values = ownValues(d, nOwner, nt, owner.equals(nOwner) && t.equals(nt) ? data : null);
+		values.add(newData.trim());
+		m.getAuthority().add(empty(nOwner, typeOf(nt), DNS_CLASS_ANY));
+		Set<String> seen = new LinkedHashSet<>();
+		for (String v : values) {
+			if (seen.add(v.trim())) {
+				m.getAuthority().add(record(nOwner, ttl, nt, v.trim()));
+			}
+		}
+		send(d, m);
+	}
+
+	/** The new SOA, its serial raised past the zone's own (the one served adds the shared zone's) when it isn't higher */
+	private void changeSoa(String d, DnsServerMXBean b, long ttl, String data) throws Exception {
+		long own = -1, served = -1;
+		for (DnsZoneInfo z : b.getZones()) {
+			if (z.getName().equalsIgnoreCase(d)) {
+				own = z.getOwnSerial();
+				served = z.getSerial();
+			}
+		}
+		if (own < 0) {
+			throw new IllegalStateException("The DNS server has no zone " + d);
+		}
+		String[] f = data.split("\\s+");
+		if (f.length != 7) {
+			throw new IllegalArgumentException("An SOA is: primary-server mailbox serial refresh retry expire minimum");
+		}
+		long typed;
+		try {
+			typed = Long.parseLong(f[2]);
+		} catch (NumberFormatException e) {
+			throw new IllegalArgumentException("The SOA's serial isn't a number: " + f[2]);
+		}
+		long next = Math.max(typed - (served - own), own + 1);
+		f[2] = Long.toString(next > 0xFFFFFFFFL ? 1 : next);
+		Message m = update(d);
+		m.getAuthority().add(record(d, ttl, "SOA", String.join(" ", f)));
+		send(d, m);
+	}
+
+	/** The data of the domain's own records of a type at a name (without one of them, or none) */
+	private List<String> ownValues(String d, String owner, String type, String without) {
+		List<String> ret = new ArrayList<>();
+		for (DnsRecordInfo r : require().bean.getRecords(d)) {
+			if (!r.isInherited() && norm(r.getName()).equals(owner) && r.getType().equals(type)
+					&& (without == null || !sameData(type, r.getData(), without))) {
+				ret.add(r.getData());
+			}
+		}
+		return ret;
+	}
+
 	/** Delete one of the domain's own records (by its data) */
 	public void deleteRecord(String domain, String name, String type, String data) throws Exception {
 		String d = norm(domain);
 		String owner = owner(name, d);
-		String t = checkType(type);
+		String t = checkType(require().bean, type);
+		if (t.equals("SOA")) {
+			throw new IllegalArgumentException("A zone's SOA can't be deleted");
+		}
 		RR rr = record(owner, 0, t, data);
 		rr.setDnsClass(DNS_CLASS_NONE);
 		rr.setTTL(0);
@@ -398,10 +543,15 @@ public final class DnsAdmin {
 	static final int DNS_CLASS_ANY = 255;
 	static final int DNS_CLASS_NONE = 254;
 
-	private static String checkType(String type) {
+	/** The type, if the DNS server can change records of it (its own list, see {@link #types}) */
+	private static String checkType(DnsServerMXBean b, String type) {
 		String t = type == null ? "" : type.trim().toUpperCase(Locale.ROOT);
-		if (!TYPES.contains(t)) {
-			throw new IllegalArgumentException("Records of type " + type + " can't be changed here; one of " + TYPES);
+		List<String> names = new ArrayList<>();
+		for (Map<String, Object> m : types(b)) {
+			names.add((String) m.get("name"));
+		}
+		if (!names.contains(t)) {
+			throw new IllegalArgumentException("Records of type " + type + " can't be changed; one of " + names);
 		}
 		return t;
 	}

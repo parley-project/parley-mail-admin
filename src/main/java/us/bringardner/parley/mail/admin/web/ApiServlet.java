@@ -129,7 +129,7 @@ public class ApiServlet extends HttpServlet {
 			{ "GET", "/aliases" }, { "PUT", "/aliases/[^/]+" }, { "DELETE", "/aliases/[^/]+" },
 			{ "GET", "/queue" }, { "POST", "/queue/[^/]+/retry" }, { "DELETE", "/queue/[^/]+" }, { "GET", "/queue/[^/]+/message" },
 			{ "GET", "/history" }, { "GET", "/history/[^/]+" },
-			{ "GET", "/modules" }, { "GET", "/dns/zones/[^/]+" }, { "POST", "/dns/zones/[^/]+" }, { "PUT", "/dns/zones/[^/]+/records" },
+			{ "GET", "/modules" }, { "GET", "/dns/zones/[^/]+" }, { "POST", "/dns/zones/[^/]+" }, { "POST", "/dns/zones/[^/]+/records/(add|change)" },
 			{ "POST", "/dns/zones/[^/]+/delete" }, { "POST", "/dns/zones/[^/]+/publish" } };
 
 	/** The type-specific pages that apply: the bean types the launchers have, and the pages for them */
@@ -302,10 +302,31 @@ public class ApiServlet extends HttpServlet {
 		});
 		// the shared zone every listed domain serves and $INHERIT zones inherit: the primary's administrators only
 		r.get("/dns/shared", q -> app.getDns().sharedZone());
-		r.put("/dns/shared", q -> {
-			String text = q.requiredText("text");
-			LOG.log(System.Logger.Level.INFO, q.user() + ": edit the DNS shared zone");
-			app.getDns().setSharedZone(text, q.text("expected"));
+		r.post("/dns/shared/add", q -> {
+			String name = q.text("name");
+			String type = q.requiredText("type");
+			List<String> values = q.list("values");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS shared zone add " + name + " " + type + " " + values);
+			app.getDns().addSharedRecords(name, type, ttl(q), values);
+			return app.getDns().sharedZone();
+		});
+		r.post("/dns/shared/change", q -> {
+			String name = q.text("name");
+			String type = q.requiredText("type");
+			String data = q.requiredText("data");
+			String newType = q.requiredText("newType");
+			String newData = q.requiredText("newData");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS shared zone change " + name + " " + type + " " + data + " to "
+					+ q.text("newName") + " " + newType + " " + newData);
+			app.getDns().changeSharedRecord(name, type, data, q.text("newName"), newType, ttl(q), newData);
+			return app.getDns().sharedZone();
+		});
+		r.post("/dns/shared/delete", q -> {
+			String name = q.text("name");
+			String type = q.requiredText("type");
+			String data = q.requiredText("data");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS shared zone delete " + name + " " + type + " " + data);
+			app.getDns().deleteSharedRecord(name, type, data);
 			return app.getDns().sharedZone();
 		});
 		r.get("/dns/zones/{domain}", q -> dnsZone(q));
@@ -315,13 +336,25 @@ public class ApiServlet extends HttpServlet {
 			app.getDns().createZone(d, app.getPrimaryDomain());
 			return dnsZone(q);
 		});
-		r.put("/dns/zones/{domain}/records", q -> {
+		r.post("/dns/zones/{domain}/records/add", q -> {
 			String d = dnsDomain(q);
 			String name = q.text("name");
 			String type = q.requiredText("type");
 			List<String> values = q.list("values");
-			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " " + name + " " + type + " = " + values);
-			app.getDns().setRecords(d, name, type, ttl(q), values);
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " add " + name + " " + type + " " + values);
+			app.getDns().addRecords(d, name, type, ttl(q), values);
+			return dnsZone(q);
+		});
+		r.post("/dns/zones/{domain}/records/change", q -> {
+			String d = dnsDomain(q);
+			String name = q.text("name");
+			String type = q.requiredText("type");
+			String data = q.requiredText("data");
+			String newType = q.requiredText("newType");
+			String newData = q.requiredText("newData");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": DNS " + d + " change " + name + " " + type + " " + data + " to "
+					+ q.text("newName") + " " + newType + " " + newData);
+			app.getDns().changeRecord(d, name, type, data, q.text("newName"), newType, ttl(q), newData);
 			return dnsZone(q);
 		});
 		r.post("/dns/zones/{domain}/delete", q -> {

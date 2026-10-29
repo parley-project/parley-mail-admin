@@ -696,10 +696,13 @@ public class WebAppTest {
 		assertEquals(409, callAs(other, token, "GET", "/dns/zones/c.test", null).statusCode());
 		assertEquals(409, callAs(other, token, "POST", "/dns/zones/c.test/publish", Map.of()).statusCode());
 		assertEquals(403, callAs(other, token, "GET", "/dns/zones/a.test", null).statusCode());
-		assertEquals(403, callAs(other, token, "PUT", "/dns/zones/a.test/records", Map.of("name", "www", "type", "A", "values", List.of("192.0.2.1"))).statusCode());
+		assertEquals(409, callAs(other, token, "POST", "/dns/zones/c.test/records/add", Map.of("name", "www", "type", "A", "values", List.of("192.0.2.1"))).statusCode());
+		assertEquals(409, callAs(other, token, "POST", "/dns/zones/c.test/records/change", Map.of("name", "www", "type", "A", "data", "192.0.2.1", "newType", "A", "newData", "192.0.2.2")).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/dns/zones/a.test/records/add", Map.of("name", "www", "type", "A", "values", List.of("192.0.2.1"))).statusCode());
+		assertEquals(403, callAs(other, token, "POST", "/dns/zones/a.test/records/change", Map.of("name", "www", "type", "A", "data", "192.0.2.1", "newType", "A", "newData", "192.0.2.2")).statusCode());
 		assertEquals(403, callAs(other, token, "POST", "/dns/zones/a.test", Map.of()).statusCode());
 		assertEquals(403, callAs(other, token, "POST", "/dns/zones/a.test/delete", Map.of("type", "A", "data", "192.0.2.1")).statusCode());
-		for (String[] c : new String[][] { { "GET", "/dns" }, { "POST", "/dns/reload" }, { "GET", "/dns/shared" }, { "PUT", "/dns/shared" }, { "GET", "/servers" }, { "POST", "/servers/smtp/stop" }, { "GET", "/servers/smtp/connections" } }) {
+		for (String[] c : new String[][] { { "GET", "/dns" }, { "POST", "/dns/reload" }, { "GET", "/dns/shared" }, { "POST", "/dns/shared/add" }, { "POST", "/dns/shared/change" }, { "POST", "/dns/shared/delete" }, { "GET", "/servers" }, { "POST", "/servers/smtp/stop" }, { "GET", "/servers/smtp/connections" } }) {
 			assertEquals(403, callAs(other, token, c[0], c[1], c[0].equals("GET") ? null : Map.of()).statusCode(), c[0] + " " + c[1]);
 		}
 		assertEquals(false, ok("GET", "/dns", null).get("available").asBoolean());

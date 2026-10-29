@@ -599,91 +599,84 @@
 	}
 
 	function dnsPage(root) {
+		const SHARED = '\u0000shared';
 		const status = h('div');
 		const tabs = h('div.tabs');
 		const body = h('div');
-		root.appendChild(h('p.muted', 'Each domain\'s zone serves the primary domain\'s records under its own name (inherited), and its own records add to them '
+		root.appendChild(h('p.muted', 'A domain with no zone file is served from the shared zone; a domain\'s own records add to the shared zone\'s '
 			+ 'or override them, by name and type. Changes are made on the DNS server at once.'));
 		root.appendChild(status);
 		root.appendChild(tabs);
 		root.appendChild(body);
 		let current = state.dnsDomain || null;
 		let zone = null;
+		let st = null;
 
 		async function load() {
 			let domains = [];
 			try { domains = (await api('GET', '/domains')).map(d => d.domain); } catch (e) { return fail(e); }
+			st = null;
 			if (state.primary) {
-				try { drawStatus(await api('GET', '/dns')); } catch (e) { clear(status).appendChild(h('div.banner', e.message)); }
+				try { st = await api('GET', '/dns'); drawStatus(st); } catch (e) { clear(status).appendChild(h('div.banner', e.message)); }
 			}
 			const first = state.adminDomain && domains.includes(state.adminDomain) ? [state.adminDomain] : [];
 			const order = first.concat(domains.filter(d => d !== state.adminDomain).sort());
+			if (st && st.sharedZone) order.push(SHARED);
 			clear(tabs);
 			for (const d of order) {
-				tabs.appendChild(h('button.tab', { type: 'button', 'data-domain': d, onclick: () => show(d) }, d));
+				tabs.appendChild(h('button.tab', { type: 'button', 'data-domain': d, onclick: () => show(d) }, d === SHARED ? 'Shared zone' : d));
 			}
 			if (!order.length) { clear(body).appendChild(h('div.empty', 'No domains')); return; }
 			show(order.includes(current) ? current : order[0]);
 		}
 
-		function drawStatus(st) {
+		function drawStatus(s) {
 			clear(status);
-			if (!st.available) { status.appendChild(h('div.banner', 'No Parley DNS server is running where the servers are managed.')); return; }
-			const reload = h('button.small', { onclick: async () => { try { drawStatus(await api('POST', '/dns/reload')); toast('Zones read again', 'ok'); if (current) show(current); } catch (e) { fail(e); } } }, 'Reload zones');
+			if (!s.available) { status.appendChild(h('div.banner', 'No Parley DNS server is running where the servers are managed.')); return; }
+			const reload = h('button.small', { onclick: async () => { try { st = await api('POST', '/dns/reload'); drawStatus(st); toast('Zones read again', 'ok'); if (current) show(current); } catch (e) { fail(e); } } }, 'Reload zones');
 			status.appendChild(panel('DNS server', reload,
 				h('dl.facts',
-					h('dt', 'State'), h('dd', stateBadge({ state: st.state, enabled: true })),
-					h('dt', 'Runs at'), h('dd.mono', st.where + ', port ' + st.port),
-					h('dt', 'Recursion'), h('dd', st.recursion ? h('span.warn-text', 'on (it answers for any name)') : 'off'),
-					h('dt', 'Zones'), h('dd', String(st.zones.length)),
-					h('dt', 'Zone folder'), h('dd.mono', st.zoneDirectory || '')),
-				st.keyProblem ? h('div.banner', st.keyProblem) : null,
-				(st.errors || []).map(e => h('div.err', e))));
-			if (st.sharedZone) {
-				status.appendChild(panel('Shared zone', h('button.small', { onclick: editShared }, 'Edit'),
-					h('p.muted', 'The records every listed domain serves under its own name when it has no zone file, and that zones with $INHERIT inherit. '
-						+ '@ is the domain; a relative name (www, _dmarc) is below it; a name ending in a dot is the same for every domain.'),
-					h('dl.facts', h('dt', 'File'), h('dd.mono', st.sharedZone))));
-			}
+					h('dt', 'State'), h('dd', stateBadge({ state: s.state, enabled: true })),
+					h('dt', 'Runs at'), h('dd.mono', s.where + ', port ' + s.port),
+					h('dt', 'Recursion'), h('dd', s.recursion ? h('span.warn-text', 'on (it answers for any name)') : 'off'),
+					h('dt', 'Zones'), h('dd', String(s.zones.length)),
+					h('dt', 'Zone folder'), h('dd.mono', s.zoneDirectory || ''),
+					s.sharedZone ? [h('dt', 'Shared zone'), h('dd.mono', s.sharedZone)] : null),
+				s.keyProblem ? h('div.banner', s.keyProblem) : null,
+				(s.errors || []).map(e => h('div.err', e))));
 		}
 
-		/** Edit the shared zone's text; the DNS server checks it and serves it at once. */
-		async function editShared() {
-			let cur;
-			try { cur = await api('GET', '/dns/shared'); } catch (e) { return fail(e); }
-			const text = h('textarea', { rows: '24', spellcheck: 'false', wrap: 'off' });
-			text.value = cur.text || '';
-			const raise = h('button.small', { type: 'button', onclick: () => {
-				const m = /(\bSOA\s+\S+\s+\S+\s*\(?\s*)(\d+)/i.exec(text.value);
-				if (!m) { toast('No SOA serial found', 'bad'); return; }
-				const next = String(Number(m[2]) + 1);
-				text.value = text.value.substring(0, m.index) + m[1] + next + text.value.substring(m.index + m[0].length);
-				toast('Serial ' + next, 'ok');
-			} }, 'Raise serial');
-			const ok = await dialog('Edit the shared zone', [
-				h('p.muted', 'Saved to ' + cur.file + ' and served at once by every domain that uses it. Raise the SOA serial with every change. '
-					+ 'The file it replaces is kept as ' + cur.file + '.previous.'),
-				h('p', raise),
-				text
-			], { wide: true, okLabel: 'Save', onOk: () => api('PUT', '/dns/shared', { text: text.value, expected: cur.text }) });
-			if (ok) {
-				toast('Shared zone saved', 'ok');
-				try { drawStatus(await api('GET', '/dns')); } catch (e) { fail(e); }
-				if (current) show(current);
-			}
-		}
+		const shared = () => current === SHARED;
+		const asShared = m => Object.assign(m, { shared: true, exists: true, domain: 'the shared zone' });
 
 		async function show(d) {
 			current = d;
 			state.dnsDomain = d;
 			for (const b of tabs.querySelectorAll('button')) b.classList.toggle('active', b.dataset.domain === d);
-			try { zone = await api('GET', '/dns/zones/' + enc(d)); } catch (e) { clear(body).appendChild(h('div.banner', e.message)); return; }
+			try { zone = shared() ? asShared(await api('GET', '/dns/shared')) : await api('GET', '/dns/zones/' + enc(d)); }
+			catch (e) { clear(body).appendChild(h('div.banner', e.message)); return; }
 			draw();
 		}
 
-		async function call(method, path, body, done) {
-			try { zone = await api(method, '/dns/zones/' + enc(current) + path, body); if (done) toast(done, 'ok'); draw(); return true; } catch (e) { fail(e); return false; }
+		/** The path of a record call: add, change or delete, for the shared zone or the current domain */
+		function path(op) {
+			if (shared()) return '/dns/shared/' + op;
+			return '/dns/zones/' + enc(current) + (op === 'delete' ? '/delete' : '/records/' + op);
 		}
+
+		async function call(method, p, data, done) {
+			try {
+				const r = await api(method, p, data);
+				zone = shared() ? asShared(r) : r;
+				if (done) toast(done, 'ok');
+				draw();
+				return true;
+			} catch (e) { fail(e); return false; }
+		}
+
+		/** A record's name as the table shows it: relative to the domain (the shared zone's are already) */
+		const nameOf = r => zone.shared ? r.name : relName(r.name, zone.domain);
+		const typeNames = () => (zone.types || []).map(t => t.name);
 
 		function draw() {
 			const z = zone;
@@ -691,33 +684,38 @@
 			if (!z.exists) {
 				body.appendChild(panel(z.domain, null,
 					h('p', z.isPrimary
-						? 'The primary domain has no zone yet. Its zone (' + z.domain + '.txt in the DNS server\'s zone folder) is made by hand: every other domain inherits its records.'
-						: 'The DNS server has no zone for ' + z.domain + '. Make one: it serves every record of ' + z.primary + ' under ' + z.domain + ', and you add or override records here.'),
-					!z.isPrimary && !z.primaryServed ? h('div.banner', 'The primary domain (' + z.primary + ') has no zone yet.') : null,
-					!z.isPrimary ? h('button.primary', { disabled: !z.primaryServed, onclick: () => call('POST', '', null, 'Zone made') }, 'Make the zone') : null));
+						? 'The primary domain has no zone yet. Its zone (' + z.domain + '.txt in the DNS server\'s zone folder) is made by hand.'
+						: 'The DNS server has no zone for ' + z.domain + '. Make one: it serves every record of the shared zone under ' + z.domain + ', and you add or override records here.'),
+					!z.isPrimary ? h('button.primary', { onclick: () => call('POST', '/dns/zones/' + enc(current), null, 'Zone made') }, 'Make the zone') : null));
 				return;
 			}
-			body.appendChild(h('p.muted', z.inheritFrom
-				? 'Inherits the records of ' + (z.inheritFrom === 'shared' ? 'the shared zone' : z.inheritFrom) + '. Serial ' + z.serial + ' (own ' + z.ownSerial + '), ' + z.ownRecords + ' own record(s) of ' + z.records + '.'
-				: (z.isPrimary ? 'The primary domain: every domain with a zone inherits these records. Serial ' + z.serial + '.' : 'Serial ' + z.serial + '.')));
+			body.appendChild(h('p.muted', z.shared
+				? 'Every listed domain with no zone file serves these records under its own name, and every zone with $INHERIT inherits them. '
+					+ 'Names are relative to each domain: @ is the domain, www is www.<domain>; a name ending in a dot is the same for every domain. '
+					+ 'Each change raises the serial and is served at once; the file before it is kept as ' + z.file + '.previous.'
+				: z.inheritFrom
+					? 'Inherits the records of ' + (z.inheritFrom === 'shared' ? 'the shared zone' : z.inheritFrom) + '. Serial ' + z.serial + ' (own ' + z.ownSerial + '), ' + z.ownRecords + ' own record(s) of ' + z.records + '.'
+					: 'Serial ' + z.serial + '.'));
 			if (z.mail && z.mail.length) {
 				const needed = z.mail.filter(m => m.status !== 'served').length;
-				const badge = st => h('span.badge', { class: st === 'served' ? 'ok' : st === 'different' ? 'warn' : 'bad' }, st);
+				const badge = s => h('span.badge', { class: s === 'served' ? 'ok' : s === 'different' ? 'warn' : 'bad' }, s);
 				body.appendChild(panel('Mail records', h('button.primary.small', { disabled: needed === 0, onclick: publish }, needed ? 'Publish ' + needed : 'All served'),
 					h('div.table-wrap', h('table.dns',
 						h('thead', h('tr', h('th', 'Type'), h('th', 'Name'), h('th', 'Value'), h('th', ''))),
 						h('tbody', z.mail.map(m => h('tr', h('td', m.type), h('td.mono', relName(m.name, z.domain)), h('td.mono', m.value), h('td', badge(m.status)))))))));
 			}
 			const recs = z.records || [];
+			const editable = r => typeNames().includes(r.type);
 			body.appendChild(panel('Records', h('button.small', { onclick: () => edit(null) }, 'Add record'),
 				h('div.table-wrap', h('table.dns',
-					h('thead', h('tr', h('th', 'Name'), h('th', 'Type'), h('th', 'TTL'), h('th', 'Value'), h('th', ''), h('th', ''))),
+					h('thead', h('tr', h('th', 'Name'), h('th', 'Type'), h('th', 'TTL'), h('th', 'Value'), z.shared ? null : h('th', ''), h('th', ''))),
 					h('tbody', recs.map(r => h('tr', { class: r.inherited ? 'inherited' : '' },
-						h('td.mono', relName(r.name, z.domain)), h('td', r.type), h('td', String(r.ttl)), h('td.mono', r.data),
-						h('td', r.inherited ? h('span.badge', 'inherited') : h('span.badge.ok', 'own')),
-						h('td.actions', !z.types.includes(r.type) ? null : r.inherited
+						h('td.mono', nameOf(r)), h('td', r.type), h('td', String(r.ttl)), h('td.mono', r.data),
+						z.shared ? null : h('td', r.inherited ? h('span.badge', 'inherited') : h('span.badge.ok', 'own')),
+						h('td.actions', !editable(r) ? null : r.inherited
 							? h('button.small', { onclick: () => edit(r) }, 'Override')
-							: [h('button.small', { onclick: () => edit(r) }, 'Edit'), h('button.small.danger', { onclick: () => remove(r) }, 'Delete')]))))))));
+							: [h('button.small', { onclick: () => edit(r) }, 'Edit'),
+								r.type === 'SOA' ? null : h('button.small.danger', { onclick: () => remove(r) }, 'Delete')]))))))));
 		}
 
 		async function publish() {
@@ -728,32 +726,56 @@
 			} catch (e) { fail(e); }
 		}
 
-		/** Add a record set, edit an own one, or override an inherited one (the domain's own set of that name and type replaces it). */
+		/**
+		 * The record form. Add (r null): records of a type at a name, one per value line. Override (r
+		 * inherited): the domain's own set of that name and type, which replaces the inherited one.
+		 * Edit (r own): any of its name, type, TTL and value. The types and their examples come from
+		 * the DNS server.
+		 */
 		async function edit(r) {
 			const z = zone;
-			const same = r ? z.records.filter(x => x.name === r.name && x.type === r.type && x.inherited === r.inherited) : [];
-			const name = h('input', { type: 'text', value: r ? relName(r.name, z.domain) : '', placeholder: '@ or www' });
-			const type = h('select', z.types.map(t => h('option', { value: t }, t)));
-			type.value = r ? r.type : 'A';
-			if (r) { name.disabled = true; type.disabled = true; }
+			const changing = r && !r.inherited;
+			const soa = r && r.type === 'SOA';
+			const types = (z.types || []).filter(t => soa || t.name !== 'SOA');
+			const name = h('input', { type: 'text', value: r ? nameOf(r) : '', placeholder: '@ or www' });
+			const type = h('select', types.map(t => h('option', { value: t.name }, t.name)));
+			type.value = r ? r.type : (types.find(t => t.name === 'A') ? 'A' : (types[0] || {}).name);
+			if (soa) { name.disabled = true; type.disabled = true; }
 			const ttl = h('input', { type: 'number', min: '0', value: r ? String(r.ttl) : '3600' });
-			const values = h('textarea', { rows: '4', placeholder: 'One value per line, as in a zone file: 192.0.2.1, 10 mx1.example.com., "v=spf1 mx -all"' });
-			values.value = same.map(x => x.data).join('\n');
-			const title = !r ? 'Add records to ' + z.domain : r.inherited ? 'Override ' + relName(r.name, z.domain) + ' ' + r.type : 'Edit ' + relName(r.name, z.domain) + ' ' + r.type;
+			const values = h('textarea', { rows: changing ? '2' : '4', spellcheck: 'false' });
+			const same = r && r.inherited ? z.records.filter(x => x.name === r.name && x.type === r.type && x.inherited) : [];
+			values.value = changing ? r.data : same.map(x => x.data).join('\n');
+			const example = h('div.muted.mono');
+			const hint = () => {
+				const t = types.find(x => x.name === type.value);
+				const ex = t && t.example ? t.example : '';
+				values.placeholder = (changing ? '' : 'One per line, ') + 'e.g. ' + ex;
+				example.textContent = 'Example: ' + ex;
+			};
+			type.addEventListener('change', hint);
+			hint();
+			const title = !r ? 'Add records to ' + z.domain : r.inherited ? 'Override ' + nameOf(r) + ' ' + r.type : 'Edit ' + nameOf(r) + ' ' + r.type;
+			const note = !r ? 'The values are added to the records of this name and type (one per line); the TTL becomes the TTL of the whole set.'
+				: r.inherited ? 'These values become ' + z.domain + '\'s own ' + r.type + ' records at this name, in place of every inherited ' + r.type + ' there.'
+				: soa ? 'The serial is raised by itself if you don\'t give a higher one.'
+				: 'Change any field. The TTL becomes the TTL of every record of the new name and type.';
 			const ok = await dialog(title, [
-				h('p.muted', r && r.inherited
-					? 'These values become ' + z.domain + '\'s own ' + r.type + ' records at this name, in place of every inherited ' + r.type + ' there.'
-					: 'The values replace ' + z.domain + '\'s own records of this name and type' + (z.inheritFrom ? ' (and override any inherited ones of that type).' : '.')),
+				h('p.muted', note),
 				h('div.form', h('label.row', h('span', 'Name'), name), h('label.row', h('span', 'Type'), type),
-					h('label.row', h('span', 'TTL (s)'), ttl), h('label.row', h('span', 'Values'), values))
-			], { okLabel: 'Save', onOk: () => api('PUT', '/dns/zones/' + enc(current) + '/records',
-				{ name: name.value, type: type.value, ttl: ttl.value, values: values.value.split('\n').map(v => v.trim()).filter(v => v) }) });
-			if (ok) { zone = ok; toast('Saved', 'ok'); draw(); }
+					h('label.row', h('span', 'TTL (s)'), ttl), h('label.row', h('span', changing ? 'Value' : 'Values'), values), example)
+			], { okLabel: 'Save', onOk: () => {
+				if (changing) {
+					const v = values.value.split('\n').map(x => x.trim()).filter(x => x).join(' ');
+					return api('POST', path('change'), { name: r.name, type: r.type, data: r.data, newName: name.value, newType: type.value, ttl: ttl.value, newData: v });
+				}
+				return api('POST', path('add'), { name: name.value, type: type.value, ttl: ttl.value, values: values.value.split('\n').map(x => x.trim()).filter(x => x) });
+			} });
+			if (ok) { zone = z.shared ? asShared(ok) : ok; toast('Saved', 'ok'); draw(); }
 		}
 
 		async function remove(r) {
-			if (!await confirmDialog('Delete ' + relName(r.name, zone.domain) + ' ' + r.type, r.data + (zone.inheritFrom ? ' (an inherited record of this name and type shows through again if it was the last)' : ''), 'Delete')) return;
-			call('POST', '/delete', { name: r.name, type: r.type, data: r.data }, 'Deleted');
+			if (!await confirmDialog('Delete ' + nameOf(r) + ' ' + r.type, r.data + (zone.inheritFrom ? ' (an inherited record of this name and type shows through again if it was the last)' : ''), 'Delete')) return;
+			call('POST', path('delete'), { name: r.name, type: r.type, data: r.data }, 'Deleted');
 		}
 
 		load();
