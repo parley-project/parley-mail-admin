@@ -639,6 +639,38 @@
 					h('dt', 'Zone folder'), h('dd.mono', st.zoneDirectory || '')),
 				st.keyProblem ? h('div.banner', st.keyProblem) : null,
 				(st.errors || []).map(e => h('div.err', e))));
+			if (st.sharedZone) {
+				status.appendChild(panel('Shared zone', h('button.small', { onclick: editShared }, 'Edit'),
+					h('p.muted', 'The records every listed domain serves under its own name when it has no zone file, and that zones with $INHERIT inherit. '
+						+ '@ is the domain; a relative name (www, _dmarc) is below it; a name ending in a dot is the same for every domain.'),
+					h('dl.facts', h('dt', 'File'), h('dd.mono', st.sharedZone))));
+			}
+		}
+
+		/** Edit the shared zone's text; the DNS server checks it and serves it at once. */
+		async function editShared() {
+			let cur;
+			try { cur = await api('GET', '/dns/shared'); } catch (e) { return fail(e); }
+			const text = h('textarea', { rows: '24', spellcheck: 'false', wrap: 'off' });
+			text.value = cur.text || '';
+			const raise = h('button.small', { type: 'button', onclick: () => {
+				const m = /(\bSOA\s+\S+\s+\S+\s*\(?\s*)(\d+)/i.exec(text.value);
+				if (!m) { toast('No SOA serial found', 'bad'); return; }
+				const next = String(Number(m[2]) + 1);
+				text.value = text.value.substring(0, m.index) + m[1] + next + text.value.substring(m.index + m[0].length);
+				toast('Serial ' + next, 'ok');
+			} }, 'Raise serial');
+			const ok = await dialog('Edit the shared zone', [
+				h('p.muted', 'Saved to ' + cur.file + ' and served at once by every domain that uses it. Raise the SOA serial with every change. '
+					+ 'The file it replaces is kept as ' + cur.file + '.previous.'),
+				h('p', raise),
+				text
+			], { wide: true, okLabel: 'Save', onOk: () => api('PUT', '/dns/shared', { text: text.value, expected: cur.text }) });
+			if (ok) {
+				toast('Shared zone saved', 'ok');
+				try { drawStatus(await api('GET', '/dns')); } catch (e) { fail(e); }
+				if (current) show(current);
+			}
 		}
 
 		async function show(d) {

@@ -300,6 +300,14 @@ public class ApiServlet extends HttpServlet {
 			app.getDns().reload();
 			return app.getDns().status();
 		});
+		// the shared zone every listed domain serves and $INHERIT zones inherit: the primary's administrators only
+		r.get("/dns/shared", q -> app.getDns().sharedZone());
+		r.put("/dns/shared", q -> {
+			String text = q.requiredText("text");
+			LOG.log(System.Logger.Level.INFO, q.user() + ": edit the DNS shared zone");
+			app.getDns().setSharedZone(text, q.text("expected"));
+			return app.getDns().sharedZone();
+		});
 		r.get("/dns/zones/{domain}", q -> dnsZone(q));
 		r.post("/dns/zones/{domain}", q -> {
 			String d = dnsDomain(q);

@@ -218,6 +218,21 @@ public class DnsAdminTest {
 			z = dns.zone("b.test", "a.test", want);
 			assertEquals(List.of(), records(z, "ftp.b.test", "A"));
 
+			// the shared zone, edited from the DNS page: b.test serves the new record at once
+			assertTrue(String.valueOf(st.get("sharedZone")).endsWith("shared.zone"), String.valueOf(st.get("sharedZone")));
+			Map<String, Object> sh = dns.sharedZone();
+			assertEquals(st.get("sharedZone"), sh.get("file"));
+			String text = (String) sh.get("text");
+			assertTrue(text.contains("www A 192.0.2.80"), text);
+			assertThrows(IllegalArgumentException.class, () -> dns.setSharedZone(text + "ftp A 192.0.2.21\n", text), "the serial not raised");
+			String edited = text.replace("( 7 ", "( 8 ") + "ftp A 192.0.2.21\n";
+			dns.setSharedZone(edited, text);
+			assertEquals(edited, dns.sharedZone().get("text"));
+			z = dns.zone("b.test", "a.test", want);
+			assertEquals(List.of("192.0.2.21 (inherited)"), records(z, "ftp.b.test", "A"));
+			assertThrows(IllegalStateException.class, () -> dns.setSharedZone(edited.replace("( 8 ", "( 9 "), text), "changed since it was read");
+			assertTrue(new File(dnsDir, "shared.zone.previous").exists());
+
 			// stop it from the Servers list: its page has nothing to show; start it again
 			suite.serverAction("dns", "stop");
 			assertFalse(suite.types().contains("Dns"));
