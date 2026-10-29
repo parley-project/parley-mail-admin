@@ -119,7 +119,39 @@ public final class DnsAdmin {
 		}
 		m.put("zones", zones);
 		m.put("errors", List.of(b.getErrors()));
+		m.put("sharedZone", sharedZoneFile(b));
 		return m;
+	}
+
+	private static String sharedZoneFile(DnsServerMXBean b) {
+		try {
+			return b.getSharedZoneFile();
+		} catch (RuntimeException e) {
+			// a DNS server without the attribute: no shared zone to edit
+			return null;
+		}
+	}
+
+	/** The shared zone's file and its text (parley.dns.sharedZone), for the primary domain's administrators */
+	public Map<String, Object> sharedZone() throws Exception {
+		DnsServerMXBean b = require().bean;
+		String f = sharedZoneFile(b);
+		if (f == null) {
+			throw new IllegalStateException("The DNS server has no shared zone (parley.dns.sharedZone is not set)");
+		}
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("file", f);
+		m.put("text", b.getSharedZoneText());
+		return m;
+	}
+
+	/**
+	 * Replace the shared zone's text: the DNS server checks it (a valid zone, a higher serial),
+	 * writes the file, keeping the one it replaces as file.previous, and serves it at once.
+	 * @param expected the text it replaces, as {@link #sharedZone()} gave it, so a change made since isn't lost
+	 */
+	public void setSharedZone(String text, String expected) throws Exception {
+		require().bean.setSharedZoneText(text, expected);
 	}
 
 	private static Map<String, Object> zone(DnsZoneInfo z) {
