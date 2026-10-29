@@ -33,7 +33,7 @@ import us.bringardner.parley.mail.admin.suite.MailSuite;
 
 /**
  * The DNS page's work: the Parley DNS server a launcher runs (its {@code type=Dns} bean), the
- * domains' zones, which inherit the primary domain's records and add or override some, and their
+ * domains' zones, which inherit the shared zone's records and add or override some, and their
  * records. Records are read from the bean and changed with dynamic updates (RFC 2136) signed with
  * the TSIG key in {@value SettingsCatalog#ADMIN_DNS_KEY_FILE}, sent to the DNS server's TCP port,
  * so they are journaled and the secondaries told, as for any update.
@@ -210,7 +210,7 @@ public final class DnsAdmin {
 	/**
 	 * A domain's zone: whether it is served, what it inherits from, its records (own or inherited),
 	 * and the mail records the domain needs with whether the zone serves them.
-	 * @param primary the primary domain (whose zone the others inherit)
+	 * @param primary the primary domain (its zone is made by hand, not here)
 	 * @param mailRecords the records the Domains page recommends (type, name, value)
 	 */
 	public Map<String, Object> zone(String domain, String primary, List<Map<String, String>> mailRecords) {

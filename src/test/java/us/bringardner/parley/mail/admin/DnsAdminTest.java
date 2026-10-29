@@ -43,7 +43,7 @@ import us.bringardner.parley.net.server.ServerLauncher;
 /**
  * The admin and a Parley DNS server run by a launcher "process" (in this JVM, behind a JMX RMI
  * connector with a password): the server shows on the generic Servers list with its Dns page, and
- * the DNS page makes a domain's zone, which inherits the primary domain's records, and changes its
+ * the DNS page makes a domain's zone, which inherits the shared zone's records, and changes its
  * records with signed dynamic updates.
  */
 public class DnsAdminTest {

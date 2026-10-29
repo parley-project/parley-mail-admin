@@ -293,7 +293,7 @@ public class ApiServlet extends HttpServlet {
 		// the type-specific pages that apply (a page appears where its server's bean is)
 		r.get("/modules", q -> modules());
 
-		// DNS: the Parley DNS server's zones; each domain inherits the primary domain's records
+		// DNS: the Parley DNS server's zones; a domain with no zone file is served from the shared zone
 		r.get("/dns", q -> app.getDns().status());
 		r.post("/dns/reload", q -> {
 			LOG.log(System.Logger.Level.INFO, q.user() + ": reload the DNS zones");
@@ -606,8 +606,8 @@ public class ApiServlet extends HttpServlet {
 
 	/**
 	 * A domain's own DKIM key goes in its own zone when Parley DNS serves the domain: a record the
-	 * primary domain's zone doesn't give it, so the zone gets a file (the primary's key is the shared
-	 * one, in its own zone, inherited by the others).
+	 * shared zone doesn't give it, so the zone gets a file (the primary's key is the shared one, whose
+	 * record the shared zone serves for the others).
 	 *
 	 * @throws ApiException if DNS refused it: the key is made, and its record is on the DNS records list
 	 */

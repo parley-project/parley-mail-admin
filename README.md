@@ -159,8 +159,8 @@ saved, the page says why, and a restart uses it.
 
 DKIM: the primary domain's key is the shared one. The admin keeps the queue's `dkim.shared` set to
 the primary domain while it has a key, and every domain without a key of its own signs with it, as
-itself (parley-smtp); with Parley DNS each such domain inherits the key's record from the primary
-domain's zone, so it needs no zone file. "Make DKIM key" on another domain gives it a key of its
+itself (parley-smtp); with Parley DNS each such domain gets the key's record from the shared zone,
+so it needs no zone file. "Make DKIM key" on another domain gives it a key of its
 own, whose record the admin puts in that domain's zone (which then has a file). The DNS records
 list shows the record a domain needs either way, for a DNS provider elsewhere.
 

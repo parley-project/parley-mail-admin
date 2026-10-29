@@ -471,7 +471,7 @@
 			const lines = d.dns.map(r => r.name + '\tIN\t' + r.type + '\t' + zoneValue(r)).join('\n') + '\n';
 			dialog('DNS records for ' + d.domain, [
 				d.dnsServed
-					? h('p.muted', 'Parley DNS serves ' + d.domain + ': it answers with the primary domain\'s records and this domain\'s DKIM key, '
+					? h('p.muted', 'Parley DNS serves ' + d.domain + ': it answers from this domain\'s zone, or from the shared zone if it has no zone file, '
 						+ 'so there is nothing to publish (its records are on the DNS page). Use these only for a DNS provider elsewhere, '
 						+ 'if the domain\'s name servers are there.')
 					: h('p.muted', 'Publish these at your DNS provider. The MX host must have a PTR record matching the SMTP host name. Start DMARC with p=none and tighten it once reports look right.'),
@@ -498,7 +498,7 @@
 			const type = h('select', h('option', { value: 'rsa' }, 'RSA 2048 (works everywhere)'), h('option', { value: 'ed25519' }, 'Ed25519 (RFC 8463)'));
 			const r = await dialog('DKIM key for ' + d.domain, [
 				h('p.muted', (d.primaryDomain
-					? 'Makes the primary domain\'s signing key: it is the shared key, which every domain without a key of its own signs with (each inherits its record from the primary domain\'s zone).'
+					? 'Makes the primary domain\'s signing key: it is the shared key, which every domain without a key of its own signs with (with Parley DNS, each gets its record from the shared zone).'
 					: 'Makes a signing key of ' + d.domain + '\'s own: its mail is signed with it instead of the shared key, and its record goes in its own zone, which then has a zone file.')
 					+ ' The key is saved in the admin home\'s dkim folder and put in the DKIM keys setting.'
 					+ (d.dkim && d.dkim.own ? ' It replaces the key with selector ' + d.dkim.selector + ' and mail is signed with it at once: publish the new record first if another DNS provider serves the domain.' : '')),

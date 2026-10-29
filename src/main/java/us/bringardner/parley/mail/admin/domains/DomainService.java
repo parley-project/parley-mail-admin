@@ -235,7 +235,7 @@ public final class DomainService {
 	/**
 	 * Keep the shared key the primary domain's: dkim.shared names the primary domain while it has a
 	 * key, and nothing otherwise. A domain without a key of its own signs with it, and with Parley DNS
-	 * inherits its record from the primary domain's zone, so it needs no zone file.
+	 * gets its record from the shared zone, so it needs no zone file.
 	 *
 	 * @return true if the setting changed
 	 */
@@ -314,7 +314,7 @@ public final class DomainService {
 
 	/**
 	 * The records to publish for a domain: with no key of its own, the shared key's record at its
-	 * selector in this domain (with Parley DNS, inherited from the primary domain's zone).
+	 * selector in this domain (with Parley DNS, from the shared zone).
 	 */
 	public List<Map<String, String>> dnsRecords(String d, DkimEntry k) {
 		if (k == null) {
