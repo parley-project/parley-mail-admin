@@ -317,8 +317,9 @@ public final class AdminApp implements AutoCloseable {
 	/**
 	 * The SMTP history's folder: the one the queue names while an SMTP server runs (and the last one
 	 * it named), else the one the queue's settings give (parley-smtp's QueueHistory: its history folder
-	 * setting, else .smtp-history in the mail root); null when there's none. It is on the mail root's
-	 * file system, as the servers' is, so it works for a store on any file system.
+	 * setting, else .smtp-history in the mail root); null when there's none. It is on the file system the
+	 * queue's historyFileSource setting names, else on the mail root's, as the servers' is, so it works
+	 * for a store on any file system and for a history kept on local disk beside a store in a database.
 	 */
 	public FileSource historyDirectory() {
 		try {
@@ -340,21 +341,18 @@ public final class AdminApp implements AutoCloseable {
 		if (!settings.getBoolean(SettingsCatalog.QUEUE_HISTORY, true)) {
 			return null;
 		}
-		String dir = settings.get(SettingsCatalog.QUEUE_HISTORY_DIRECTORY, null);
-		if (dir != null) {
-			return onMailRoot(dir);
-		}
-		try {
-			return settings.getMailRoot().getChild(QueueHistory.DEFAULT_DIRECTORY);
-		} catch (IOException | RuntimeException e) {
-			return null; // no mail root, or it can't be reached now
-		}
+		// (no folder: the default, which is in the mail root; null when there's none or it can't be reached now)
+		return onMailRoot(settings.get(SettingsCatalog.QUEUE_HISTORY_DIRECTORY, null));
 	}
 
-	/** A path on the mail root's file system (as QueueHistory takes its folder setting), or null */
+	/**
+	 * A path on the history's file system (as QueueHistory takes its folder setting: the one
+	 * historyFileSource names, else the mail root's), or null; no path is the default folder in the mail root
+	 */
 	private FileSource onMailRoot(String path) {
 		try {
-			return settings.getMailRoot().getFileSourceFactory().createFileSource(path);
+			return QueueHistory.folder(settings.getMailRoot(),
+					settings.get(SettingsCatalog.QUEUE_HISTORY_FILE_SOURCE, null), path);
 		} catch (IOException | RuntimeException e) {
 			return null;
 		}
