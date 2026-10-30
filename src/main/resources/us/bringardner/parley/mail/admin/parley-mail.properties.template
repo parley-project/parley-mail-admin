@@ -29,6 +29,9 @@ parley.mail.imap.port=2143
 parley.mail.imaps.port=0
 parley.mail.pop3.port=2110
 parley.mail.pop3s.port=0
+# FTP for the mail users (name@domain): refuses logins before AUTH TLS, so it needs a key store
+parley.mail.ftp.port=2121
+parley.mail.ftps.port=0
 
 # ---------------------------------------------------------------- SMTP
 

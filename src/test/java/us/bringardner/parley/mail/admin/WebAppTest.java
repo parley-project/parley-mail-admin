@@ -53,6 +53,7 @@ public class WebAppTest {
 	private static int submissionPort;
 	private static int pop3Port;
 	private static int imapPort;
+	private static int ftpPort;
 
 	private static int freePort() throws IOException {
 		try (ServerSocket s = new ServerSocket(0)) {
@@ -67,6 +68,7 @@ public class WebAppTest {
 		submissionPort = freePort();
 		pop3Port = freePort();
 		imapPort = freePort();
+		ftpPort = freePort();
 		String root = new File(home, "mail").getAbsolutePath().replace('\\', '/');
 		// the store's and the queue's own settings, as parley-servers-setup makes them (the queue names
 		// no aliases file: the application's own is used, and named when the queue's settings change)
@@ -85,6 +87,8 @@ public class WebAppTest {
 				+ "parley.mail.imaps.port=0\n"
 				+ "parley.mail.pop3.port=" + pop3Port + "\n"
 				+ "parley.mail.pop3s.port=0\n"
+				+ "parley.mail.ftp.port=" + ftpPort + "\n"
+				+ "parley.mail.ftps.port=0\n"
 				+ "parley.mail.admin.autoStart=true\n").getBytes(StandardCharsets.UTF_8));
 		System.setProperty(AdminHome.HOME_PROPERTY, home.getAbsolutePath());
 		// the settings files in the home (not /etc/parley, which a test machine may have)
@@ -183,6 +187,15 @@ public class WebAppTest {
 			boolean enabled = svc.get("enabled").asBoolean();
 			assertEquals(enabled ? "RUNNING" : "OFF", svc.get("state").asText(), id + ": " + svc);
 		}
+		boolean ftp = false;
+		for (JsonNode svc : st.get("services")) {
+			if (svc.get("id").asText().equals("ftp")) {
+				ftp = true;
+				assertEquals("RUNNING", svc.get("state").asText(), "FTP is a service of the suite: " + svc);
+				assertEquals(ftpPort, svc.get("port").asInt());
+			}
+		}
+		assertTrue(ftp, "the services include ftp");
 		assertTrue(st.get("queue").get("running").asBoolean());
 		assertTrue(st.get("local").asBoolean(), "the servers run in the application");
 		try (Socket client = new Socket("localhost", pop3Port)) {
@@ -481,7 +494,7 @@ public class WebAppTest {
 	public void settingsPage() throws Exception {
 		JsonNode s = ok("GET", "/settings", null);
 		assertTrue(s.get("groups").size() > 5);
-		assertEquals("[\"parley-mail.properties\",\"parley-smtp.properties\",\"parley-imap.properties\",\"parley-pop3.properties\"]", s.get("files").toString());
+		assertEquals("[\"parley-mail.properties\",\"parley-smtp.properties\",\"parley-imap.properties\",\"parley-pop3.properties\",\"parley-mail-ftp.properties\"]", s.get("files").toString());
 		HttpResponse<String> bad = call("PUT", "/settings", Map.of("changes", Map.of("parley.mail.pop3.port", "abc")));
 		assertEquals(400, bad.statusCode());
 		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.tls.keyStorePassword", "s3cret")));

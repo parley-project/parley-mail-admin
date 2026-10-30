@@ -44,7 +44,7 @@ public final class LogBuffer {
 
 	/** Where an entry came from, by its logger's name. */
 	public enum Source {
-		SMTP, IMAP, POP3, MAIL, NET, ADMIN, OTHER;
+		SMTP, IMAP, POP3, FTP, MAIL, NET, ADMIN, OTHER;
 
 		/** The logger name prefixes of a source (for setting its level). */
 		public String[] packages() {
@@ -55,6 +55,8 @@ public final class LogBuffer {
 				return new String[] { "us.bringardner.parley.imap" };
 			case POP3:
 				return new String[] { "us.bringardner.parley.pop3" };
+			case FTP:
+				return new String[] { "us.bringardner.parley.ftp" };
 			case MAIL:
 				return new String[] { "us.bringardner.parley.mail.store", "us.bringardner.parley.mail.server" };
 			case NET:

@@ -146,6 +146,11 @@ public class StoresTest {
 		assertTrue(ServiceId.IMAPS.isAffectedBy("parley.mail.imaps.port"));
 		assertFalse(ServiceId.IMAP.isAffectedBy("parley.mail.imaps.port"));
 		assertFalse(ServiceId.POP3.isAffectedBy("parley.mail.imap.port"));
+		assertTrue(ServiceId.FTP.isAffectedBy("parley.mail.ftp.root"));
+		assertFalse(ServiceId.FTP.isAffectedBy("parley.mail.ftps.port"), "ftps' own");
+		assertFalse(ServiceId.FTPS.isAffectedBy("parley.mail.ftp.root"), "ftp's own");
+		assertTrue(ServiceId.FTP.isAffectedBy("store.sharing"));
+		assertFalse(ServiceId.FTP.isAffectedBy("queue.domains"), "the domains are read again by FTP without a restart");
 		// the queue's settings: every SMTP server; the store's: every server
 		assertTrue(ServiceId.SUBMISSION.isAffectedBy("queue.domains"));
 		assertFalse(ServiceId.POP3.isAffectedBy("queue.domains"));

@@ -809,7 +809,7 @@
 		let users = [];
 		filter.addEventListener('change', draw);
 		search.addEventListener('input', draw);
-		root.appendChild(h('p.muted', 'READ: log in and read mail (IMAP, POP3). WRITE: change mailboxes and send mail. ADMIN: use these pages. Changes take effect at once.'));
+		root.appendChild(h('p.muted', 'READ: log in and read mail (IMAP, POP3) or files (FTP). WRITE: change mailboxes, send mail and change files. ADMIN: use these pages. Changes take effect at once.'));
 		root.appendChild(panel('Users', h('div.toolbar', filter, search, h('button.primary', { onclick: addUser }, 'Add user')), list));
 
 		async function refresh() {
@@ -1058,7 +1058,7 @@
 
 	// ------------------------------------------------------------------ logs
 
-	const SOURCES = ['SMTP', 'IMAP', 'POP3', 'MAIL', 'NET', 'ADMIN', 'OTHER'];
+	const SOURCES = ['SMTP', 'IMAP', 'POP3', 'FTP', 'MAIL', 'NET', 'ADMIN', 'OTHER'];
 	const LEVELS = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'];
 
 	function logsPage(root) {
