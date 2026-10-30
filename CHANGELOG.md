@@ -2,6 +2,13 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Added
+
+- **FTP**: the services `ftp` and `ftps` (parley-ftp's servers in the mail suite) are on the Dashboard with the other
+  services (state, port, TLS, connections, start, stop, restart), have an FTP tab on the Settings page (`parley.mail.ftp.*`
+  and `parley.mail.ftps.*`, in `parley-mail-ftp.properties`), and an FTP source on the Logs page. FTP logs in the mail
+  users (`name@domain`) and serves each one's folder in the mail store. Needs parley-ftp.
+
 ### Changed
 
 - The SMTP history can be on another file system than the mail: the queue's `historyFileSource` (a setting on the

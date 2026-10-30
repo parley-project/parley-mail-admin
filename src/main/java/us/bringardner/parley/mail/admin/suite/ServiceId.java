@@ -14,13 +14,15 @@ public enum ServiceId {
 	IMAP(Protocol.IMAP, "IMAP", "Mailbox access; STARTTLS before LOGIN", "parley.mail.imap", 143, 143, false),
 	IMAPS(Protocol.IMAP, "IMAP (TLS)", "Mailbox access over implicit TLS", "parley.mail.imaps", 993, 0, true),
 	POP3(Protocol.POP3, "POP3", "Download mail; STLS before USER", "parley.mail.pop3", 110, 110, false),
-	POP3S(Protocol.POP3, "POP3 (TLS)", "Download mail over implicit TLS", "parley.mail.pop3s", 995, 0, true);
+	POP3S(Protocol.POP3, "POP3 (TLS)", "Download mail over implicit TLS", "parley.mail.pop3s", 995, 0, true),
+	FTP(Protocol.FTP, "FTP", "Files in the mail store; AUTH TLS before login", "parley.mail.ftp", 21, 21, false),
+	FTPS(Protocol.FTP, "FTP (TLS)", "Files in the mail store over implicit TLS", "parley.mail.ftps", 990, 0, true);
 
 	public enum Protocol {
 		SMTP("parley.mail.smtp", "parley-smtp.properties"), IMAP("parley.mail.imap", "parley-imap.properties"),
-		POP3("parley.mail.pop3", "parley-pop3.properties");
+		POP3("parley.mail.pop3", "parley-pop3.properties"), FTP("parley.mail.ftp", "parley-mail-ftp.properties");
 
-		/** The prefix of the protocol's first server (the relay, imap, pop3), whose file is the protocol's. */
+		/** The prefix of the protocol's first server (the relay, imap, pop3, ftp), whose file is the protocol's. */
 		public final String prefix;
 		/** The settings file of the protocol's servers (read after parley-mail.properties). */
 		public final String settingsFile;

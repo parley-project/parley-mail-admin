@@ -65,6 +65,11 @@
 			<artifactId>parley-pop3</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-ftp</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 		<!-- Logo and Margot, served under /brand/ -->
 		<dependency>
 			<groupId>us.bringardner.parley</groupId>
