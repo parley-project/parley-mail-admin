@@ -126,4 +126,20 @@ public class RemoteStoreTest {
 		assertEquals(1, rows.size());
 		assertEquals("m1", rows.get(0).get("id"));
 	}
+
+	@Test
+	public void theHistoryOnLocalDiskBesideAStoreOnAnotherFileSystem() throws Exception {
+		File local = new File(dir, "local-history");
+		settings("parley.mail.root=/mail\nparley.mail.fileSource=recording\n");
+		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		s.load();
+		s.set(SettingsCatalog.QUEUE_HISTORY_FILE_SOURCE, "FileProxy");
+		s.set(SettingsCatalog.QUEUE_HISTORY_DIRECTORY, local.getPath());
+		assertEquals("FileProxy", s.get(SettingsCatalog.QUEUE_HISTORY_FILE_SOURCE, null));
+		FileSource h = us.bringardner.parley.smtp.queue.QueueHistory.folder(s.getMailRoot(),
+				s.get(SettingsCatalog.QUEUE_HISTORY_FILE_SOURCE, null), s.get(SettingsCatalog.QUEUE_HISTORY_DIRECTORY, null));
+		assertEquals("fileproxy", h.getFileSourceFactory().getTypeId());
+		assertEquals(local.getAbsolutePath(), h.getAbsolutePath());
+		assertEquals("recording", s.getMailRoot().getFileSourceFactory().getTypeId(), "the mail itself stays on its own file system");
+	}
 }

@@ -80,6 +80,7 @@ public final class SettingsCatalog {
 	public static final String QUEUE_HISTORY_DAYS = QUEUE_PREFIX + "historyDays";
 	public static final String QUEUE_HISTORY = QUEUE_PREFIX + "history";
 	public static final String QUEUE_HISTORY_DIRECTORY = QUEUE_PREFIX + "historyDirectory";
+	public static final String QUEUE_HISTORY_FILE_SOURCE = QUEUE_PREFIX + "historyFileSource";
 	public static final String ADMIN_AUTO_START = "parley.mail.admin.autoStart";
 	/** The primary domain: its administrators manage every domain, other administrators only their own. */
 	public static final String ADMIN_PRIMARY_DOMAIN = "parley.mail.admin.primaryDomain";
@@ -169,6 +170,8 @@ public final class SettingsCatalog {
 		add(g, QUEUE_PREFIX + "maxAgeHours", "Give up after (hours)", NUMBER, "120", "The message is returned to the sender after this long.");
 		add(g, QUEUE_HISTORY, "Keep SMTP history", BOOLEAN, "true", "The queue writes the history the SMTP History page shows.");
 		add(g, QUEUE_HISTORY_DIRECTORY, "SMTP history folder", PATH, "<mail root>/.smtp-history", "Where the queue writes it.");
+		add(g, QUEUE_HISTORY_FILE_SOURCE, "SMTP history file system", TEXT, "<mail root's>",
+				"The file system of the history folder, a type id such as FileProxy (local disk). Needs the history folder. Use FileProxy when the mail is in a database.");
 		add(g, QUEUE_HISTORY_DAYS, "Keep SMTP history (days)", NUMBER, "30", "Older history files are deleted; 0 keeps every day.");
 		add(g, QUEUE_DKIM_KEYS, "DKIM keys", LIST, null, "Signing keys, domain:selector:keyfile, comma separated. Made on the Domains page.");
 		add(g, QUEUE_DKIM_SHARED, "Shared DKIM key", TEXT, null,

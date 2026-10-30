@@ -4,6 +4,9 @@
 
 ### Changed
 
+- The SMTP history can be on another file system than the mail: the queue's `historyFileSource` (a setting on the
+  Settings page, e.g. `FileProxy` for local disk; it needs the history folder) is used to find the folder, as the queue
+  does (`QueueHistory.folder`), so the History page reads the same files. Needs parley-smtp with `historyFileSource`.
 - One DKIM key for every domain: the primary domain's key is the shared one (the queue's `dkim.shared`, which the admin
   keeps set to the primary domain while it has a key), and a domain without a key of its own signs with it; with Parley
   DNS it gets the key's record from the shared zone, so it needs no zone file. A key made for another
