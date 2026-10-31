@@ -1264,9 +1264,10 @@
 
 		/** The value a setting has now: unsaved, saved, or its default. */
 		function curVal(key) {
-			if (changes.has(key)) return changes.get(key);
 			const d = allSettings().find(x => x.key === key);
-			return d ? (d.value || d.default) : null;
+			// an unsaved change to nothing (null) removes the setting, which leaves its default
+			const v = changes.has(key) ? changes.get(key) : d ? d.value : null;
+			return v || (d ? d.default : null);
 		}
 
 		function visible(s) {
