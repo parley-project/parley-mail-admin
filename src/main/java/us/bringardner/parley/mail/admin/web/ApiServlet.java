@@ -898,6 +898,10 @@ public class ApiServlet extends HttpServlet {
 				m.put("showWhenKey", d.getShowWhenKey());
 				m.put("showWhenValue", d.getShowWhenValue());
 			}
+			if (d.getHideWhenKey() != null) {
+				m.put("hideWhenKey", d.getHideWhenKey());
+				m.put("hideWhenValue", d.getHideWhenValue());
+			}
 			if (d.isAdvanced()) {
 				m.put("advanced", true);
 			}
