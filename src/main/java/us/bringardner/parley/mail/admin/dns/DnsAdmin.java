@@ -2,7 +2,6 @@ package us.bringardner.parley.mail.admin.dns;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
