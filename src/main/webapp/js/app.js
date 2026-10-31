@@ -1323,15 +1323,15 @@
 				case 'CHOICE': {
 					const labels = s.optionLabels || [];
 					const nice = o => { const i = (s.options || []).indexOf(o); return i >= 0 && labels[i] ? labels[i] : o; };
-					input = h('select', h('option', { value: '' }, s.default ? 'default (' + nice(s.default) + ')' : 'not set'), (s.options || []).map((o, i) => h('option', { value: o }, labels[i] && labels[i] !== o ? labels[i] + ' (' + o + ')' : o)));
-					input.value = val || '';
-					input.addEventListener('change', () => { set(input.value || null); if (hasDependents(s.key)) draw(); });
+					const sel = h('select', h('option', { value: '' }, s.default ? 'default (' + nice(s.default) + ')' : 'not set'), (s.options || []).map((o, i) => h('option', { value: o }, labels[i] && labels[i] !== o ? labels[i] + ' (' + o + ')' : o)));
+					sel.value = val || '';
+					sel.addEventListener('change', () => { set(sel.value || null); if (hasDependents(s.key)) { const y = window.scrollY; draw(); window.scrollTo(0, y); } });
 					const chosenId = (val || s.default || '');
 					const oi = (s.options || []).indexOf(chosenId);
 					const about = oi >= 0 && s.optionDescriptions && s.optionDescriptions[oi] ? h('div.hint', s.optionDescriptions[oi]) : null;
 					const test = /\.spam\.provider$/.test(s.key) ? h('div', h('button.small', { type: 'button', onclick: () => testSpam(s) }, 'Test connection'),
 						h('span.muted', ' Asks the scanner with the settings below, saved or not.')) : null;
-					input = h('div', input, about, test);
+					input = h('div', sel, about, test);
 					break;
 				}
 				case 'SECRET': {
