@@ -124,7 +124,7 @@ public class ApiServlet extends HttpServlet {
 	 * domain's administrators' only.
 	 */
 	private static final String[][] DOMAIN_CALLS = {
-			{ "GET", "/domains" }, { "POST", "/domains/[^/]+/dkim" },
+			{ "GET", "/domains" }, { "POST", "/domains/[^/]+/dkim" }, { "POST", "/domains/[^/]+/spam" },
 			{ "GET", "/users" }, { "POST", "/users" }, { "PUT", "/users/[^/]+" }, { "DELETE", "/users/[^/]+" }, { "GET", "/users/[^/]+/usage" },
 			{ "GET", "/aliases" }, { "PUT", "/aliases/[^/]+" }, { "DELETE", "/aliases/[^/]+" },
 			{ "GET", "/queue" }, { "POST", "/queue/[^/]+/retry" }, { "DELETE", "/queue/[^/]+" }, { "GET", "/queue/[^/]+/message" },
@@ -397,6 +397,15 @@ public class ApiServlet extends HttpServlet {
 			}
 			DomainService.DkimEntry key = app.getDomains().generateDkim(q.param(0), q.requiredText("selector"), q.text("type"));
 			ownKeyRecord(key);
+			useNow(true);
+			return withDns(app.getDomains().describe(q.param(0)), app.getDns().servedZones());
+		});
+
+		r.post("/domains/{domain}/spam", q -> {
+			if (!scope(q).allowsDomain(q.param(0))) {
+				throw new ApiException(403, "The domain " + q.param(0) + " isn't yours");
+			}
+			app.getDomains().setSpam(q.param(0), q.requiredText("filter"));
 			useNow(true);
 			return withDns(app.getDomains().describe(q.param(0)), app.getDns().servedZones());
 		});

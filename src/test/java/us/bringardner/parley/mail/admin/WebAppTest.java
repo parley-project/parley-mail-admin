@@ -55,6 +55,19 @@ public class WebAppTest {
 	private static int imapPort;
 	private static int ftpPort;
 
+	private static JsonNode domainNamed(String name) throws Exception {
+		for (JsonNode x : ok("GET", "/domains", null)) {
+			if (x.get("domain").asText().equals(name)) {
+				return x;
+			}
+		}
+		throw new AssertionError("no domain " + name);
+	}
+
+	private static String queueProperties() throws IOException {
+		return new String(Files.readAllBytes(new File(home, "mail/.smtp-queue/queue.properties").toPath()), StandardCharsets.UTF_8);
+	}
+
 	private static int freePort() throws IOException {
 		try (ServerSocket s = new ServerSocket(0)) {
 			return s.getLocalPort();
@@ -225,6 +238,44 @@ public class WebAppTest {
 			dkimRecord |= r.get("name").asText().equals("sel1._domainkey.b.test.") && r.get("value").asText().startsWith("v=DKIM1; k=rsa; p=");
 		}
 		assertTrue(dkimRecord, b.toString());
+
+		// the spam filter: the global choice, and a domain's own over it
+		JsonNode spam = b.get("spam");
+		assertEquals("default", spam.get("override").asText());
+		assertEquals("off", spam.get("effective").asText(), "checking is off until it is turned on");
+		String filterIds = spam.get("filters").toString();
+		assertTrue(filterIds.contains("\"rspamd\"") && filterIds.contains("\"spamassassin\""), filterIds);
+		boolean spamGroup = false;
+		for (JsonNode g : ok("GET", "/settings", null).get("groups")) {
+			if (g.get("id").asText().equals("spam")) {
+				spamGroup = true;
+				String keys = g.toString();
+				assertTrue(keys.contains("queue.spam.provider") && keys.contains("queue.spam.rspamd.url")
+						&& keys.contains("queue.spam.spamassassin.port") && keys.contains("queue.spam.domains"), keys);
+			}
+		}
+		assertTrue(spamGroup, "the Spam settings tab");
+		ok("PUT", "/settings", Map.of("changes", Map.of("queue.spam.enabled", "true", "queue.spam.provider", "rspamd")));
+		assertEquals("rspamd", domainNamed("b.test").get("spam").get("effective").asText(), "the global choice applies to the domain");
+		JsonNode own = ok("POST", "/domains/b.test/spam", Map.of("filter", "off"));
+		assertEquals("off", own.get("spam").get("override").asText());
+		assertEquals("off", own.get("spam").get("effective").asText());
+		assertEquals("rspamd", domainNamed("a.test").get("spam").get("effective").asText(), "other domains keep the global choice");
+		assertTrue(queueProperties().contains("spam.domains=b.test:off"), queueProperties());
+		own = ok("POST", "/domains/b.test/spam", Map.of("filter", "SpamAssassin"));
+		assertEquals("spamassassin", own.get("spam").get("effective").asText());
+		assertEquals(400, call("POST", "/domains/b.test/spam", Map.of("filter", "bogus")).statusCode());
+		assertEquals(400, call("POST", "/domains/nowhere.test/spam", Map.of("filter", "off")).statusCode());
+		own = ok("POST", "/domains/b.test/spam", Map.of("filter", "default"));
+		assertEquals("default", own.get("spam").get("override").asText());
+		assertFalse(queueProperties().contains("b.test:off") || queueProperties().contains("b.test:spamassassin"), "the override is gone: " + queueProperties());
+		// off for everyone but one domain
+		ok("PUT", "/settings", Map.of("changes", Map.of("queue.spam.enabled", "false")));
+		assertEquals("off", domainNamed("b.test").get("spam").get("effective").asText());
+		ok("POST", "/domains/b.test/spam", Map.of("filter", "rspamd"));
+		assertEquals("rspamd", domainNamed("b.test").get("spam").get("effective").asText(), "on for a domain though off globally");
+		ok("POST", "/domains/b.test/spam", Map.of("filter", "default"));
+		ok("PUT", "/settings", Map.of("changes", Map.of("queue.spam.provider", "none")));
 		// A4.1: the key file gets the permissions any new file of the process gets (the servers may be another user of its group)
 		File key = new File(home, "dkim/b.test-sel1.pem");
 		assertTrue(key.isFile());
@@ -677,6 +728,10 @@ public class WebAppTest {
 		assertEquals(403, callAs(other, token, "POST", "/users", Map.of("name", "peek@c.test", "password", "peekpass12", "maildrop", "a.test/admin")).statusCode());
 		assertEquals(403, callAs(other, token, "PUT", "/aliases/admin@a.test", Map.of("members", List.of("boss@c.test"))).statusCode());
 		assertEquals(403, callAs(other, token, "POST", "/domains/a.test/dkim", Map.of("selector", "x")).statusCode());
+		// the spam filter of its own domain, not another's
+		assertEquals(403, callAs(other, token, "POST", "/domains/a.test/spam", Map.of("filter", "off")).statusCode());
+		assertEquals(200, callAs(other, token, "POST", "/domains/c.test/spam", Map.of("filter", "off")).statusCode());
+		assertEquals(200, callAs(other, token, "POST", "/domains/c.test/spam", Map.of("filter", "default")).statusCode());
 
 		// what spans every domain is the primary domain's administrators' only
 		for (String[] c : new String[][] { { "GET", "/status" }, { "GET", "/services" }, { "GET", "/settings" }, { "PUT", "/settings" }, { "GET", "/logs" },
