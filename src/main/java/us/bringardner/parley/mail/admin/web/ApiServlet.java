@@ -39,7 +39,11 @@ import us.bringardner.parley.mail.admin.settings.SettingDef;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
+import us.bringardner.parley.files.ConnectionSetting;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
+import us.bringardner.parley.smtp.spam.SpamProvider;
+import us.bringardner.parley.smtp.spam.SpamProviders;
+import us.bringardner.parley.smtp.spam.SpamStatus;
 import us.bringardner.parley.mail.admin.users.UserRecord;
 import us.bringardner.parley.smtp.queue.MailQueueMXBean;
 import us.bringardner.parley.smtp.queue.QueuedMessageInfo;
@@ -378,6 +382,8 @@ public class ApiServlet extends HttpServlet {
 		// settings
 		r.get("/settings", q -> settings());
 		r.put("/settings", this::updateSettings);
+		r.get("/spam/providers", q -> spamProviders());
+		r.post("/spam/test", this::testSpam);
 
 		// domains
 		r.get("/domains", q -> domains(q));
@@ -881,6 +887,19 @@ public class ApiServlet extends HttpServlet {
 			m.put("description", d.getDescription());
 			if (!d.getOptions().isEmpty()) {
 				m.put("options", d.getOptions());
+				if (!d.getOptionLabels().isEmpty()) {
+					m.put("optionLabels", d.getOptionLabels());
+				}
+				if (!d.getOptionDescriptions().isEmpty()) {
+					m.put("optionDescriptions", d.getOptionDescriptions());
+				}
+			}
+			if (d.getShowWhenKey() != null) {
+				m.put("showWhenKey", d.getShowWhenKey());
+				m.put("showWhenValue", d.getShowWhenValue());
+			}
+			if (d.isAdvanced()) {
+				m.put("advanced", true);
 			}
 		} else {
 			m.put("type", secret ? "SECRET" : "TEXT");
@@ -927,6 +946,69 @@ public class ApiServlet extends HttpServlet {
 			}
 			m.put(ids[i], a);
 		}
+		return m;
+	}
+
+	/** The spam providers this installation has (found at run time), what each can do and its settings. */
+	private Object spamProviders() {
+		List<Object> list = new ArrayList<>();
+		for (SpamProvider p : SpamProviders.all()) {
+			Map<String, Object> m = new LinkedHashMap<>();
+			m.put("id", p.getId());
+			m.put("title", p.getTitle());
+			m.put("description", p.getDescription());
+			List<String> features = new ArrayList<>();
+			for (SpamProvider.Feature f : p.getFeatures()) {
+				features.add(f.name());
+			}
+			m.put("features", features);
+			List<Object> settings = new ArrayList<>();
+			for (ConnectionSetting cs : p.getSettings()) {
+				Map<String, Object> sm = new LinkedHashMap<>();
+				sm.put("key", cs.key());
+				sm.put("label", cs.label());
+				sm.put("kind", cs.kind().name());
+				sm.put("default", cs.defaultValue());
+				sm.put("description", cs.description());
+				sm.put("required", cs.required());
+				sm.put("advanced", cs.advanced());
+				settings.add(sm);
+			}
+			m.put("settings", settings);
+			list.add(m);
+		}
+		Map<String, Object> ret = new LinkedHashMap<>();
+		ret.put("providers", list);
+		return ret;
+	}
+
+	/**
+	 * Ask a spam provider's scanner whether it is there, with the settings of the form (saved or not). A
+	 * secret the form leaves empty is the saved one, since the browser is never sent them.
+	 */
+	private Object testSpam(Router.Request q) throws IOException {
+		String id = q.requiredText("provider");
+		SpamProvider p = SpamProviders.get(id);
+		if (p == null) {
+			throw ApiException.badRequest("There is no spam provider " + id);
+		}
+		JsonNode given = q.body().get("settings");
+		Map<String, String> settings = new LinkedHashMap<>();
+		for (ConnectionSetting cs : p.getSettings()) {
+			String v = given != null && given.has(cs.key()) && !given.get(cs.key()).isNull() ? given.get(cs.key()).asText() : null;
+			if ((v == null || v.isEmpty()) && cs.isSecret()) {
+				v = app.getSettings().getEffective(ServiceId.SMTP.prefix + ".spam." + p.getId() + "." + cs.key());
+			}
+			if (v != null && !v.trim().isEmpty()) {
+				settings.put(cs.key(), v.trim());
+			}
+		}
+		SpamStatus st = SpamProviders.test(id, settings, 5000);
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("available", st.isAvailable());
+		m.put("version", st.getVersion());
+		m.put("message", st.getMessage());
+		m.put("details", st.getDetails());
 		return m;
 	}
 

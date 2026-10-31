@@ -35,6 +35,13 @@ public final class SettingDef {
 	private final List<String> options;
 	/** The server whose setting this is (its id: smtp, submission, ...), or null for one every server of the group reads */
 	private final String server;
+	/** A choice's names for people and explanations, by option (empty: the options themselves) */
+	private volatile List<String> optionLabels = Collections.emptyList();
+	private volatile List<String> optionDescriptions = Collections.emptyList();
+	/** Shown only while the setting showWhenKey has the value showWhenValue (a provider's own settings), or null */
+	private volatile String showWhenKey;
+	private volatile String showWhenValue;
+	private volatile boolean advanced;
 
 	public SettingDef(String key, String group, String label, Type type, String defaultValue, String description, String... options) {
 		this(key, group, null, label, type, defaultValue, description, options);
@@ -83,6 +90,47 @@ public final class SettingDef {
 
 	public List<String> getOptions() {
 		return options;
+	}
+
+	/** The names of the options for people, in the order of {@link #getOptions()}; empty if they are the options. */
+	public List<String> getOptionLabels() {
+		return optionLabels;
+	}
+
+	/** What each option is, in the order of {@link #getOptions()}; empty if there is no text. */
+	public List<String> getOptionDescriptions() {
+		return optionDescriptions;
+	}
+
+	public SettingDef withOptionInfo(List<String> labels, List<String> descriptions) {
+		this.optionLabels = Collections.unmodifiableList(new java.util.ArrayList<>(labels));
+		this.optionDescriptions = Collections.unmodifiableList(new java.util.ArrayList<>(descriptions));
+		return this;
+	}
+
+	/** Show this setting only while the setting {@code key} has the value {@code value}. */
+	public SettingDef showWhen(String key, String value) {
+		this.showWhenKey = key;
+		this.showWhenValue = value;
+		return this;
+	}
+
+	public String getShowWhenKey() {
+		return showWhenKey;
+	}
+
+	public String getShowWhenValue() {
+		return showWhenValue;
+	}
+
+	/** An advanced setting is rarely needed and is shown after the others. */
+	public SettingDef asAdvanced() {
+		this.advanced = true;
+		return this;
+	}
+
+	public boolean isAdvanced() {
+		return advanced;
 	}
 
 	/** Why a value is not acceptable, or null if it is. Empty means "not set" and is always fine. */
