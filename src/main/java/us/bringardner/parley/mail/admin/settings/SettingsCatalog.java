@@ -17,6 +17,10 @@ import java.util.List;
 import java.util.Map;
 
 import us.bringardner.parley.mail.admin.suite.ServiceId;
+import us.bringardner.parley.smtp.spam.NullSpamFilter;
+import us.bringardner.parley.smtp.spam.SpamFilterFactory;
+import us.bringardner.parley.smtp.spam.SpamFilters;
+import us.bringardner.parley.smtp.spam.SpamOption;
 
 /**
  * The settings the Settings page offers, in groups. The names are Parley 2.0.0's; the descriptions
@@ -76,6 +80,11 @@ public final class SettingsCatalog {
 	public static final String QUEUE_ALIASES = QUEUE_PREFIX + "aliases";
 	public static final String QUEUE_DKIM_KEYS = QUEUE_PREFIX + "dkim.keys";
 	public static final String QUEUE_DKIM_SHARED = QUEUE_PREFIX + "dkim.shared";
+	/** Whether incoming mail is checked for spam, and with which filter, for the domains without an override. */
+	public static final String QUEUE_SPAM_ENABLED = QUEUE_PREFIX + "spam.enabled";
+	public static final String QUEUE_SPAM_PROVIDER = QUEUE_PREFIX + "spam.provider";
+	/** The overrides by recipient domain, domain:off or domain:filter, comma separated. */
+	public static final String QUEUE_SPAM_DOMAINS = QUEUE_PREFIX + "spam.domains";
 	/** Days of history the queue keeps (parley-smtp's QueueHistory). */
 	public static final String QUEUE_HISTORY_DAYS = QUEUE_PREFIX + "historyDays";
 	public static final String QUEUE_HISTORY = QUEUE_PREFIX + "history";
@@ -195,6 +204,38 @@ public final class SettingsCatalog {
 		perServer(g, "dmarc.enforce", "Enforce DMARC", BOOLEAN, "false", "Refuse p=reject mail, deliver p=quarantine mail to Junk.");
 		perServer(g, "dmarc.publicSuffixList", "Public suffix list", PATH, "the included copy", "A newer public_suffix_list.dat.");
 		perServer(g, "arc.verify", "Verify ARC", BOOLEAN, "true", "Validate the ARC chains of incoming mail.");
+
+		g = group("spam", "Spam", "Check incoming mail for spam with a filter (Rspamd, SpamAssassin, or one plugged in). On or off and the filter are set here for every domain; "
+				+ "each domain can override them on the Domains page. A filter that is down never stops mail: it is delivered unscored.");
+		add(g, QUEUE_SPAM_ENABLED, "Check for spam", BOOLEAN, "false", "Check mail from other servers (not your users' own) with the filter below. Domains can override this.");
+		List<String> filterIds = SpamFilters.ids();
+		add(g, QUEUE_SPAM_PROVIDER, "Spam filter", CHOICE, NullSpamFilter.ID, "The filter used where a domain has no override: none checks nothing.",
+				filterIds.toArray(new String[0]));
+		add(g, QUEUE_SPAM_DOMAINS, "Domain overrides", LIST, null, "domain:off or domain:filter, comma separated. Managed on the Domains page.");
+		add(g, QUEUE_PREFIX + "spam.rejectScore", "Refuse from score", NUMBER, "the filter's own decision",
+				"Messages scored at or above this are refused (550). When this or the next is set, scores decide and the filter's own action is ignored.");
+		add(g, QUEUE_PREFIX + "spam.quarantineScore", "Junk from score", NUMBER, "the filter's own decision", "Messages scored at or above this go to the Junk mailbox.");
+		add(g, QUEUE_PREFIX + "spam.maxSize", "Largest message checked (bytes)", NUMBER, "2097152", "Larger messages are not sent to the filter.");
+		add(g, QUEUE_PREFIX + "spam.timeoutMillis", "Filter timeout (ms)", NUMBER, "5000", "A filter that takes longer is skipped and the message delivered.");
+		for (SpamFilterFactory f : SpamFilters.factories()) {
+			for (SpamOption o : f.options()) {
+				SettingDef.Type type;
+				switch (o.getType()) {
+				case NUMBER:
+					type = NUMBER;
+					break;
+				case BOOLEAN:
+					type = BOOLEAN;
+					break;
+				case SECRET:
+					type = SECRET;
+					break;
+				default:
+					type = TEXT;
+				}
+				add(g, QUEUE_PREFIX + "spam." + f.id() + "." + o.getKey(), f.label() + ": " + o.getLabel(), type, o.getDefaultValue(), o.getDescription());
+			}
+		}
 
 		g = group("imap", "IMAP", "Each IMAP server's own settings: choose the server.", ServiceId.IMAP, ServiceId.IMAPS);
 		perServer(g, "requireTls", "Require TLS", BOOLEAN, "false", "Refuse LOGIN and AUTHENTICATE until STARTTLS.");

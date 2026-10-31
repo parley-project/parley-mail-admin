@@ -1106,7 +1106,8 @@ public final class MailSuite implements AutoCloseable {
 
 	/** True if a queue setting (with or without the queue. prefix) is read again by a reload */
 	static boolean reloaded(String key) {
-		return RELOADED.contains(key.startsWith(SettingsCatalog.QUEUE_PREFIX) ? key.substring(SettingsCatalog.QUEUE_PREFIX.length()) : key);
+		String k = key.startsWith(SettingsCatalog.QUEUE_PREFIX) ? key.substring(SettingsCatalog.QUEUE_PREFIX.length()) : key;
+		return RELOADED.contains(k) || k.startsWith("spam."); // the spam filters' settings too
 	}
 
 	/**

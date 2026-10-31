@@ -454,15 +454,18 @@
 			try { domains = await api('GET', '/domains'); } catch (e) { return fail(e); }
 			state.domains = domains.map(d => d.domain);
 			clear(list).appendChild(h('div.table-wrap', h('table',
-				h('thead', h('tr', h('th', 'Domain'), h('th', 'Users'), h('th', 'Aliases'), h('th', 'DKIM'), h('th', ''))),
+				h('thead', h('tr', h('th', 'Domain'), h('th', 'Users'), h('th', 'Aliases'), h('th', 'DKIM'), h('th', 'Spam filter'), h('th', ''))),
 				h('tbody', domains.map(d => h('tr',
 					h('td', h('b', d.domain), d.unicode ? h('span.muted', ' (' + d.unicode + ')') : null),
 					h('td', h('a', { href: '#/users', onclick: () => { state.userDomain = d.domain; } }, String(d.users))),
 					h('td', String(d.aliases)),
 					h('td', d.dkim ? h('span', h('span.badge.ok', d.dkim.selector), d.dkim.own ? null : h('span.muted', ' shared (' + d.dkim.domain + ')'),
 						d.dkim.keyFileExists ? null : h('span.badge.bad', ' key file missing')) : h('span.badge.warn', 'no key')),
+					h('td', d.spam.effective === 'off' ? h('span.badge', 'off') : h('span.badge.ok', d.spam.effective),
+						d.spam.override === 'default' ? h('span.muted', ' (default)') : null),
 					h('td.actions',
 						h('button.small', { onclick: () => dns(d) }, 'DNS records'),
+						h('button.small', { onclick: () => spam(d) }, 'Spam filter'),
 						h('button.small', { onclick: () => dkim(d) }, d.dkim && d.dkim.own ? 'New DKIM key' : 'Make DKIM key'),
 						state.primary ? h('button.small.danger', { onclick: () => remove(d) }, 'Remove') : null)))))));
 		}
@@ -490,6 +493,24 @@
 				parts.push('"' + r.value.substring(i, i + 255).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"');
 			}
 			return parts.join(' ');
+		}
+
+		async function spam(d) {
+			const choice = h('select',
+				h('option', { value: 'default' }, 'Use the default for all domains'),
+				h('option', { value: 'off' }, 'Off: don\'t check ' + d.domain + '\'s mail'),
+				d.spam.filters.map(f => h('option', { value: f.id }, f.label)));
+			choice.value = d.spam.override;
+			const r = await dialog('Spam filter for ' + d.domain, [
+				h('p.muted', 'Mail from other servers to ' + d.domain + ' is checked by this filter. The default is the Spam tab of Settings (a filter and on or off for every domain); '
+					+ 'a choice here replaces it for this domain only, even when checking is off for the others. A filter that is down never stops mail.'),
+				h('div.form', h('label.row', h('span', 'Filter'), choice))
+			], { okLabel: 'Save', onOk: () => api('POST', '/domains/' + enc(d.domain) + '/spam', { filter: choice.value }) });
+			if (r) {
+				toast('Spam filter of ' + d.domain + ' saved', 'ok');
+				refresh();
+				checkRestart();
+			}
 		}
 
 		async function dkim(d) {

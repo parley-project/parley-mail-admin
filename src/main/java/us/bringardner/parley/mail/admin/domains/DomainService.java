@@ -28,6 +28,10 @@ import us.bringardner.parley.mail.admin.users.AliasStore;
 import us.bringardner.parley.mail.admin.users.UserRecord;
 import us.bringardner.parley.mail.admin.users.UserStore;
 import us.bringardner.parley.smtp.dkim.DkimKeys;
+import us.bringardner.parley.smtp.spam.NullSpamFilter;
+import us.bringardner.parley.smtp.spam.Spam;
+import us.bringardner.parley.smtp.spam.SpamFilterFactory;
+import us.bringardner.parley.smtp.spam.SpamFilters;
 
 /**
  * The local domains ({@code parley.mail.smtp.domains}): adding and removing them, each one's users
@@ -138,7 +142,79 @@ public final class DomainService {
 		if (keys.removeIf(k -> k.domain.equals(d))) {
 			changes.put(SettingsCatalog.QUEUE_DKIM_KEYS, formatKeys(keys));
 		}
+		Map<String, String> spam = spamOverrides();
+		if (spam.remove(d) != null) {
+			changes.put(SettingsCatalog.QUEUE_SPAM_DOMAINS, formatSpam(spam));
+		}
 		settings.update(changes);
+	}
+
+	/** The value of the spam override of a domain that has none: it follows the global choice. */
+	public static final String SPAM_DEFAULT = "default";
+
+	/** The spam overrides (lower case domain to "off" or a filter id), in the order of the setting. */
+	private Map<String, String> spamOverrides() {
+		Map<String, String> ret = new LinkedHashMap<>();
+		String v = settings.getEffective(SettingsCatalog.QUEUE_SPAM_DOMAINS);
+		if (v != null && !v.trim().isEmpty()) {
+			ret.putAll(Spam.parseDomains(v));
+		}
+		return ret;
+	}
+
+	private static String formatSpam(Map<String, String> overrides) {
+		List<String> parts = new ArrayList<>();
+		for (Map.Entry<String, String> e : overrides.entrySet()) {
+			parts.add(e.getKey() + ":" + e.getValue());
+		}
+		return parts.isEmpty() ? null : String.join(",", parts);
+	}
+
+	/** The spam override of a domain: {@value #SPAM_DEFAULT} (follow the global choice), "off" or a filter id. */
+	public String spamOverride(String domain) {
+		String v = spamOverrides().get(normalize(domain));
+		return v == null ? SPAM_DEFAULT : v;
+	}
+
+	/** The filter id that checks a domain's mail ("off" if none): its override, else the global choice. */
+	public String spamEffective(String domain) {
+		String o = spamOverride(domain);
+		if (!o.equals(SPAM_DEFAULT)) {
+			return o;
+		}
+		String enabled = settings.getEffective(SettingsCatalog.QUEUE_SPAM_ENABLED);
+		String provider = settings.getEffective(SettingsCatalog.QUEUE_SPAM_PROVIDER);
+		if (enabled == null || !Boolean.parseBoolean(enabled.trim()) || provider == null || provider.trim().isEmpty()
+				|| provider.trim().equalsIgnoreCase(NullSpamFilter.ID)) {
+			return Spam.OFF;
+		}
+		return provider.trim().toLowerCase(Locale.ROOT);
+	}
+
+	/**
+	 * Set the spam filter of a domain.
+	 *
+	 * @param filter {@value #SPAM_DEFAULT} (follow the global choice), "off" (or "none"), or the id of a filter
+	 */
+	public void setSpam(String domain, String filter) throws IOException {
+		String d = normalize(domain);
+		if (!isLocal(d)) {
+			throw new IllegalArgumentException(d + " is not a local domain");
+		}
+		String f = filter == null ? "" : filter.trim().toLowerCase(Locale.ROOT);
+		if (f.equals(NullSpamFilter.ID)) {
+			f = Spam.OFF;
+		}
+		if (!f.equals(SPAM_DEFAULT) && !f.equals(Spam.OFF) && SpamFilters.factory(f) == null) {
+			throw new IllegalArgumentException("'" + filter + "' is not a spam filter (" + SPAM_DEFAULT + ", " + Spam.OFF + " or " + SpamFilters.ids() + ")");
+		}
+		Map<String, String> overrides = spamOverrides();
+		if (f.equals(SPAM_DEFAULT)) {
+			overrides.remove(d);
+		} else {
+			overrides.put(d, f);
+		}
+		settings.set(SettingsCatalog.QUEUE_SPAM_DOMAINS, formatSpam(overrides));
 	}
 
 	public List<DkimEntry> dkimEntries() {
@@ -308,6 +384,20 @@ public final class DomainService {
 			dk.put("domain", signing.domain);
 			m.put("dkim", dk);
 		}
+		Map<String, Object> spam = new LinkedHashMap<>();
+		spam.put("override", spamOverride(d));
+		spam.put("effective", spamEffective(d));
+		List<Map<String, String>> filters = new ArrayList<>();
+		for (SpamFilterFactory f : SpamFilters.factories()) {
+			if (!f.id().equals(NullSpamFilter.ID)) {
+				Map<String, String> fm = new LinkedHashMap<>();
+				fm.put("id", f.id());
+				fm.put("label", f.label());
+				filters.add(fm);
+			}
+		}
+		spam.put("filters", filters);
+		m.put("spam", spam);
 		m.put("dns", dnsRecords(d, k));
 		return m;
 	}
