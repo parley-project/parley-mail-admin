@@ -222,10 +222,10 @@ public final class SettingsCatalog {
 				"The scanner used where a domain has no override. The list is what this installation has (plugins add more); its settings appear below once chosen.",
 				ids.toArray(new String[0])).withOptionInfo(titles, help);
 		smtpOnly(g, "spam.rejectScore", "Refuse from score", NUMBER, "the provider's own decision",
-				"Messages scored at or above this are refused (550). When this or the next is set, scores decide and the provider's own action is ignored.");
-		smtpOnly(g, "spam.quarantineScore", "Junk from score", NUMBER, "the provider's own decision", "Messages scored at or above this go to the Junk mailbox.");
-		smtpOnly(g, "spam.maxSize", "Largest message checked (bytes)", NUMBER, "2097152", "Larger messages are not sent to the provider.");
-		smtpOnly(g, "spam.timeoutMillis", "Provider timeout (ms)", NUMBER, "5000", "A provider that takes longer is skipped and the message delivered.");
+				"Messages scored at or above this are refused (550). When this or the next is set, scores decide and the provider's own action is ignored.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
+		smtpOnly(g, "spam.quarantineScore", "Junk from score", NUMBER, "the provider's own decision", "Messages scored at or above this go to the Junk mailbox.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
+		smtpOnly(g, "spam.maxSize", "Largest message checked (bytes)", NUMBER, "2097152", "Larger messages are not sent to the provider.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
+		smtpOnly(g, "spam.timeoutMillis", "Provider timeout (ms)", NUMBER, "5000", "A provider that takes longer is skipped and the message delivered.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
 		for (SpamProvider p : SpamProviders.all()) {
 			for (ConnectionSetting cs : p.getSettings()) {
 				SettingDef.Type type;
@@ -249,7 +249,7 @@ public final class SettingsCatalog {
 				default:
 					type = TEXT;
 				}
-				SettingDef d = smtpOnly(g, "spam." + p.getId() + "." + cs.key(), p.getTitle() + ": " + cs.label(), type,
+				SettingDef d = smtpOnly(g, "spam." + p.getId() + "." + cs.key(), cs.label(), type,
 						cs.defaultValue().isEmpty() ? null : cs.defaultValue(), cs.description(), cs.choices().toArray(new String[0]));
 				d.showWhen(SPAM_PROVIDER, p.getId());
 				if (cs.advanced()) {

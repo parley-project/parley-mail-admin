@@ -1239,7 +1239,13 @@
 			// the settings of every server of the tab, then the chosen server's own
 			for (const s of shown) if (!s.server) body.appendChild(row(s, common, g.asset));
 			if (picker) body.appendChild(picker);
-			for (const s of shown) if (s.server) body.appendChild(row(s, common, g.asset));
+			// what depends on a choice is set apart under it: a heading naming the choice, and indented
+			let under = null;
+			for (const s of shown) if (s.server) {
+				if (s.showWhenKey && under !== s.showWhenValue) body.appendChild(h('div.subhead', choiceTitle(s.showWhenKey, s.showWhenValue) + ' settings'));
+				under = s.showWhenKey ? s.showWhenValue : null;
+				body.appendChild(row(s, common, g.asset));
+			}
 			if (g.id === 'other') body.appendChild(otherAdder());
 			count.textContent = changes.size ? changes.size + ' unsaved change' + (changes.size > 1 ? 's' : '') : '';
 			bar.classList.toggle('hidden', changes.size === 0);
@@ -1263,7 +1269,17 @@
 			return d ? (d.value || d.default) : null;
 		}
 
-		function visible(s) { return !s.showWhenKey || String(curVal(s.showWhenKey) || '').toLowerCase() === s.showWhenValue; }
+		function visible(s) {
+			if (s.hideWhenKey && String(curVal(s.hideWhenKey) || '').toLowerCase() === s.hideWhenValue) return false;
+			return !s.showWhenKey || String(curVal(s.showWhenKey) || '').toLowerCase() === s.showWhenValue;
+		}
+
+		/** The name for people of the choice a dependent setting is shown for (a provider's title). */
+		function choiceTitle(key, value) {
+			const d = allSettings().find(x => x.key === key);
+			const i = d && d.options ? d.options.indexOf(value) : -1;
+			return i >= 0 && d.optionLabels && d.optionLabels[i] ? d.optionLabels[i] : value;
+		}
 
 		function hasDependents(key) { return allSettings().some(x => x.showWhenKey === key); }
 
@@ -1350,7 +1366,7 @@
 					input = h('input', { type: 'text', value: val || '', placeholder: s.default ? 'default: ' + s.default : '', spellcheck: 'false' });
 					input.addEventListener('input', () => set(input.value.trim() === '' ? null : input.value));
 			}
-			const r = h('div.setting', { class: has ? 'dirty' : '' },
+			const r = h('div.setting', { class: (has ? 'dirty' : '') + (s.showWhenKey || s.hideWhenKey ? ' sub' : '') },
 				h('div.name', h('b', s.label || s.key), h('code', s.key === 'queue.hostname' ? 'hostname' : s.name || s.key)),
 				h('div.edit', input,
 					s.description ? h('div.hint', s.description) : null,

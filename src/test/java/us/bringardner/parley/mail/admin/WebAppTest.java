@@ -264,6 +264,10 @@ public class WebAppTest {
 						assertEquals(d.get("options").size(), d.get("optionLabels").size());
 						assertEquals(d.get("options").size(), d.get("optionDescriptions").size());
 					}
+					if (d.get("key").asText().equals("parley.mail.smtp.spam.rejectScore")) {
+						assertEquals("parley.mail.smtp.spam.provider", d.get("hideWhenKey").asText());
+						assertEquals("none", d.get("hideWhenValue").asText(), "scores mean nothing without a provider");
+					}
 					assertFalse(d.get("key").asText().startsWith("parley.mail.submission.spam"), "only the smtp server has them");
 				}
 			}

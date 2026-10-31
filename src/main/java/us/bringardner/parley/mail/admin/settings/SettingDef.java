@@ -41,6 +41,9 @@ public final class SettingDef {
 	/** Shown only while the setting showWhenKey has the value showWhenValue (a provider's own settings), or null */
 	private volatile String showWhenKey;
 	private volatile String showWhenValue;
+	/** Hidden while the setting hideWhenKey has the value hideWhenValue (settings that mean nothing for the choice "none"), or null */
+	private volatile String hideWhenKey;
+	private volatile String hideWhenValue;
 	private volatile boolean advanced;
 
 	public SettingDef(String key, String group, String label, Type type, String defaultValue, String description, String... options) {
@@ -113,6 +116,21 @@ public final class SettingDef {
 		this.showWhenKey = key;
 		this.showWhenValue = value;
 		return this;
+	}
+
+	/** Hide this setting while the setting {@code key} has the value {@code value}. */
+	public SettingDef hideWhen(String key, String value) {
+		this.hideWhenKey = key;
+		this.hideWhenValue = value;
+		return this;
+	}
+
+	public String getHideWhenKey() {
+		return hideWhenKey;
+	}
+
+	public String getHideWhenValue() {
+		return hideWhenValue;
 	}
 
 	public String getShowWhenKey() {
