@@ -247,15 +247,55 @@ public class WebAppTest {
 		assertTrue(filterIds.contains("\"rspamd\"") && filterIds.contains("\"spamassassin\""), filterIds);
 		boolean spamGroup = false;
 		for (JsonNode g : ok("GET", "/settings", null).get("groups")) {
-			if (g.get("id").asText().equals("spam")) {
-				spamGroup = true;
+			if (g.get("id").asText().equals("smtp")) {
+				// the spam settings are the SMTP server's own, and each provider's show while it is the one chosen
 				String keys = g.toString();
-				assertTrue(keys.contains("queue.spam.provider") && keys.contains("queue.spam.rspamd.url")
-						&& keys.contains("queue.spam.spamassassin.port") && keys.contains("queue.spam.domains"), keys);
+				assertTrue(keys.contains("parley.mail.smtp.spam.provider") && keys.contains("parley.mail.smtp.spam.rspamd.url")
+						&& keys.contains("parley.mail.smtp.spam.spamassassin.port"), keys);
+				for (JsonNode d : g.get("settings")) {
+					if (d.get("key").asText().equals("parley.mail.smtp.spam.rspamd.url")) {
+						spamGroup = true;
+						assertEquals("parley.mail.smtp.spam.provider", d.get("showWhenKey").asText());
+						assertEquals("rspamd", d.get("showWhenValue").asText());
+					}
+					if (d.get("key").asText().equals("parley.mail.smtp.spam.provider")) {
+						assertEquals("none", d.get("options").get(0).asText(), "none first");
+						assertTrue(d.get("options").toString().contains("spamassassin"), d.toString());
+						assertEquals(d.get("options").size(), d.get("optionLabels").size());
+						assertEquals(d.get("options").size(), d.get("optionDescriptions").size());
+					}
+					assertFalse(d.get("key").asText().startsWith("parley.mail.submission.spam"), "only the smtp server has them");
+				}
 			}
 		}
-		assertTrue(spamGroup, "the Spam settings tab");
-		ok("PUT", "/settings", Map.of("changes", Map.of("queue.spam.enabled", "true", "queue.spam.provider", "rspamd")));
+		assertTrue(spamGroup, "a provider's settings are on the SMTP tab");
+		JsonNode providers = ok("GET", "/spam/providers", null).get("providers");
+		assertEquals(3, providers.size(), providers.toString());
+		assertTrue(providers.toString().contains("\"LEARN\"") && providers.toString().contains("\"controllerUrl\""), providers.toString());
+		int gone;
+		try (java.net.ServerSocket ss = new java.net.ServerSocket(0)) {
+			gone = ss.getLocalPort();
+		}
+		JsonNode t = ok("POST", "/spam/test", Map.of("provider", "rspamd", "settings", Map.of("url", "http://127.0.0.1:" + gone)));
+		assertFalse(t.get("available").asBoolean(), t.toString());
+		assertTrue(t.get("message").asText().contains("127.0.0.1:" + gone), t.toString());
+		com.sun.net.httpserver.HttpServer ping = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+		ping.createContext("/ping", ex -> {
+			ex.getResponseHeaders().add("Server", "rspamd/9.9.9");
+			ex.sendResponseHeaders(200, 0);
+			ex.getResponseBody().write("pong".getBytes());
+			ex.close();
+		});
+		ping.start();
+		try {
+			t = ok("POST", "/spam/test", Map.of("provider", "rspamd", "settings", Map.of("url", "http://127.0.0.1:" + ping.getAddress().getPort())));
+			assertTrue(t.get("available").asBoolean(), t.toString());
+			assertEquals("9.9.9", t.get("version").asText());
+		} finally {
+			ping.stop(0);
+		}
+		assertEquals(400, call("POST", "/spam/test", Map.of("provider", "nosuch")).statusCode());
+		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.smtp.spam.enabled", "true", "parley.mail.smtp.spam.provider", "rspamd")));
 		assertEquals("rspamd", domainNamed("b.test").get("spam").get("effective").asText(), "the global choice applies to the domain");
 		JsonNode own = ok("POST", "/domains/b.test/spam", Map.of("filter", "off"));
 		assertEquals("off", own.get("spam").get("override").asText());
@@ -270,12 +310,12 @@ public class WebAppTest {
 		assertEquals("default", own.get("spam").get("override").asText());
 		assertFalse(queueProperties().contains("b.test:off") || queueProperties().contains("b.test:spamassassin"), "the override is gone: " + queueProperties());
 		// off for everyone but one domain
-		ok("PUT", "/settings", Map.of("changes", Map.of("queue.spam.enabled", "false")));
+		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.smtp.spam.enabled", "false")));
 		assertEquals("off", domainNamed("b.test").get("spam").get("effective").asText());
 		ok("POST", "/domains/b.test/spam", Map.of("filter", "rspamd"));
 		assertEquals("rspamd", domainNamed("b.test").get("spam").get("effective").asText(), "on for a domain though off globally");
 		ok("POST", "/domains/b.test/spam", Map.of("filter", "default"));
-		ok("PUT", "/settings", Map.of("changes", Map.of("queue.spam.provider", "none")));
+		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.smtp.spam.provider", "none")));
 		// A4.1: the key file gets the permissions any new file of the process gets (the servers may be another user of its group)
 		File key = new File(home, "dkim/b.test-sel1.pem");
 		assertTrue(key.isFile());
@@ -290,9 +330,14 @@ public class WebAppTest {
 		assertEquals(400, call("POST", "/users", Map.of("name", "x@c.test", "password", "xxxxxxxx1")).statusCode(), "not a local domain");
 		ok("PUT", "/aliases/sales@b.test", Map.of("members", java.util.List.of("tony")));
 
-		// domains, DKIM and aliases are used at once: no service needs a restart for them
+		// domains, DKIM and aliases are used at once: no service needs a restart for them (the SMTP server's own spam
+		// settings, changed above, are read when it starts)
 		for (JsonNode s : ok("GET", "/services", null)) {
-			assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+			if (s.get("id").asText().equals("smtp")) {
+				assertTrue(s.get("restartNeeded").asBoolean(), "its spam settings changed: " + s);
+			} else {
+				assertFalse(s.get("restartNeeded").asBoolean(), s.toString());
+			}
 		}
 		// a queue setting the reload doesn't apply still needs one
 		ok("PUT", "/settings", Map.of("changes", Map.of("queue.workers", "3")));

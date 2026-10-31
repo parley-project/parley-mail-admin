@@ -18,9 +18,9 @@ import java.util.Map;
 
 import us.bringardner.parley.mail.admin.suite.ServiceId;
 import us.bringardner.parley.smtp.spam.NullSpamFilter;
-import us.bringardner.parley.smtp.spam.SpamFilterFactory;
-import us.bringardner.parley.smtp.spam.SpamFilters;
-import us.bringardner.parley.smtp.spam.SpamOption;
+import us.bringardner.parley.files.ConnectionSetting;
+import us.bringardner.parley.smtp.spam.SpamProvider;
+import us.bringardner.parley.smtp.spam.SpamProviders;
 
 /**
  * The settings the Settings page offers, in groups. The names are Parley 2.0.0's; the descriptions
@@ -81,8 +81,8 @@ public final class SettingsCatalog {
 	public static final String QUEUE_DKIM_KEYS = QUEUE_PREFIX + "dkim.keys";
 	public static final String QUEUE_DKIM_SHARED = QUEUE_PREFIX + "dkim.shared";
 	/** Whether incoming mail is checked for spam, and with which filter, for the domains without an override. */
-	public static final String QUEUE_SPAM_ENABLED = QUEUE_PREFIX + "spam.enabled";
-	public static final String QUEUE_SPAM_PROVIDER = QUEUE_PREFIX + "spam.provider";
+	public static final String SPAM_ENABLED = ServiceId.SMTP.prefix + ".spam.enabled";
+	public static final String SPAM_PROVIDER = ServiceId.SMTP.prefix + ".spam.provider";
 	/** The overrides by recipient domain, domain:off or domain:filter, comma separated. */
 	public static final String QUEUE_SPAM_DOMAINS = QUEUE_PREFIX + "spam.domains";
 	/** Days of history the queue keeps (parley-smtp's QueueHistory). */
@@ -205,37 +205,61 @@ public final class SettingsCatalog {
 		perServer(g, "dmarc.publicSuffixList", "Public suffix list", PATH, "the included copy", "A newer public_suffix_list.dat.");
 		perServer(g, "arc.verify", "Verify ARC", BOOLEAN, "true", "Validate the ARC chains of incoming mail.");
 
-		g = group("spam", "Spam", "Check incoming mail for spam with a filter (Rspamd, SpamAssassin, or one plugged in). On or off and the filter are set here for every domain; "
-				+ "each domain can override them on the Domains page. A filter that is down never stops mail: it is delivered unscored.");
-		add(g, QUEUE_SPAM_ENABLED, "Check for spam", BOOLEAN, "false", "Check mail from other servers (not your users' own) with the filter below. Domains can override this.");
-		List<String> filterIds = SpamFilters.ids();
-		add(g, QUEUE_SPAM_PROVIDER, "Spam filter", CHOICE, NullSpamFilter.ID, "The filter used where a domain has no override: none checks nothing.",
-				filterIds.toArray(new String[0]));
-		add(g, QUEUE_SPAM_DOMAINS, "Domain overrides", LIST, null, "domain:off or domain:filter, comma separated. Managed on the Domains page.");
-		add(g, QUEUE_PREFIX + "spam.rejectScore", "Refuse from score", NUMBER, "the filter's own decision",
-				"Messages scored at or above this are refused (550). When this or the next is set, scores decide and the filter's own action is ignored.");
-		add(g, QUEUE_PREFIX + "spam.quarantineScore", "Junk from score", NUMBER, "the filter's own decision", "Messages scored at or above this go to the Junk mailbox.");
-		add(g, QUEUE_PREFIX + "spam.maxSize", "Largest message checked (bytes)", NUMBER, "2097152", "Larger messages are not sent to the filter.");
-		add(g, QUEUE_PREFIX + "spam.timeoutMillis", "Filter timeout (ms)", NUMBER, "5000", "A filter that takes longer is skipped and the message delivered.");
-		for (SpamFilterFactory f : SpamFilters.factories()) {
-			for (SpamOption o : f.options()) {
+		g = groups.get("smtp");
+		// Spam: the SMTP server that receives mail from other servers checks it (the others' users have logged in). The providers
+		// are found at run time (SpamProviders), and each one's settings are shown while it is the one chosen.
+		smtpOnly(g, "spam.enabled", "Check for spam", BOOLEAN, "false",
+				"Check mail from other servers (not your users' own) with the spam provider below. A domain can override this on the Domains page. A provider that is down never stops mail: it is delivered unscored.");
+		List<String> ids = new ArrayList<>();
+		List<String> titles = new ArrayList<>();
+		List<String> help = new ArrayList<>();
+		for (SpamProvider p : SpamProviders.all()) {
+			ids.add(p.getId());
+			titles.add(p.getTitle());
+			help.add(p.getDescription());
+		}
+		smtpOnly(g, "spam.provider", "Spam provider", CHOICE, NullSpamFilter.ID,
+				"The scanner used where a domain has no override. The list is what this installation has (plugins add more); its settings appear below once chosen.",
+				ids.toArray(new String[0])).withOptionInfo(titles, help);
+		smtpOnly(g, "spam.rejectScore", "Refuse from score", NUMBER, "the provider's own decision",
+				"Messages scored at or above this are refused (550). When this or the next is set, scores decide and the provider's own action is ignored.");
+		smtpOnly(g, "spam.quarantineScore", "Junk from score", NUMBER, "the provider's own decision", "Messages scored at or above this go to the Junk mailbox.");
+		smtpOnly(g, "spam.maxSize", "Largest message checked (bytes)", NUMBER, "2097152", "Larger messages are not sent to the provider.");
+		smtpOnly(g, "spam.timeoutMillis", "Provider timeout (ms)", NUMBER, "5000", "A provider that takes longer is skipped and the message delivered.");
+		for (SpamProvider p : SpamProviders.all()) {
+			for (ConnectionSetting cs : p.getSettings()) {
 				SettingDef.Type type;
-				switch (o.getType()) {
-				case NUMBER:
+				switch (cs.kind()) {
+				case INTEGER:
 					type = NUMBER;
 					break;
 				case BOOLEAN:
 					type = BOOLEAN;
 					break;
 				case SECRET:
+				case MULTILINE_SECRET:
 					type = SECRET;
+					break;
+				case LOCAL_FILE:
+					type = PATH;
+					break;
+				case CHOICE:
+					type = CHOICE;
 					break;
 				default:
 					type = TEXT;
 				}
-				add(g, QUEUE_PREFIX + "spam." + f.id() + "." + o.getKey(), f.label() + ": " + o.getLabel(), type, o.getDefaultValue(), o.getDescription());
+				SettingDef d = smtpOnly(g, "spam." + p.getId() + "." + cs.key(), p.getTitle() + ": " + cs.label(), type,
+						cs.defaultValue().isEmpty() ? null : cs.defaultValue(), cs.description(), cs.choices().toArray(new String[0]));
+				d.showWhen(SPAM_PROVIDER, p.getId());
+				if (cs.advanced()) {
+					d.asAdvanced();
+				}
 			}
 		}
+
+		add(groups.get("queue"), QUEUE_SPAM_DOMAINS, "Spam overrides by domain", LIST, null,
+				"domain:off or domain:provider, comma separated: the queue's, so every SMTP server sees it. Managed on the Domains page.");
 
 		g = group("imap", "IMAP", "Each IMAP server's own settings: choose the server.", ServiceId.IMAP, ServiceId.IMAPS);
 		perServer(g, "requireTls", "Require TLS", BOOLEAN, "false", "Refuse LOGIN and AUTHENTICATE until STARTTLS.");
@@ -311,6 +335,15 @@ public final class SettingsCatalog {
 		SettingDef d = new SettingDef(key, g.id, label, type, defaultValue, description, options);
 		g.settings.add(d);
 		byKey.put(key, d);
+	}
+
+	/** A setting only the SMTP server (port 25, mail from other servers) has */
+	private SettingDef smtpOnly(Group g, String name, String label, SettingDef.Type type, String defaultValue, String description, String... options) {
+		String key = ServiceId.SMTP.prefix + "." + name;
+		SettingDef d = new SettingDef(key, g.id, ServiceId.SMTP.id(), label, type, defaultValue, description, options);
+		g.settings.add(d);
+		byKey.put(key, d);
+		return d;
 	}
 
 	/** A setting each of the group's servers has, under its own prefix */

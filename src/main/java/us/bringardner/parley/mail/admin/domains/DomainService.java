@@ -30,8 +30,8 @@ import us.bringardner.parley.mail.admin.users.UserStore;
 import us.bringardner.parley.smtp.dkim.DkimKeys;
 import us.bringardner.parley.smtp.spam.NullSpamFilter;
 import us.bringardner.parley.smtp.spam.Spam;
-import us.bringardner.parley.smtp.spam.SpamFilterFactory;
-import us.bringardner.parley.smtp.spam.SpamFilters;
+import us.bringardner.parley.smtp.spam.SpamProvider;
+import us.bringardner.parley.smtp.spam.SpamProviders;
 
 /**
  * The local domains ({@code parley.mail.smtp.domains}): adding and removing them, each one's users
@@ -182,8 +182,8 @@ public final class DomainService {
 		if (!o.equals(SPAM_DEFAULT)) {
 			return o;
 		}
-		String enabled = settings.getEffective(SettingsCatalog.QUEUE_SPAM_ENABLED);
-		String provider = settings.getEffective(SettingsCatalog.QUEUE_SPAM_PROVIDER);
+		String enabled = settings.getEffective(SettingsCatalog.SPAM_ENABLED);
+		String provider = settings.getEffective(SettingsCatalog.SPAM_PROVIDER);
 		if (enabled == null || !Boolean.parseBoolean(enabled.trim()) || provider == null || provider.trim().isEmpty()
 				|| provider.trim().equalsIgnoreCase(NullSpamFilter.ID)) {
 			return Spam.OFF;
@@ -205,8 +205,8 @@ public final class DomainService {
 		if (f.equals(NullSpamFilter.ID)) {
 			f = Spam.OFF;
 		}
-		if (!f.equals(SPAM_DEFAULT) && !f.equals(Spam.OFF) && SpamFilters.factory(f) == null) {
-			throw new IllegalArgumentException("'" + filter + "' is not a spam filter (" + SPAM_DEFAULT + ", " + Spam.OFF + " or " + SpamFilters.ids() + ")");
+		if (!f.equals(SPAM_DEFAULT) && !f.equals(Spam.OFF) && SpamProviders.get(f) == null) {
+			throw new IllegalArgumentException("'" + filter + "' is not a spam provider (" + SPAM_DEFAULT + ", " + Spam.OFF + " or " + SpamProviders.ids() + ")");
 		}
 		Map<String, String> overrides = spamOverrides();
 		if (f.equals(SPAM_DEFAULT)) {
@@ -388,11 +388,11 @@ public final class DomainService {
 		spam.put("override", spamOverride(d));
 		spam.put("effective", spamEffective(d));
 		List<Map<String, String>> filters = new ArrayList<>();
-		for (SpamFilterFactory f : SpamFilters.factories()) {
-			if (!f.id().equals(NullSpamFilter.ID)) {
+		for (SpamProvider f : SpamProviders.all()) {
+			if (!f.getId().equals(NullSpamFilter.ID)) {
 				Map<String, String> fm = new LinkedHashMap<>();
-				fm.put("id", f.id());
-				fm.put("label", f.label());
+				fm.put("id", f.getId());
+				fm.put("label", f.getTitle());
 				filters.add(fm);
 			}
 		}

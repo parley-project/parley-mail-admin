@@ -1230,6 +1230,9 @@
 					return h('button.small', { class: sv.id === sel ? 'primary' : '', title: sv.prefix + '.*', onclick: () => { chosen.set(g.id, sv.id); draw(); } }, sv.label, dirty ? h('span.dot') : null);
 				}));
 			}
+			// a provider's own settings appear while that provider is chosen; the rarely needed ones come last
+			shown = shown.filter(visible);
+			shown = shown.filter(x => !x.advanced).concat(shown.filter(x => x.advanced));
 			const common = commonServices(shown);
 			body.appendChild(h('p.muted', g.description, common ? ' ' + restartText(common) : ''));
 			if (g.asset) body.appendChild(assetNote(g.asset));
@@ -1249,6 +1252,35 @@
 			if (!a.path) return h('div.banner', what + '\'s settings can\'t be edited: ' + (a.error || 'the mail root isn\'t set (General tab)'));
 			if (!a.exists) return h('div.banner', what + ' has no settings file yet (' + a.path + '), so the servers refuse to start with it. Saving a setting here makes the file.');
 			return h('p.muted', 'In ' + a.path + '.');
+		}
+
+		function allSettings() { return data.groups.flatMap(x => x.settings); }
+
+		/** The value a setting has now: unsaved, saved, or its default. */
+		function curVal(key) {
+			if (changes.has(key)) return changes.get(key);
+			const d = allSettings().find(x => x.key === key);
+			return d ? (d.value || d.default) : null;
+		}
+
+		function visible(s) { return !s.showWhenKey || String(curVal(s.showWhenKey) || '').toLowerCase() === s.showWhenValue; }
+
+		function hasDependents(key) { return allSettings().some(x => x.showWhenKey === key); }
+
+		/** Ask the chosen spam provider's scanner whether it answers, with the form's settings (saved or not). */
+		async function testSpam(s) {
+			const id = String(curVal(s.key) || s.default || '').toLowerCase();
+			const pre = s.key.replace(/provider$/, '') + id + '.';
+			const vals = {};
+			for (const x of allSettings()) {
+				if (!x.key.startsWith(pre)) continue;
+				const v = changes.has(x.key) ? changes.get(x.key) : x.value;
+				if (v) vals[x.key.slice(pre.length)] = v;
+			}
+			try {
+				const r = await api('POST', '/spam/test', { provider: id, settings: vals });
+				toast(r.message || (r.available ? 'Answers' : 'Does not answer'), r.available ? 'ok' : 'bad');
+			} catch (e) { fail(e); }
 		}
 
 		function known(key) { return data.groups.some(g => g.settings.some(s => s.key === key)) || data.other.some(s => s.key === key); }
@@ -1288,11 +1320,20 @@
 					input.value = val || '';
 					input.addEventListener('change', () => set(input.value || null));
 					break;
-				case 'CHOICE':
-					input = h('select', h('option', { value: '' }, s.default ? 'default (' + s.default + ')' : 'not set'), (s.options || []).map(o => h('option', { value: o }, o)));
+				case 'CHOICE': {
+					const labels = s.optionLabels || [];
+					const nice = o => { const i = (s.options || []).indexOf(o); return i >= 0 && labels[i] ? labels[i] : o; };
+					input = h('select', h('option', { value: '' }, s.default ? 'default (' + nice(s.default) + ')' : 'not set'), (s.options || []).map((o, i) => h('option', { value: o }, labels[i] && labels[i] !== o ? labels[i] + ' (' + o + ')' : o)));
 					input.value = val || '';
-					input.addEventListener('change', () => set(input.value || null));
+					input.addEventListener('change', () => { set(input.value || null); if (hasDependents(s.key)) draw(); });
+					const chosenId = (val || s.default || '');
+					const oi = (s.options || []).indexOf(chosenId);
+					const about = oi >= 0 && s.optionDescriptions && s.optionDescriptions[oi] ? h('div.hint', s.optionDescriptions[oi]) : null;
+					const test = /\.spam\.provider$/.test(s.key) ? h('div', h('button.small', { type: 'button', onclick: () => testSpam(s) }, 'Test connection'),
+						h('span.muted', ' Asks the scanner with the settings below, saved or not.')) : null;
+					input = h('div', input, about, test);
 					break;
+				}
 				case 'SECRET': {
 					input = h('input', { type: 'password', autocomplete: 'new-password', placeholder: s.set ? '(set; type to change)' : '(not set)' });
 					if (has && changes.get(s.key)) input.value = changes.get(s.key);

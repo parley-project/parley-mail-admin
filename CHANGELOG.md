@@ -4,12 +4,14 @@
 
 ### Added
 
-- **Spam filters**: a Spam tab on the Settings page (check for spam on or off, which filter, refuse and Junk scores, size and
-  timeout, and each filter's own settings: Rspamd's URL and password, spamd's host, port and user; filters plugged into
-  parley-smtp show their settings too), and a Spam filter button and column on the Domains page: a domain follows the
-  global choice, is turned off, or uses another filter, even when checking is off for the other domains. An administrator
-  of a domain sets its own. Changes apply at once, without a restart. Needs parley-smtp's spam filters.
-
+- **Spam providers**: on the Settings page's SMTP tab (the SMTP server's own settings), "Check for spam" and a Spam
+  provider list made of the providers this installation finds at run time (parley-smtp's `SpamProviders`: Rspamd,
+  SpamAssassin and any plugin); choosing one shows what it is and its own settings (shown only while it is chosen, the
+  rarely needed ones last), with a Test connection button that asks the scanner with the form's settings, saved or not.
+  Beside them the refuse and Junk scores, size and timeout. The Domains page has a Spam provider column and button: a domain
+  follows the choice, turns checking off, or uses another provider (kept in the queue's `spam.domains`, applied at
+  once). New calls `GET /spam/providers` and `POST /spam/test`. The SMTP server reads its own spam settings when it
+  starts, so changing them asks for a restart of the SMTP service. Needs parley-smtp's spam providers.
 - **FTP**: the services `ftp` and `ftps` (parley-ftp's servers in the mail suite) are on the Dashboard with the other
   services (state, port, TLS, connections, start, stop, restart), have an FTP tab on the Settings page (`parley.mail.ftp.*`
   and `parley.mail.ftps.*`, in `parley-mail-ftp.properties`), and an FTP source on the Logs page. FTP logs in the mail
