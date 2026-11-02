@@ -14,7 +14,7 @@ It gives you pages to:
 
 | Page | What it does |
 |---|---|
-| Dashboard | Where the servers run. Each service (SMTP, Submission, Submission over TLS, IMAP, IMAP over TLS, POP3, POP3 over TLS): state, port, TLS, uptime, open connections (with who is logged in); start, stop, restart; start or stop all. Recent warnings and errors. |
+| Dashboard | Where the servers run. Each service (SMTP, Submission, Submission over TLS, IMAP, IMAP over TLS, POP3, POP3 over TLS): state, port, TLS, uptime, open connections (with who is logged in); start, stop, restart; turn it on or off (it is added to or taken out of `parley.servers`, the list of services that run, and started or stopped); start or stop all. Recent warnings and errors. |
 | Domains | The local domains (the suite serves several): add and remove them, see each one's users and aliases, make its DKIM key, and get the DNS records to publish (MX, SPF, DKIM, DMARC). |
 | Users | Add, edit and delete users, per domain or for every domain: password, permissions (READ, WRITE, ADMIN), maildrop, and how much mail they keep. The servers read the users file again themselves: those in this application at once, services within `parley.net.acl.reloadSeconds` (15). |
 | Aliases | Aliases per domain or for every domain. |
@@ -67,7 +67,8 @@ them over its JMX address.
 
 The first start makes the admin home (below), and `parley-mail.properties` in the settings folder
 unless it's there, with settings for trying the suite out: the services on high ports (SMTP 2525,
-Submission 2587, IMAP 2143, POP3 2110; the implicit TLS services off until there's a key store), the
+Submission 2587, IMAP 2143, POP3 2110, and their implicit TLS twins on 2465, 2993, 2995, skipped
+until there's a key store), the
 domain `localhost`, and the mail in `<home>/mail`. The first page then asks you to create the first
 administrator.
 

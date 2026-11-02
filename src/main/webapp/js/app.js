@@ -352,9 +352,10 @@
 		}
 
 		async function act(s, action) {
-			if (action === 'stop' && s.connections > 0
-				&& !await confirmDialog('Stop ' + s.label, s.connections + ' client(s) are connected and will be disconnected.', 'Stop')) return;
-			try { await api('POST', '/services/' + s.id + '/' + action); toast(s.label + ': ' + action + ' done', 'ok'); } catch (e) { fail(e); }
+			if ((action === 'stop' || action === 'off') && s.connections > 0
+				&& !await confirmDialog((action === 'off' ? 'Turn off ' : 'Stop ') + s.label, s.connections + ' client(s) are connected and will be disconnected.', action === 'off' ? 'Turn off' : 'Stop')) return;
+			const done = action === 'on' ? 'turned on' : action === 'off' ? 'turned off' : action + ' done';
+			try { await api('POST', '/services/' + s.id + '/' + action); toast(s.label + ': ' + done, 'ok'); } catch (e) { fail(e); }
 			refresh();
 			checkRestart();
 		}
@@ -405,17 +406,19 @@
 						h('div.grow', h('h3', s.label, ' ', stateBadge(s), ' ', s.restartNeeded ? h('span.badge.warn', 'restart') : null),
 							h('div.desc', s.description))),
 					h('dl.facts',
-						h('dt', 'Port'), h('dd', s.port > 0 ? String(s.port) : 'off'),
+						h('dt', 'Port'), h('dd', String(s.port)),
 						h('dt', 'TLS'), h('dd', s.secure ? (s.tls ? 'implicit' : h('span.warn-text', 'implicit, no key store')) : (s.tls ? 'STARTTLS offered' : 'no key store')),
 						s.state === 'RUNNING' ? [h('dt', 'Up'), h('dd', ago(s.started))] : null,
 						s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', h('button.link', { type: 'button', onclick: () => connections(s) }, String(s.connections)))] : null,
 						s.where && !st.local ? [h('dt', 'Runs at'), h('dd.mono', s.where)] : null),
 					s.error ? h('div.err', s.error) : null,
 					h('div.actions',
-						s.state !== 'RUNNING' ? h('button.small', { disabled: !s.enabled || s.state === 'UNAVAILABLE', title: !s.enabled ? 'Port is 0 (Settings > Listeners)' : s.state === 'UNAVAILABLE' ? 'No launcher reached runs it' : '', onclick: () => act(s, 'start') }, 'Start') : null,
+						s.enabled && s.state !== 'RUNNING' ? h('button.small', { disabled: s.state === 'UNAVAILABLE' || s.state === 'OFF', title: s.state === 'UNAVAILABLE' ? 'No launcher reached runs it' : s.state === 'OFF' ? (s.error || 'It can\'t run with its settings') : '', onclick: () => act(s, 'start') }, 'Start') : null,
 						s.state === 'RUNNING' ? h('button.small', { onclick: () => act(s, 'stop') }, 'Stop') : null,
 						s.state === 'RUNNING' ? h('button.small', { class: s.restartNeeded ? 'primary' : '', onclick: () => act(s, 'restart') }, 'Restart') : null,
-						h('a.btn.small', { href: '#/logs?source=' + s.protocol, onclick: () => { state.logSource = s.protocol; } }, 'Logs'))));
+						h('a.btn.small', { href: '#/logs?source=' + s.protocol, onclick: () => { state.logSource = s.protocol; } }, 'Logs'),
+						h('button.small', { title: s.enabled ? 'Stop it and take it out of parley.servers' : 'Add it to parley.servers and start it', onclick: () => act(s, s.enabled ? 'off' : 'on') },
+							s.enabled ? 'Turn off' : 'Turn on'))));
 			}
 			clear(problems);
 			if (!st.problems.length) problems.appendChild(h('div.empty', 'Nothing to report'));
@@ -593,13 +596,13 @@
 							h('h3', s.id, ' ', stateBadge({ state: s.state, enabled: true }), ' ', s.restartNeeded ? h('span.badge.warn', 'restart') : null),
 							h('div.desc', s.description || ''))),
 						h('dl.facts',
-							h('dt', 'Port'), h('dd', s.port > 0 ? String(s.port) : 'off'),
+							s.port > 0 ? [h('dt', 'Port'), h('dd', String(s.port))] : null,
 							s.state === 'RUNNING' ? [h('dt', 'Up'), h('dd', ago(s.started))] : null,
 							s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', h('button.link', { type: 'button', onclick: () => connections(s) }, String(s.connections)))] : null,
 							s.types && s.types.length ? [h('dt', 'Pages'), h('dd', s.types.map(t => TYPE_PAGES[t] ? h('a', { href: TYPE_PAGES[t] }, t + ' ') : h('span.faint', t + ' ')))] : null),
 						s.error ? h('div.err', s.error) : null,
 						h('div.actions',
-							s.state !== 'RUNNING' ? h('button.small', { disabled: s.state === 'OFF', title: s.state === 'OFF' ? 'Turned off by its settings' : '', onclick: () => act(s, 'start') }, 'Start') : null,
+							s.state !== 'RUNNING' ? h('button.small', { disabled: s.state === 'OFF', title: s.state === 'OFF' ? (s.error || 'Off') : '', onclick: () => act(s, 'start') }, 'Start') : null,
 							s.state === 'RUNNING' ? h('button.small', { onclick: () => act(s, 'stop') }, 'Stop') : null,
 							s.state === 'RUNNING' ? h('button.small', { class: s.restartNeeded ? 'primary' : '', onclick: () => act(s, 'restart') }, 'Restart') : null)));
 				}

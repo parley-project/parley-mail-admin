@@ -95,13 +95,11 @@ public class WebAppTest {
 				+ "parley.mail.smtp.relayNetworks=127.0.0.1/32\n"
 				+ "parley.mail.smtp.port=" + smtpPort + "\n"
 				+ "parley.mail.submission.port=" + submissionPort + "\n"
-				+ "parley.mail.submissions.port=0\n"
 				+ "parley.mail.imap.port=" + imapPort + "\n"
-				+ "parley.mail.imaps.port=0\n"
 				+ "parley.mail.pop3.port=" + pop3Port + "\n"
-				+ "parley.mail.pop3s.port=0\n"
 				+ "parley.mail.ftp.port=" + ftpPort + "\n"
-				+ "parley.mail.ftps.port=0\n"
+				// the services that run (the implicit TLS ones, on their standard ports, would need a key store)
+				+ "parley.servers=smtp,submission,imap,pop3,ftp\n"
 				+ "parley.mail.admin.autoStart=true\n").getBytes(StandardCharsets.UTF_8));
 		System.setProperty(AdminHome.HOME_PROPERTY, home.getAbsolutePath());
 		// the settings files in the home (not /etc/parley, which a test machine may have)
@@ -223,6 +221,40 @@ public class WebAppTest {
 		javax.management.MBeanServer mbs = java.lang.management.ManagementFactory.getPlatformMBeanServer();
 		assertEquals("RUNNING", mbs.getAttribute(new javax.management.ObjectName("us.bringardner.parley:type=Server,name=pop3"), "State"));
 		assertTrue(mbs.isRegistered(new javax.management.ObjectName("us.bringardner.parley:type=MailQueue,name=smtp")));
+
+		// turned off and on: parley.servers is what changes
+		JsonNode imap = service(ok("POST", "/services/imap/off", null), "imap");
+		assertFalse(imap.get("enabled").asBoolean(), imap.toString());
+		assertEquals("OFF", imap.get("state").asText(), imap.toString());
+		assertTrue(Files.readString(new File(home, "parley-mail.properties").toPath()).contains("parley.servers=smtp,submission,pop3,ftp\n"));
+		assertEquals(409, call("POST", "/services/imap/start", null).statusCode(), "off: it can't be started");
+		imap = service(ok("POST", "/services/imap/on", null), "imap");
+		assertTrue(imap.get("enabled").asBoolean());
+		assertEquals("RUNNING", imap.get("state").asText(), imap.toString());
+		assertTrue(Files.readString(new File(home, "parley-mail.properties").toPath()).contains("parley.servers=smtp,submission,imap,pop3,ftp\n"),
+				"back in the services' order");
+		// on, but with no key store it can't run
+		assertTrue(call("POST", "/services/pop3s/on", null).statusCode() >= 400);
+		JsonNode pop3s = service(ok("GET", "/services", null), "pop3s");
+		assertTrue(pop3s.get("enabled").asBoolean());
+		assertEquals("OFF", pop3s.get("state").asText(), pop3s.toString());
+		assertTrue(pop3s.get("error").asText().contains("key store"), pop3s.toString());
+		assertEquals(995, pop3s.get("port").asInt(), "its standard port");
+		pop3s = service(ok("POST", "/services/pop3s/off", null), "pop3s");
+		assertFalse(pop3s.get("enabled").asBoolean());
+		assertTrue(Files.readString(new File(home, "parley-mail.properties").toPath()).contains("parley.servers=smtp,submission,imap,pop3,ftp\n"));
+		for (JsonNode svc : ok("GET", "/services", null)) {
+			assertFalse(svc.get("restartNeeded").asBoolean(), "changing parley.servers needs no restart: " + svc);
+		}
+	}
+
+	private static JsonNode service(JsonNode services, String id) {
+		for (JsonNode s : services) {
+			if (s.get("id").asText().equals(id)) {
+				return s;
+			}
+		}
+		throw new AssertionError("no service " + id + " in " + services);
 	}
 
 	@Test

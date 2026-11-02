@@ -2,6 +2,18 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-01: parley.servers says which services run, To-Do 2.12)
+
+- **Turn on and Turn off** on each Dashboard service: on adds it to `parley.servers` (in `parley-mail.properties`,
+  in the services' order) and starts it; off stops it and takes it out. The launchers read the list again when
+  their settings are reloaded, so no restart is needed (a launcher that can't, an older one or one given its list
+  on the command line, says to restart it). `POST /services/{id}/on` and `/off`; a service's `enabled` is now
+  whether the list has it (all of them when it isn't set). Changing the list marks no service for a restart.
+- **A port is only a port**: a service's port defaults to its standard port (the implicit TLS ones too: 465, 993,
+  995, 990; they were 0, off), and "0 turns it off" is gone from the Settings page. A listed service with implicit
+  TLS and no key store is off, with the reason; Start all skips it. The first start's `parley-mail.properties`
+  lists every service, with the implicit TLS ones on high ports (2465, 2993, 2995, 2990).
+
 ### Added
 
 - **Spam providers**: on the Settings page's SMTP tab (the SMTP server's own settings), "Check for spam" and a Spam
