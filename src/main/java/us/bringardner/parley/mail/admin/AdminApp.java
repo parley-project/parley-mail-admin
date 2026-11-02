@@ -505,6 +505,18 @@ public final class AdminApp implements AutoCloseable {
 		return suite;
 	}
 
+	private volatile us.bringardner.parley.mail.admin.users.MailboxAcls mailboxAcls;
+
+	/** The users' mailbox ACLs (RFC 4314), changed through a running mail server. @since 2.0.0 */
+	public us.bringardner.parley.mail.admin.users.MailboxAcls getMailboxAcls() {
+		us.bringardner.parley.mail.admin.users.MailboxAcls m = mailboxAcls;
+		if (m == null) {
+			m = new us.bringardner.parley.mail.admin.users.MailboxAcls(users, () -> suite.storeAdmin());
+			mailboxAcls = m;
+		}
+		return m;
+	}
+
 	public long getStartedAt() {
 		return startedAt;
 	}

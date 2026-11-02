@@ -252,6 +252,11 @@ label { display: block; }
 .toolbar .grow { flex: 1; }
 .checks { display: flex; gap: 14px; flex-wrap: wrap; }
 .checks label { display: flex; gap: 6px; align-items: center; }
+.checks.rights { gap: 8px; flex-wrap: nowrap; }
+.checks.rights label { gap: 2px; }
+.nowrap { white-space: nowrap; display: flex; gap: 4px; align-items: center; }
+.badge.asis { text-transform: none; }
+.modal h3 { margin: 16px 0 6px; font-size: 14px; }
 
 /* ---------- tables: a field with the theme's header row, grid lines in the accent */
 .table-wrap { overflow-x: auto; background: var(--field); color: var(--field-text); border: 1px solid var(--accent); border-radius: 6px; }

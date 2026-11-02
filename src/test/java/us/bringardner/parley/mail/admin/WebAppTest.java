@@ -860,4 +860,152 @@ public class WebAppTest {
 		ok("PUT", "/users/boss@c.test", Map.of("permissions", List.of("READ", "WRITE")));
 		assertEquals(401, callAs(other, token, "GET", "/users", null).statusCode());
 	}
+
+	/** IMAP LOGIN and a command; the untagged lines and the tagged answer */
+	private static List<String> imap(String user, String password, String command) throws IOException {
+		try (Socket s = new Socket("localhost", imapPort)) {
+			s.setSoTimeout(10000);
+			BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+			OutputStream out = s.getOutputStream();
+			line(in);
+			java.util.List<String> got = new java.util.ArrayList<>();
+			String[] cmds = { "a LOGIN \"" + user + "\" \"" + password + "\"", "b " + command, "c LOGOUT" };
+			for (String c : cmds) {
+				send(out, c);
+				String tag = c.substring(0, 2);
+				String l;
+				while ((l = line(in)) != null) {
+					if (c.startsWith("b ")) {
+						got.add(l);
+					}
+					if (l.startsWith(tag)) {
+						if (c.startsWith("a ") && !l.startsWith("a OK")) {
+							throw new IOException("IMAP: " + l);
+						}
+						break;
+					}
+				}
+			}
+			return got;
+		}
+	}
+
+	private static String path(String user) {
+		return "/users/" + URLEncoder.encode(user, StandardCharsets.UTF_8);
+	}
+
+	private static JsonNode entries(JsonNode boxes, String mailbox) {
+		for (JsonNode b : boxes.get("mailboxes")) {
+			if (b.get("name").asText().equals(mailbox)) {
+				return b;
+			}
+		}
+		throw new AssertionError("no mailbox " + mailbox + " in " + boxes);
+	}
+
+	@Test
+	@Order(10)
+	public void mailboxAcls() throws Exception {
+		// the ACLs are changed through a running mail server
+		ok("POST", "/services/all/start", null);
+		waitFor(() -> {
+			try {
+				for (JsonNode svc : ok("GET", "/status", null).get("services")) {
+					if (svc.get("id").asText().equals("imap")) {
+						return svc.get("state").asText().equals("RUNNING");
+					}
+				}
+			} catch (Exception e) {
+				// not yet
+			}
+			return false;
+		}, "IMAP running");
+		// groups are kept with the user, each with its domain
+		ok("POST", "/users", Map.of("name", "bob@b.test", "password", "bobpass123", "permissions", List.of("READ", "WRITE")));
+		JsonNode users = ok("POST", "/users", Map.of("name", "carol@b.test", "password", "carolpass1", "permissions", List.of("READ", "WRITE"),
+				"groups", List.of("sales@b.test", "$sales@b.test")));
+		for (JsonNode u : users) {
+			if (u.get("name").asText().equals("carol@b.test")) {
+				assertEquals("[\"sales@b.test\"]", u.get("groups").toString());
+			}
+		}
+		assertTrue(Files.readString(new File(home, "users.txt").toPath()).contains("groups=sales@b.test"), "FileBasedAcl's format");
+		assertEquals(400, call("PUT", path("carol@b.test"), Map.of("groups", List.of("sales"))).statusCode(), "a group needs its domain");
+
+		// tony's mailboxes: no ACL yet, the owner has every right
+		JsonNode boxes = ok("GET", path("tony@b.test") + "/mailboxes", null);
+		assertTrue(boxes.get("available").asBoolean(), boxes.toString());
+		JsonNode inbox = entries(boxes, "INBOX");
+		assertTrue(inbox.get("ownerDefault").asBoolean());
+		assertEquals(0, inbox.get("entries").size());
+
+		boolean listed = false;
+		for (String l : imap("bob@b.test", "bobpass123", "LIST \"\" \"Other Users/*\"")) {
+			listed |= l.contains("tony@b.test");
+		}
+		assertFalse(listed, "nothing shared yet");
+
+		// share tony's INBOX with bob and with the sales group
+		boxes = ok("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "INBOX", "identifier", "bob@b.test", "rights", "rl"));
+		boxes = ok("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "INBOX", "identifier", "$sales@b.test", "rights", "lrs"));
+		assertEquals(2, entries(boxes, "INBOX").get("entries").size(), boxes.toString());
+		assertEquals(400, call("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "INBOX", "identifier", "nobody@b.test", "rights", "l")).statusCode());
+		assertEquals(400, call("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "INBOX", "identifier", "bob@b.test", "rights", "lz")).statusCode());
+		assertEquals(400, call("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "Nope", "identifier", "bob@b.test", "rights", "l")).statusCode());
+
+		for (String[] who : new String[][] { { "bob@b.test", "bobpass123", "lr" }, { "carol@b.test", "carolpass1", "lrs" } }) {
+			listed = false;
+			for (String l : imap(who[0], who[1], "LIST \"\" \"Other Users/*\"")) {
+				listed |= l.contains("tony@b.test");
+			}
+			assertTrue(listed, who[0] + " sees tony's INBOX");
+			String rights = null;
+			for (String l : imap(who[0], who[1], "MYRIGHTS \"Other Users/tony@b.test/INBOX\"")) {
+				if (l.startsWith("* MYRIGHTS")) {
+					rights = l.substring(l.lastIndexOf(' ') + 1);
+				}
+			}
+			assertEquals(who[2], rights, who[0]);
+		}
+		// what an IMAP client sets, the admin sees
+		java.util.List<String> getacl = imap("tony@b.test", "tonypass1", "GETACL INBOX");
+		assertTrue(getacl.toString().contains("bob@b.test lr"), getacl.toString());
+
+		// a negative entry, then removed
+		ok("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "INBOX", "identifier", "carol@b.test", "negative", true, "rights", "s"));
+		boolean neg = false;
+		for (JsonNode e : entries(ok("GET", path("tony@b.test") + "/mailboxes", null), "INBOX").get("entries")) {
+			neg |= e.get("negative").asBoolean() && e.get("identifier").asText().equals("carol@b.test");
+		}
+		assertTrue(neg);
+		ok("POST", path("tony@b.test") + "/mailboxes/acl/delete", Map.of("mailbox", "INBOX", "identifier", "carol@b.test", "negative", true));
+
+		// deleting bob takes bob out of tony's ACL and the share index
+		HttpResponse<String> del = call("DELETE", path("bob@b.test"), null);
+		assertEquals(200, del.statusCode());
+		assertFalse(del.headers().firstValue("X-Parley-Warning").isPresent(), del.headers().toString());
+		inbox = entries(ok("GET", path("tony@b.test") + "/mailboxes", null), "INBOX");
+		assertEquals(1, inbox.get("entries").size(), inbox.toString());
+		assertEquals("$sales@b.test", inbox.get("entries").get(0).get("identifier").asText());
+		assertFalse(Files.readString(new File(home, "mail/.imap-shares").toPath()).contains("bob@b.test"));
+
+		// the owner's own rights can be narrowed, never below l and a, and reset
+		ok("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "INBOX", "identifier", "tony@b.test", "rights", ""));
+		assertFalse(entries(ok("GET", path("tony@b.test") + "/mailboxes", null), "INBOX").get("ownerDefault").asBoolean());
+		ok("POST", path("tony@b.test") + "/mailboxes/acl/delete", Map.of("mailbox", "INBOX", "identifier", "tony@b.test"));
+		assertTrue(entries(ok("GET", path("tony@b.test") + "/mailboxes", null), "INBOX").get("ownerDefault").asBoolean());
+
+		// with no mail server running there's nothing to change through
+		ok("POST", "/services/all/stop", null);
+		try {
+			JsonNode off = ok("GET", path("tony@b.test") + "/mailboxes", null);
+			assertFalse(off.get("available").asBoolean(), off.toString());
+			assertEquals(409, call("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "INBOX", "identifier", "carol@b.test", "rights", "l")).statusCode());
+			HttpResponse<String> d = call("DELETE", path("carol@b.test"), null);
+			assertEquals(200, d.statusCode());
+			assertTrue(d.headers().firstValue("X-Parley-Warning").isPresent(), "the page is told the ACLs still name carol");
+		} finally {
+			ok("POST", "/services/all/start", null);
+		}
+	}
 }

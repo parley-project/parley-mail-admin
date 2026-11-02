@@ -17,6 +17,8 @@ public final class UserRecord {
 	public static final String WRITE = "WRITE";
 	public static final String ADMIN = "ADMIN";
 	public static final String MAILDROP = "maildrop";
+	/** The parameter listing the user's groups, separated by {@code ;} (parley-net's FileBasedAcl) */
+	public static final String GROUPS = "groups";
 
 	private final String name;
 	private String credential;
@@ -124,6 +126,24 @@ public final class UserRecord {
 		} else {
 			parameters.put(key, value);
 		}
+	}
+
+	/** The user's groups (full names, such as sales@bringardner.us), in the order written. */
+	public java.util.List<String> getGroups() {
+		java.util.List<String> ret = new java.util.ArrayList<>();
+		String v = parameters.get(GROUPS);
+		if (v != null) {
+			for (String g : v.split(";")) {
+				if (!g.trim().isEmpty() && !ret.contains(g.trim())) {
+					ret.add(g.trim());
+				}
+			}
+		}
+		return ret;
+	}
+
+	void setGroups(java.util.Collection<String> groups) {
+		setParameter(GROUPS, groups == null || groups.isEmpty() ? null : String.join(";", groups));
 	}
 
 	/** The maildrop directory relative to the mail root: the parameter, or the name. */

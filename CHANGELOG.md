@@ -2,6 +2,18 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Added (2026-11-02: mailbox ACLs, To-Do 3.4)
+
+- **Mailbox ACLs (RFC 4314)**: the Users page's Mailboxes button lists a user's mailboxes with their ACL entries
+  and sets or removes an entry (a user, `$group@domain` or `anyone`, positive or negative). Changes go through a
+  running mail server's `MailStoreAdminMXBean` (parley-mail), under its locks on the store. API:
+  `GET /users/{name}/mailboxes`, `POST /users/{name}/mailboxes/acl` (`mailbox`, `identifier`, `negative`,
+  `rights`), `POST /users/{name}/mailboxes/acl/delete`; a domain's administrators may use them for its users.
+- **Groups**: the Add and Edit user dialogs set a user's groups, each with its domain (`sales@example.com`), kept
+  as FileBasedAcl's `groups=a;b`; `GET /users` lists them and `POST`/`PUT /users` take `groups`.
+- **Deleting a user** takes the user out of the other users' mailbox ACLs and the share index; with no mail server
+  running it can't, and the answer says so (`X-Parley-Warning`).
+
 ### Changed (2026-11-02: 2.0.0's setting names and durations, To-Do 2.19)
 
 - **The Settings page uses 2.0.0's names**: the queue's smart host is `smartHost`, `smartHost.port`, `smartHost.user`,

@@ -130,6 +130,7 @@ public class ApiServlet extends HttpServlet {
 	private static final String[][] DOMAIN_CALLS = {
 			{ "GET", "/domains" }, { "POST", "/domains/[^/]+/dkim" }, { "POST", "/domains/[^/]+/spam" },
 			{ "GET", "/users" }, { "POST", "/users" }, { "PUT", "/users/[^/]+" }, { "DELETE", "/users/[^/]+" }, { "GET", "/users/[^/]+/usage" },
+			{ "GET", "/users/[^/]+/mailboxes" }, { "POST", "/users/[^/]+/mailboxes/acl" }, { "POST", "/users/[^/]+/mailboxes/acl/delete" },
 			{ "GET", "/aliases" }, { "PUT", "/aliases/[^/]+" }, { "DELETE", "/aliases/[^/]+" },
 			{ "GET", "/queue" }, { "POST", "/queue/[^/]+/retry" }, { "DELETE", "/queue/[^/]+" }, { "GET", "/queue/[^/]+/message" },
 			{ "GET", "/history" }, { "GET", "/history/[^/]+" },
@@ -422,7 +423,7 @@ public class ApiServlet extends HttpServlet {
 			requireAddress(q, q.requiredText("name"), "The user");
 			requireMaildrop(q, q.text("maildrop"));
 			app.getUsers().add(q.requiredText("name"), required(q.password("password"), "password"), permissions(q.list("permissions")),
-					q.text("maildrop"));
+					q.text("maildrop"), q.list("groups"));
 			LOG.log(System.Logger.Level.INFO, q.user() + " added the user " + q.text("name"));
 			return users(q);
 		});
@@ -430,7 +431,7 @@ public class ApiServlet extends HttpServlet {
 			requireAddress(q, q.param(0), "The user");
 			requireMaildrop(q, q.text("maildrop"));
 			List<String> perms = q.list("permissions");
-			app.getUsers().update(q.param(0), q.password("password"), perms == null ? null : permissions(perms), q.text("maildrop"));
+			app.getUsers().update(q.param(0), q.password("password"), perms == null ? null : permissions(perms), q.text("maildrop"), q.list("groups"));
 			LOG.log(System.Logger.Level.INFO, q.user() + " changed the user " + q.param(0));
 			return users(q);
 		});
@@ -439,11 +440,44 @@ public class ApiServlet extends HttpServlet {
 			if (q.param(0).equalsIgnoreCase(q.user())) {
 				throw ApiException.badRequest("You can't delete yourself");
 			}
+			us.bringardner.parley.mail.admin.users.UserRecord gone = app.getUsers().get(q.param(0));
 			app.getUsers().delete(q.param(0));
 			LOG.log(System.Logger.Level.INFO, q.user() + " deleted the user " + q.param(0));
+			forgetInAcls(q, gone == null ? q.param(0) : gone.getName());
 			return users(q);
 		});
 		r.get("/users/{name}/usage", this::usage);
+
+		// mailbox ACLs (RFC 4314), through a running mail server
+		r.get("/users/{name}/mailboxes", q -> {
+			requireAddress(q, q.param(0), "The user");
+			return app.getMailboxAcls().describe(q.param(0));
+		});
+		r.post("/users/{name}/mailboxes/acl", q -> {
+			requireAddress(q, q.param(0), "The user");
+			String mailbox = q.requiredText("mailbox");
+			String id = q.requiredText("identifier");
+			try {
+				String now = app.getMailboxAcls().set(q.param(0), mailbox, id, q.flag("negative"), q.text("rights"));
+				LOG.log(System.Logger.Level.INFO, q.user() + " set " + (q.flag("negative") ? "-" : "") + id + " " + now + " on " + q.param(0) + "'s " + mailbox);
+			} catch (IOException e) {
+				throw ApiException.badRequest(e.getMessage());
+			}
+			return app.getMailboxAcls().describe(q.param(0));
+		});
+		r.post("/users/{name}/mailboxes/acl/delete", q -> {
+			requireAddress(q, q.param(0), "The user");
+			String mailbox = q.requiredText("mailbox");
+			String id = q.requiredText("identifier");
+			try {
+				if (app.getMailboxAcls().delete(q.param(0), mailbox, id, q.flag("negative"))) {
+					LOG.log(System.Logger.Level.INFO, q.user() + " removed " + (q.flag("negative") ? "-" : "") + id + " from " + q.param(0) + "'s " + mailbox);
+				}
+			} catch (IOException e) {
+				throw ApiException.badRequest(e.getMessage());
+			}
+			return app.getMailboxAcls().describe(q.param(0));
+		});
 
 		// aliases
 		r.get("/aliases", q -> aliases(q));
@@ -1103,11 +1137,34 @@ public class ApiServlet extends HttpServlet {
 			m.put("domain", u.getDomain());
 			m.put("permissions", u.getPermissions());
 			m.put("maildrop", u.getMaildrop());
+			m.put("groups", u.getGroups());
 			m.put("hashed", u.isHashed());
 			m.put("scram", u.hasScram());
 			list.add(m);
 		}
 		return list;
+	}
+
+	/**
+	 * A deleted user is taken out of the other users' mailbox ACLs and the share index; when that
+	 * can't be done (no mail server runs) the page is told (X-Parley-Warning).
+	 */
+	private void forgetInAcls(Router.Request q, String name) {
+		String warning = null;
+		try {
+			int n = app.getMailboxAcls().forget(name);
+			if (n < 0) {
+				warning = name + " is still named in mailbox ACLs: no mail server runs to remove it";
+			} else if (n > 0) {
+				LOG.log(System.Logger.Level.INFO, "Removed " + n + " mailbox ACL entries of " + name);
+			}
+		} catch (IOException | RuntimeException e) {
+			warning = "Couldn't remove " + name + " from the mailbox ACLs: " + e.getMessage();
+		}
+		if (warning != null) {
+			LOG.log(System.Logger.Level.WARNING, warning);
+			q.header("X-Parley-Warning", warning.replaceAll("[\\r\\n]", " "));
+		}
 	}
 
 	private Object usage(Router.Request q) throws IOException {

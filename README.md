@@ -16,7 +16,7 @@ It gives you pages to:
 |---|---|
 | Dashboard | Where the servers run. Each service (SMTP, Submission, Submission over TLS, IMAP, IMAP over TLS, POP3, POP3 over TLS): state, port, TLS, uptime, open connections (with who is logged in); start, stop, restart; turn it on or off (it is added to or taken out of `parley.servers`, the list of services that run, and started or stopped); start or stop all. Recent warnings and errors. |
 | Domains | The local domains (the suite serves several): add and remove them, see each one's users and aliases, make its DKIM key, and get the DNS records to publish (MX, SPF, DKIM, DMARC). |
-| Users | Add, edit and delete users, per domain or for every domain: password, permissions (READ, WRITE, ADMIN), maildrop, and how much mail they keep. The servers read the users file again themselves: those in this application at once, services within `parley.net.acl.reloadInterval` (15s). |
+| Users | Add, edit and delete users, per domain or for every domain: password, permissions (READ, WRITE, ADMIN), maildrop, groups, and how much mail they keep. The servers read the users file again themselves: those in this application at once, services within `parley.net.acl.reloadInterval` (15s). A user's **Mailboxes** button shows who may use each of the user's mailboxes over IMAP and changes it (see [Mailbox ACLs](#mailbox-acls)). |
 | Aliases | Aliases per domain or for every domain. |
 | Queue | The messages waiting in the SMTP queue, each recipient's status and last result; read a message, retry it now, delete it, or retry them all. |
 | History | Every message the SMTP queue took and every delivery attempt, by date, address, id or result, and the whole story of one message (the history files the SMTP servers write). |
@@ -207,6 +207,31 @@ to one domain or to all of them:
 This uses parley-smtp's virtual domains (`LocalDelivery.find(MailAddress)`): aliases are looked up
 before users, and the full address before the local part.
 
+## Mailbox ACLs
+
+IMAP's access control lists (RFC 4314) say who may use each mailbox: its owner and the users, groups or
+`anyone` the owner (or someone with the `a` right) has shared it with. An IMAP client changes them with
+SETACL and DELETEACL; here, the Users page's **Mailboxes** button lists a user's mailboxes with their
+entries, and sets or removes an entry for a user, a group or anyone, positive or negative.
+
+1. Rights are RFC 4314's `l r s w i p k x t e a` (hover over one to see what it allows). A user's rights are
+   those of the entries that name the user, one of the user's groups or `anyone`, less those of the negative
+   entries; the permissions still limit them (without WRITE a user can only read).
+2. A mailbox with no entry for its owner gives the owner every right. The owner's own rights can be narrowed,
+   but the owner always keeps `l` and `a` (so can't be locked out); Reset gives every right back.
+3. A group is written `$name@domain` in an ACL. A user's groups are set in the Add and Edit user dialogs, each
+   with its domain (`sales@example.com`), and kept in the users file as FileBasedAcl's `groups=a;b`.
+4. A user is named as the users file names it; one the file doesn't have is refused, as IMAP's SETACL refuses it.
+5. Deleting a user takes the user out of every other user's ACLs and out of the share index
+   (`.imap-shares`), so LIST no longer offers anything to the user's name. The user's own mail is kept.
+
+The ACL files belong to the mail store, so the changes go through a running mail server (IMAP, POP3 or
+SMTP): each registers parley-mail's `MailStoreAdminMXBean` (`us.bringardner.parley:type=MailStore`) and
+changes the files under its own locks on the store, as SETACL does, whether it runs in this application or
+as a service. With no mail server running the dialog says so and nothing can be changed; a user deleted then
+stays named in the ACLs (the page says so: delete the entries later, or delete the user again after
+re-adding it).
+
 ## How it fits together
 
 - `AdminApp` makes everything and is usable without a servlet container; `web.AdminContextListener`
@@ -219,6 +244,8 @@ before users, and the full address before the local part.
   `reloadQueue` had the SMTP servers read them again. The SMTP services of a process share one queue (made when the
   first one starts), so a change to an SMTP setting restarts that process's running SMTP services
   together.
+- `users.MailboxAcls` shows and changes the users' mailbox ACLs through the store bean a running mail
+  server registers (parley-mail's `MailStoreAdminMXBean`; `MailSuite.storeAdmin()` finds it).
 - `settings.SettingsService` edits the settings files; `settings.SettingsCatalog` describes the
   settings the Settings page offers (any other `parley.*` setting can go on its Other tab).
 - `users.UserStore` and `users.AliasStore` edit the files; the servers' user list is parley-mail's

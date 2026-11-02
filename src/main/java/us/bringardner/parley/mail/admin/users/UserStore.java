@@ -152,6 +152,18 @@ public final class UserStore {
 	 *                 for a user with a domain, the name for one without)
 	 */
 	public void add(String name, char[] password, Collection<String> permissions, String maildrop) throws IOException {
+		add(name, password, permissions, maildrop, null);
+	}
+
+	/**
+	 * Add a user, with groups.
+	 *
+	 * @param groups the user's groups (full names with their domain, sales@example.com), or null
+	 *               for none; mailbox ACLs name a group as {@code $sales@example.com}
+	 * @since 2.0.0
+	 */
+	public void add(String name, char[] password, Collection<String> permissions, String maildrop, Collection<String> groups) throws IOException {
+		java.util.List<String> grp = groups == null ? null : checkGroups(groups);
 		name = checkName(name);
 		checkPassword(password);
 		Set<String> perms = checkPermissions(permissions);
@@ -163,6 +175,7 @@ public final class UserStore {
 			UserRecord u = new UserRecord(name, FileBasedAcl.hashPasswordWithScram(password));
 			u.setPermissions(perms);
 			u.setParameter(UserRecord.MAILDROP, drop == null ? defaultMaildrop(u) : drop);
+			u.setGroups(grp);
 			lines.add(new Line(null, u));
 			save();
 		}
@@ -174,6 +187,16 @@ public final class UserStore {
 	 * empty maildrop means the default.
 	 */
 	public void update(String name, char[] password, Collection<String> permissions, String maildrop) throws IOException {
+		update(name, password, permissions, maildrop, null);
+	}
+
+	/**
+	 * Change a user's password, permissions, maildrop or groups; null leaves that one as it is
+	 * (an empty list of groups removes them).
+	 * @since 2.0.0
+	 */
+	public void update(String name, char[] password, Collection<String> permissions, String maildrop, Collection<String> groups) throws IOException {
+		java.util.List<String> grp = groups == null ? null : checkGroups(groups);
 		if (password != null) {
 			checkPassword(password);
 		}
@@ -195,6 +218,9 @@ public final class UserStore {
 			}
 			if (maildrop != null) {
 				u.setParameter(UserRecord.MAILDROP, drop == null ? defaultMaildrop(u) : drop);
+			}
+			if (grp != null) {
+				u.setGroups(grp);
 			}
 			save();
 		}
@@ -219,6 +245,36 @@ public final class UserStore {
 			save();
 		}
 		fire();
+	}
+
+	/**
+	 * Check group names: each one with its domain (sales@example.com), as mailbox ACLs name them,
+	 * and none of the users file's separators.
+	 *
+	 * @return the names, trimmed, without repeats
+	 */
+	public static java.util.List<String> checkGroups(Collection<String> groups) {
+		java.util.List<String> ret = new java.util.ArrayList<>();
+		for (String g : groups) {
+			String n = g == null ? "" : g.trim();
+			if (n.isEmpty()) {
+				continue;
+			}
+			if (n.startsWith("$")) {
+				n = n.substring(1);
+			}
+			int at = n.lastIndexOf('@');
+			if (at <= 0 || at == n.length() - 1 || n.indexOf('@') != at) {
+				throw new IllegalArgumentException("A group is named with its domain, like sales@example.com: " + g);
+			}
+			if (!n.matches("[^\\s,|=;$]+")) {
+				throw new IllegalArgumentException("A group name can't have spaces or , | = ; $: " + g);
+			}
+			if (!ret.contains(n)) {
+				ret.add(n);
+			}
+		}
+		return ret;
 	}
 
 	/** domain/name for a user of one domain; null (the name) for a user of every domain. */
