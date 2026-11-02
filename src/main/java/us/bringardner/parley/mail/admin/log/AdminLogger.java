@@ -8,8 +8,8 @@ import us.bringardner.parley.core.ParleyLogger;
 
 /**
  * The Parley logger of the mail suite (set with the {@code parley.core.logger} system property
- * before any Parley object logs): a {@link ParleyLogger}, so the usual {@code logLevel} and
- * {@code logFile} settings still work, that also gives every entry it writes to the
+ * before any Parley object logs): a {@link ParleyLogger}, so the usual {@code parley.log.level} and
+ * {@code parley.log.file} settings still work, that also gives every entry it writes to the
  * {@link LogBuffer} for the Logs page. The Logs page sets the level of each source's loggers.
  */
 public class AdminLogger extends ParleyLogger {

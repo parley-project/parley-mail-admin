@@ -2,6 +2,8 @@ package us.bringardner.parley.mail.admin.settings;
 
 import static us.bringardner.parley.mail.admin.settings.SettingDef.Type.BOOLEAN;
 import static us.bringardner.parley.mail.admin.settings.SettingDef.Type.CHOICE;
+import static us.bringardner.parley.mail.admin.settings.SettingDef.Type.DURATION;
+import static us.bringardner.parley.mail.admin.settings.SettingDef.Type.DURATIONS;
 import static us.bringardner.parley.mail.admin.settings.SettingDef.Type.LIST;
 import static us.bringardner.parley.mail.admin.settings.SettingDef.Type.NUMBER;
 import static us.bringardner.parley.mail.admin.settings.SettingDef.Type.PATH;
@@ -104,7 +106,7 @@ public final class SettingsCatalog {
 	public static final String ADMIN_DNS_KEY_FILE = "parley.mail.admin.dnsKeyFile";
 	/** The address the DNS page sends updates to, when it isn't the host of the DNS server's JMX address */
 	public static final String ADMIN_DNS_HOST = "parley.mail.admin.dnsHost";
-	public static final String ACL_RELOAD_SECONDS = "parley.net.acl.reloadSeconds";
+	public static final String ACL_RELOAD_INTERVAL = us.bringardner.parley.net.server.FileBasedAcl.PROP_RELOAD_INTERVAL;
 	public static final String ADMIN_LOG_BUFFER = "parley.mail.admin.logBufferSize";
 	public static final String ADMIN_LOG_FILE_SIZE = "parley.mail.admin.logFileSize";
 
@@ -121,11 +123,11 @@ public final class SettingsCatalog {
 				"The parley-files FileSource factory for the mail root, e.g. a database or SFTP factory id. Empty for local files.");
 		add(g, USERS, "Users file", PATH, null,
 				"The user list every server uses (FileBasedAcl format). The servers read it again when it changes (Users page or not), within the time below.");
-		add(g, ACL_RELOAD_SECONDS, "Users file check (seconds)", NUMBER, "15",
-				"How often the servers look for changes to the users file; 0: never (a restart reads it).");
+		add(g, ACL_RELOAD_INTERVAL, "Users file check", DURATION, "15s",
+				"How often the servers look for changes to the users file (30s, 1m); 0: never (a restart reads it).");
 		add(g, "parley.net.acl.maxConcurrentHashes", "Password checks at once", NUMBER, "the number of processors",
 				"How many password hashes are checked at the same time (each takes about 0.1 s of a processor), so a flood of logins can't use every processor.");
-		add(g, "parley.net.acl.hashWaitMs", "Password check wait (ms)", NUMBER, "30000",
+		add(g, us.bringardner.parley.net.server.FileBasedAcl.PROP_HASH_WAIT, "Password check wait", DURATION, "30s",
 				"How long a login waits for its turn to check a password before it fails.");
 
 		g = group("store", "Store", "The mail store's own settings, in .parley-store.properties in the mail root: every server that uses the store reads them, so they can't disagree. A store without the file isn't used.");
@@ -152,7 +154,7 @@ public final class SettingsCatalog {
 		perServer(g, "requireTls", "Require TLS", BOOLEAN, "false", "Offer AUTH (and on the submission ports, accept MAIL) only after STARTTLS.");
 		perServer(g, "maxMessageSize", "Largest message (bytes)", NUMBER, "52428800", "The SIZE limit.");
 		perServer(g, "maxRecipients", "Recipients per message", NUMBER, "100", "More are refused (452).");
-		perServer(g, "timeout", "Idle timeout (ms)", NUMBER, "300000", "Sessions idle this long are closed. RFC 5321 requires at least 5 minutes.");
+		perServer(g, "timeout", "Idle timeout", DURATION, "5m", "Sessions idle this long are closed. RFC 5321 requires at least 5 minutes.");
 		perServer(g, "maxHops", "Most Received fields", NUMBER, "100", "A message with more counts as a loop and is refused.");
 
 		g = group("queue", "Queue", "The SMTP queue's own settings, in queue.properties in its folder: every SMTP server that uses the queue reads them when it starts, so they can't disagree about how mail is delivered. A queue without the file isn't used.");
@@ -166,17 +168,18 @@ public final class SettingsCatalog {
 		add(g, QUEUE_PREFIX + "preferIpv6", "Prefer IPv6", BOOLEAN, "false", "With parley-dns: try mail hosts' IPv6 addresses first.");
 		add(g, QUEUE_PREFIX + "tls", "STARTTLS to other servers", CHOICE, "opportunistic", "none, opportunistic or required.", "none", "opportunistic", "required");
 		add(g, QUEUE_PREFIX + "remotePort", "Other servers' port", PORT, "25", "The port of other mail servers.");
-		add(g, QUEUE_PREFIX + "relayHost", "Smart host", TEXT, null,
-				"host:port of a server (your provider's) that sends all outgoing mail. Many networks block outgoing port 25.");
-		add(g, QUEUE_PREFIX + "relayUser", "Smart host user", TEXT, null, "The user for the smart host.");
-		add(g, QUEUE_PREFIX + "relayPassword", "Smart host password", TEXT, null,
+		add(g, QUEUE_PREFIX + "smartHost", "Smart host", TEXT, null,
+				"The host name of a server (your provider's) that sends all outgoing mail; its port is the next setting. Many networks block outgoing port 25.");
+		add(g, QUEUE_PREFIX + "smartHost.port", "Smart host port", PORT, "587", "The smart host's port.");
+		add(g, QUEUE_PREFIX + "smartHost.user", "Smart host user", TEXT, null, "The user for the smart host.");
+		add(g, QUEUE_PREFIX + "smartHost.password", "Smart host password", TEXT, null,
 				"Where the password is kept, never the password: @keychain:parley/smarthost (parley-credentials-keychain), @file:/etc/parley/smarthost.secret or @env:NAME.");
-		add(g, QUEUE_PREFIX + "relayAuth", "Smart host SASL", LIST, "PLAIN", "SASL mechanisms for the smart host, best first, e.g. SCRAM-SHA-256,PLAIN.");
-		add(g, QUEUE_PREFIX + "relayTls", "Smart host TLS", CHOICE, "required", "TLS to the smart host.", "none", "opportunistic", "required");
+		add(g, QUEUE_PREFIX + "smartHost.auth", "Smart host SASL", LIST, "PLAIN", "SASL mechanisms for the smart host, best first, e.g. SCRAM-SHA-256,PLAIN.");
+		add(g, QUEUE_PREFIX + "smartHost.tls", "Smart host TLS", CHOICE, "required", "TLS to the smart host.", "none", "opportunistic", "required");
 		add(g, QUEUE_PREFIX + "workers", "Delivery threads", NUMBER, "4", "Messages delivered at the same time.");
-		add(g, QUEUE_PREFIX + "retry", "Retry schedule (minutes)", LIST, "1,5,15,30,60,120", "Minutes between attempts after a temporary failure; the last repeats.");
-		add(g, QUEUE_PREFIX + "delayWarningHours", "Delay warning (hours)", NUMBER, "4", "The sender is told the message is delayed after this long.");
-		add(g, QUEUE_PREFIX + "maxAgeHours", "Give up after (hours)", NUMBER, "120", "The message is returned to the sender after this long.");
+		add(g, QUEUE_PREFIX + "retry", "Retry schedule", DURATIONS, "1m,5m,15m,30m,1h,2h", "The waits between attempts after a temporary failure, comma separated; the last repeats.");
+		add(g, QUEUE_PREFIX + "delayWarning", "Delay warning", DURATION, "4h", "The sender is told the message is delayed after this long.");
+		add(g, QUEUE_PREFIX + "maxAge", "Give up after", DURATION, "5d", "The message is returned to the sender after this long.");
 		add(g, QUEUE_HISTORY, "Keep SMTP history", BOOLEAN, "true", "The queue writes the history the SMTP History page shows.");
 		add(g, QUEUE_HISTORY_DIRECTORY, "SMTP history folder", PATH, "<mail root>/.smtp-history", "Where the queue writes it.");
 		add(g, QUEUE_HISTORY_FILE_SOURCE, "SMTP history file system", TEXT, "<mail root's>",
@@ -193,7 +196,7 @@ public final class SettingsCatalog {
 		add(g, QUEUE_PREFIX + "dmarc.failureReports", "DMARC failure reports", BOOLEAN, "false", "Send ruf= reports.");
 		add(g, QUEUE_PREFIX + "dmarc.reportEmail", "Report sender", TEXT, null, "The reports' From address; required with reports.");
 		add(g, QUEUE_PREFIX + "dmarc.reportOrgName", "Reporting organization", TEXT, null, "The org_name of the reports; required with reports.");
-		add(g, QUEUE_PREFIX + "dmarc.reportIntervalHours", "Report interval (hours)", NUMBER, "24", "How often aggregate reports go out.");
+		add(g, QUEUE_PREFIX + "dmarc.reportInterval", "Report interval", DURATION, "24h", "How often aggregate reports go out.");
 		add(g, QUEUE_PREFIX + "dmarc.maxFailureReportsPerHour", "Failure reports per hour", NUMBER, "10", "Per domain.");
 
 		g = group("smtp-auth", "Authentication", "Each SMTP server's checks of incoming mail: DKIM, SPF, DMARC and ARC (signing and sealing outgoing mail is the queue's).", SMTP_SERVERS);
@@ -225,13 +228,16 @@ public final class SettingsCatalog {
 				"Messages scored at or above this are refused (550). When this or the next is set, scores decide and the provider's own action is ignored.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
 		smtpOnly(g, "spam.quarantineScore", "Junk from score", NUMBER, "the provider's own decision", "Messages scored at or above this go to the Junk mailbox.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
 		smtpOnly(g, "spam.maxSize", "Largest message checked (bytes)", NUMBER, "2097152", "Larger messages are not sent to the provider.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
-		smtpOnly(g, "spam.timeoutMillis", "Provider timeout (ms)", NUMBER, "5000", "A provider that takes longer is skipped and the message delivered.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
+		smtpOnly(g, "spam.timeout", "Provider timeout", DURATION, "5s", "A provider that takes longer is skipped and the message delivered.").hideWhen(SPAM_PROVIDER, NullSpamFilter.ID);
 		for (SpamProvider p : SpamProviders.all()) {
 			for (ConnectionSetting cs : p.getSettings()) {
 				SettingDef.Type type;
 				switch (cs.kind()) {
 				case INTEGER:
 					type = NUMBER;
+					break;
+				case DURATION:
+					type = DURATION;
 					break;
 				case BOOLEAN:
 					type = BOOLEAN;
@@ -263,13 +269,13 @@ public final class SettingsCatalog {
 
 		g = group("imap", "IMAP", "Each IMAP server's own settings: choose the server.", ServiceId.IMAP, ServiceId.IMAPS);
 		perServer(g, "requireTls", "Require TLS", BOOLEAN, "false", "Refuse LOGIN and AUTHENTICATE until STARTTLS.");
-		perServer(g, "autologout", "Idle timeout (ms)", NUMBER, "1800000", "Idle sessions are closed. RFC 9051 requires at least 30 minutes.");
+		perServer(g, "autologout", "Idle timeout", DURATION, "30m", "Idle sessions are closed. RFC 9051 requires at least 30 minutes.");
 		perServer(g, "appendLimit", "Largest APPEND (bytes)", NUMBER, "104857600", "Larger messages get NO [TOOBIG].");
 		perServer(g, "defaultMailboxes", "Default mailboxes", BOOLEAN, "true", "Create Sent, Drafts, Trash, Junk and Archive for new users.");
 
 		g = group("pop3", "POP3", "Each POP3 server's own settings: choose the server.", ServiceId.POP3, ServiceId.POP3S);
 		perServer(g, "requireTls", "Require TLS", BOOLEAN, "false", "Refuse USER, PASS, APOP and AUTH until STLS.");
-		perServer(g, "autologout", "Idle timeout (ms)", NUMBER, "600000", "Idle sessions are closed. RFC 1939 requires at least 10 minutes.");
+		perServer(g, "autologout", "Idle timeout", DURATION, "10m", "Idle sessions are closed. RFC 1939 requires at least 10 minutes.");
 		perServer(g, "utf8Downgrade", "UTF-8 for old clients", CHOICE, "surrogate",
 				"What a client that didn't send UTF8 gets for a message with UTF-8 headers: the RFC 6858 surrogate, or reject.", "surrogate", "reject");
 
@@ -280,7 +286,7 @@ public final class SettingsCatalog {
 		perServer(g, "passiveMinPort", "Lowest passive port", PORT, "10333", "Data connections use ports from this one up. The same for every FTP server.");
 		perServer(g, "passiveMaxPort", "Highest passive port", PORT, "65333", "Data connections use ports up to this one. Open this range in the firewall.");
 		perServer(g, "uploadMode", "Upload mode", CHOICE, "atomic", "atomic: an upload replaces the file only when it is complete. inPlace: it goes into the file, so a broken upload can be resumed.", "atomic", "inPlace");
-		perServer(g, "dataTimeout", "Data timeout (ms)", NUMBER, "600000", "A transfer that moves no data for this long is aborted.");
+		perServer(g, "dataTimeout", "Data timeout", DURATION, "10m", "A transfer that moves no data for this long is aborted.");
 		perServer(g, "serverId", "Server id", TEXT, "from its name and port", "This server's id among those sharing the store.");
 
 		g = group("listeners", "Listeners", "Each service's own settings: its port and limits. Empty uses the default. Which services run is set on the Dashboard (Turn on, Turn off).");
@@ -294,8 +300,8 @@ public final class SettingsCatalog {
 			add(g, p + "maxConnectionsPerClient", l + "most connections per client", NUMBER, "0 (no limit)", "Connections at once from one address.");
 			add(g, p + "allowedClients", l + "allowed clients", LIST, "everyone", "Addresses and networks allowed to connect, e.g. 127.0.0.1 10.0.0.0/8 ::1.");
 			add(g, p + "maxLoginAttempts", l + "login attempts", NUMBER, "3", "Failed logins before the connection is closed.");
-			add(g, p + "loginFailureDelay", l + "failed login delay (ms)", NUMBER, "1000", "Delay before answering a failed login.");
-			add(g, p + "loginTimeLimit", l + "login time limit (ms)", NUMBER, "0 (no limit)", "Time a connection has to log in.");
+			add(g, p + "loginFailureDelay", l + "failed login delay", DURATION, "1s", "Delay before answering a failed login.");
+			add(g, p + "loginTimeLimit", l + "login time limit", DURATION, "0 (no limit)", "Time a connection has to log in.");
 			add(g, p + "virtualThreads", l + "virtual threads", CHOICE, "AUTO", "Run sessions on virtual threads (Java 21).", "AUTO", "ON", "OFF");
 			add(g, p + "keyStoreName", l + "key store", PATH, "the TLS page's", "A key store for this service only.");
 			add(g, p + "keyStorePassword", l + "key store password", SECRET, null, "Its password.");
@@ -322,7 +328,7 @@ public final class SettingsCatalog {
 		add(g, ADMIN_LOG_BUFFER, "Log entries kept in memory", NUMBER, "5000", "The Logs page shows these.");
 		add(g, ADMIN_LOG_FILE_SIZE, "Log file size (bytes)", NUMBER, "10485760", "The log file (logs/parley-mail.log in the admin home) is rotated at this size; 5 old files are kept.");
 		add(g, ADMIN_LOG_FILES, "More log files", LIST, null,
-				"Log files the Logs page shows besides its own and the servers' (the logFile setting of the settings files), comma separated.");
+				"Log files the Logs page shows besides its own and the servers' (the parley.log.file setting of the settings files), comma separated.");
 	}
 
 	private Group group(String id, String label, String description, ServiceId... servers) {

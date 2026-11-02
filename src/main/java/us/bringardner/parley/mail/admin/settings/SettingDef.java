@@ -23,7 +23,11 @@ public final class SettingDef {
 		/** A file or directory. */
 		PATH,
 		/** A TCP port, 1 to 65535. Which services run is parley.servers' (the Dashboard's Turn on, Turn off), not their ports'. */
-		PORT
+		PORT,
+		/** A length of time with its unit: 30s, 5m, 4h, 5d (parley-core's Durations; a number without a unit is ms). */
+		DURATION,
+		/** A comma separated list of {@link #DURATION}s: 1m,5m,15m,1h. */
+		DURATIONS
 	}
 
 	private final String key;
@@ -180,6 +184,19 @@ public final class SettingDef {
 				if (type == Type.PORT) {
 					return label + " must be a whole number";
 				}
+			}
+			return null;
+		case DURATION:
+		case DURATIONS:
+			try {
+				if (type == Type.DURATION) {
+					us.bringardner.parley.core.util.Durations.parse(value.trim());
+				} else {
+					us.bringardner.parley.core.util.Durations.parseList(value.trim());
+				}
+			} catch (IllegalArgumentException e) {
+				return label + (type == Type.DURATION ? " must be a length of time with its unit, e.g. 30s, 5m, 4h or 5d"
+						: " must be lengths of time with their units, comma separated, e.g. 1m,5m,1h") + " (" + e.getMessage() + ")";
 			}
 			return null;
 		case BOOLEAN:

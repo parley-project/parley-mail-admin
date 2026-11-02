@@ -2,6 +2,21 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-02: 2.0.0's setting names and durations, To-Do 2.19)
+
+- **The Settings page uses 2.0.0's names**: the queue's smart host is `smartHost`, `smartHost.port`, `smartHost.user`,
+  `smartHost.password`, `smartHost.auth` and `smartHost.tls` (was `relayHost` with `host:port`, `relayUser` ...);
+  `maxAge`, `delayWarning` and `dmarc.reportInterval` (were `maxAgeHours`, `delayWarningHours`,
+  `dmarc.reportIntervalHours`); `parley.net.acl.reloadInterval` and `parley.net.acl.hashWait` (were `reloadSeconds`,
+  `hashWaitMs`); SMTP's `spam.timeout` (was `spam.timeoutMillis`). A setting still under an old name shows in Other
+  settings, and the servers no longer read it.
+- **Times are durations, with their unit** (a new `DURATION` setting type, and `DURATIONS` for a list, checked with
+  parley-core's `Durations`): `30s`, `5m`, `4h`, `5d` (a number without a unit is milliseconds). The queue's `retry`
+  (`1m,5m,15m,30m,1h,2h`; it was minutes), `delayWarning`, `maxAge`, `dmarc.reportInterval`; each SMTP server's
+  `timeout`; IMAP's and POP3's `autologout`; FTP's `dataTimeout`; each service's `loginFailureDelay` and
+  `loginTimeLimit`; the users file check and the password check wait; and a spam provider's duration settings.
+- **The servers' log file is parley-core's `parley.log.file`** in a settings file (was `logFile`), for the Logs page.
+
 ### Changed (2026-11-01: parley.servers says which services run, To-Do 2.12)
 
 - **The Settings page refuses a port of 0** (To-Do 2.18): ports are 1 to 65535, since 0 no longer turns a
