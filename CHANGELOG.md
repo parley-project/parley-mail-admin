@@ -2,6 +2,11 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-02: To-Do 3.6)
+
+- The mail store's bean is now named by the server's id (parley-mail), so it is one of a server's beans; the Servers
+  page still doesn't list it among a server's pages (it is the Users page's Mailboxes).
+
 ### Added (2026-11-02: mailbox ACLs, To-Do 3.4)
 
 - **Mailbox ACLs (RFC 4314)**: the Users page's Mailboxes button lists a user's mailboxes with their ACL entries

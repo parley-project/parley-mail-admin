@@ -981,7 +981,9 @@ public final class MailSuite implements AutoCloseable {
 		List<String> types = new ArrayList<>();
 		for (ObjectName n : t.mbeans.queryNames(new ObjectName(ServerContext.JMX_DOMAIN + ":name=" + id + ",*"), null)) {
 			String type = n.getKeyProperty("type");
-			if (type != null && !type.equals("Server") && !type.equals("Launcher") && !types.contains(type)) {
+			// (the store's bean, named by the server's id too, is for the Users page's Mailboxes, not a page of its own)
+			if (type != null && !type.equals("Server") && !type.equals("Launcher")
+					&& !type.equals(us.bringardner.parley.mail.store.MailStoreAdminMXBean.TYPE) && !types.contains(type)) {
 				types.add(type);
 			}
 		}
