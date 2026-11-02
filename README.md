@@ -86,7 +86,7 @@ every service (ids `smtp`, `submission`, `submissions`, `imap`, `imaps`, `pop3`,
 settings folder's files; stopping or undeploying the web application stops them. Their JMX beans
 (`us.bringardner.parley:type=Server,name=<id>`, `type=Launcher,name=ParleyMailAdmin`, and each
 running SMTP server's queue, `type=MailQueue,name=<id>`) are on the JVM's platform MBean server, so jconsole sees them too.
-`parley.mail.admin.autoStart` (true) starts the services whose port isn't 0 when it starts.
+`parley.mail.admin.autoStart` (true) starts the services `parley.servers` lists (Turn on on the Dashboard) when it starts.
 
 - **The store's sharing:** the servers of this application are several servers on one store, so
   the store's `sharing` (Settings > Store) must be `host` (or `cluster`); another Parley mail server

@@ -4,6 +4,9 @@
 
 ### Changed (2026-11-01: parley.servers says which services run, To-Do 2.12)
 
+- **The Settings page refuses a port of 0** (To-Do 2.18): ports are 1 to 65535, since 0 no longer turns a
+  service off (Turn off on the Dashboard does); the auto-start setting's description and the settings template
+  say `parley.servers` decides which services run.
 - **Turn on and Turn off** on each Dashboard service: on adds it to `parley.servers` (in `parley-mail.properties`,
   in the services' order) and starts it; off stops it and takes it out. The launchers read the list again when
   their settings are reloaded, so no restart is needed (a launcher that can't, an older one or one given its list

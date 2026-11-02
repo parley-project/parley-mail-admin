@@ -318,7 +318,7 @@ public final class SettingsCatalog {
 				"Administrators of this domain manage every domain; an administrator of another domain manages only that domain's users, aliases and DKIM keys, and the queue and history of its mail. "
 						+ "Set when the first administrator is made (or, if empty, from the first administrator in the users file).");
 		add(g, ADMIN_AUTO_START, "Start services with the application", BOOLEAN, "true",
-				"When the servers run in this application: start every service whose port isn't 0 when the web application starts.");
+				"When the servers run in this application: start the services parley.servers lists (turned on on the Dashboard) when the web application starts.");
 		add(g, ADMIN_LOG_BUFFER, "Log entries kept in memory", NUMBER, "5000", "The Logs page shows these.");
 		add(g, ADMIN_LOG_FILE_SIZE, "Log file size (bytes)", NUMBER, "10485760", "The log file (logs/parley-mail.log in the admin home) is rotated at this size; 5 old files are kept.");
 		add(g, ADMIN_LOG_FILES, "More log files", LIST, null,

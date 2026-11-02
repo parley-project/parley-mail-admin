@@ -4,7 +4,8 @@
 # application or as services (parley-net's launcher). Edit them on the Settings page (or here, then
 # restart the services); any setting of the parley-smtp, parley-imap and parley-pop3 READMEs can be
 # used. The ports below are high ports so the suite runs without root while you try it out; use 25,
-# 587, 465, 143, 993, 110 and 995 on a real server. A port of 0 turns that service off.
+# 587, 465, 143, 993, 110 and 995 on a real server. parley.servers says which services run (the
+# Dashboard's Turn on and Turn off); a port is only a port.
 
 # ---------------------------------------------------------------- store, users, TLS
 
