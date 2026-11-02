@@ -22,7 +22,7 @@ public final class SettingDef {
 		LIST,
 		/** A file or directory. */
 		PATH,
-		/** A TCP port; 0 turns the service off. */
+		/** A TCP port, 1 to 65535. Which services run is parley.servers' (the Dashboard's Turn on, Turn off), not their ports'. */
 		PORT
 	}
 
@@ -164,8 +164,11 @@ public final class SettingDef {
 				if (n < 0) {
 					return label + " can't be negative";
 				}
+				if (type == Type.PORT && n == 0) {
+					return label + " can't be 0: a port no longer turns a service off (use Turn off on the Dashboard)";
+				}
 				if (type == Type.PORT && n > 65535) {
-					return label + " must be a port number (0 to 65535)";
+					return label + " must be a port number (1 to 65535)";
 				}
 			} catch (NumberFormatException e) {
 				// some numbers are decimals (hours)
