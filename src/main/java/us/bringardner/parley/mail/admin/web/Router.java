@@ -134,6 +134,17 @@ final class Router {
 			return ret;
 		}
 
+		/** A boolean field of the body (false if missing). */
+		boolean flag(String field) throws IOException {
+			JsonNode n = body().get(field);
+			return n != null && n.asBoolean(false);
+		}
+
+		/** Add a header to the response (a warning for the page, say). */
+		void header(String name, String value) {
+			response.setHeader(name, value);
+		}
+
 		/** A password field as characters (null if missing). */
 		char[] password(String field) throws IOException {
 			String v = text(field);

@@ -94,6 +94,7 @@
 			opts.body = JSON.stringify(body);
 		}
 		const res = await fetch('api' + path, opts);
+		state.lastWarning = res.headers.get('X-Parley-Warning');
 		if (res.status === 204) return null;
 		const type = res.headers.get('Content-Type') || '';
 		const data = type.includes('json') ? await res.json() : await res.text();
@@ -824,6 +825,107 @@
 		return el;
 	}
 
+	/** Group names typed as a list (commas or spaces), each with its domain: sales@example.com. */
+	function groupsInput(groups) {
+		return h('input', { type: 'text', value: (groups || []).join(', '), placeholder: 'sales@example.com, support@example.com' });
+	}
+
+	function groupsValue(input) {
+		return input.value.split(/[\s,;]+/).map(g => g.trim().replace(/^\$/, '')).filter(g => g);
+	}
+
+	// ------------------------------------------------------------------ mailbox ACLs (RFC 4314)
+
+	const RIGHTS = [
+		['l', 'lookup: see the mailbox in LIST'],
+		['r', 'read: SELECT, FETCH, SEARCH, COPY from it'],
+		['s', 'keep seen: set and clear \\Seen'],
+		['w', 'write: set and clear other flags and keywords'],
+		['i', 'insert: APPEND and COPY into it'],
+		['p', 'post: send mail to it (not used by SMTP here)'],
+		['k', 'create mailboxes under it, or rename to under it'],
+		['x', 'delete the mailbox, or rename it'],
+		['t', 'delete messages: set and clear \\Deleted'],
+		['e', 'expunge'],
+		['a', 'administer: change the ACL']];
+
+	function rightChecks(rights, disabled) {
+		const boxes = RIGHTS.map(([r]) => h('input', { type: 'checkbox', value: r, checked: (rights || '').includes(r), disabled }));
+		const el = h('div.checks.rights', RIGHTS.map(([r, title], i) => h('label', { title }, boxes[i], h('span.mono', r))));
+		el.value = () => boxes.filter(b => b.checked).map(b => b.value).join('');
+		return el;
+	}
+
+	async function mailboxAclDialog(u, allUsers) {
+		const body = h('div');
+		const ids = h('datalist#acl-ids', h('option', { value: 'anyone' }),
+			allUsers.filter(x => x.name !== u.name).map(x => h('option', { value: x.name })),
+			[...new Set(allUsers.flatMap(x => x.groups || []))].map(g => h('option', { value: '$' + g })));
+		let data = null;
+
+		async function load(promise) {
+			try { data = await promise; } catch (e) { fail(e); if (!data) return; }
+			draw();
+		}
+
+		function call(path, payload, msg) {
+			return load(api('POST', '/users/' + enc(u.name) + '/mailboxes/' + path, payload).then(r => { toast(msg, 'ok'); return r; }));
+		}
+
+		function entryRow(box, e) {
+			const owner = !e.negative && e.identifier === u.name;
+			const rc = rightChecks(e.rights);
+			return h('tr',
+				h('td', e.negative ? h('span.badge.warn', { title: 'A negative entry takes these rights away' }, 'not') : null, ' ', h('b', e.identifier),
+					owner ? h('span.faint', ' (owner; always keeps ' + data.ownerAlways + ')') : null),
+				h('td', rc),
+				h('td.actions',
+					h('button.small', { type: 'button', onclick: () => call('acl', { mailbox: box.name, identifier: e.identifier, negative: e.negative, rights: rc.value() }, 'Saved') }, 'Save'),
+					h('button.small.danger', { type: 'button', onclick: () => call('acl/delete', { mailbox: box.name, identifier: e.identifier, negative: e.negative },
+						owner ? 'The owner has every right again' : 'Removed') }, owner ? 'Reset' : 'Remove')));
+		}
+
+		function draw() {
+			clear(body);
+			body.appendChild(h('p.muted', 'Who may use ' + u.name + '\'s mailboxes over IMAP (RFC 4314). A user\'s rights are those of the entries that name the user, '
+				+ 'one of the user\'s groups ($name@domain) or anyone, less those of the negative entries. The server permissions still limit them: '
+				+ 'without WRITE a user can only read. Hover over a right to see what it allows.'));
+			if (!data.available) {
+				body.appendChild(h('div.empty', data.reason));
+				return;
+			}
+			if (data.mailboxes.length === 0) {
+				body.appendChild(h('div.empty', 'No mailboxes yet: they are made when mail arrives or the user first logs in.'));
+				return;
+			}
+			const mailbox = h('select', data.mailboxes.map(b => h('option', { value: b.name }, b.name)));
+			const who = h('input', { type: 'text', list: 'acl-ids', placeholder: 'bob@example.com, $sales@example.com or anyone', required: true });
+			const negative = h('input', { type: 'checkbox' });
+			const rc = rightChecks('lr');
+			who.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+			body.appendChild(h('div.form',
+				h('div.row', h('span', 'Give rights'), h('div.inline', mailbox, who, h('label.nowrap', { title: 'A negative entry takes rights away, whatever else gives them' }, negative, ' negative'))),
+				h('div.row', h('span', 'Rights'), h('div.inline', rc,
+					h('button.primary', { type: 'button', onclick: () => {
+						if (!who.value.trim()) return toast('Name a user, a $group@domain or anyone', 'bad');
+						call('acl', { mailbox: mailbox.value, identifier: who.value.trim(), negative: negative.checked, rights: rc.value() }, 'Saved');
+					} }, 'Set')))));
+			body.appendChild(ids);
+			for (const box of data.mailboxes) {
+				body.appendChild(h('h3', box.name));
+				body.appendChild(h('div.table-wrap', h('table',
+					h('thead', h('tr', h('th', 'Who'), h('th', 'Rights'), h('th', ''))),
+					h('tbody',
+						box.ownerDefault ? h('tr', h('td', h('b', u.name), h('span.faint', ' (owner)')), h('td', rightChecks(data.rights, true)), h('td.faint', 'every right (default)')) : null,
+						box.entries.map(e => entryRow(box, e))))));
+			}
+		}
+
+		await load(api('GET', '/users/' + enc(u.name) + '/mailboxes'));
+		if (!data) return;
+		await dialog('Mailboxes of ' + u.name, body, { okLabel: null, wide: true });
+	}
+
 	function usersPage(root) {
 		const filter = domainSelect(null, true);
 		filter.value = state.userDomain !== undefined ? state.userDomain : '*';
@@ -845,17 +947,19 @@
 			const d = filter.value, q = search.value.trim().toLowerCase();
 			const shown = users.filter(u => (d === '*' || (d === '' ? !u.domain : u.domain === d)) && (!q || u.name.toLowerCase().includes(q)));
 			clear(list).appendChild(shown.length === 0 ? h('div.empty', 'No users') : h('div.table-wrap', h('table',
-				h('thead', h('tr', h('th', 'User'), h('th', 'Domain'), h('th', 'Permissions'), h('th', 'Maildrop'), h('th', 'Storage'), h('th', ''))),
+				h('thead', h('tr', h('th', 'User'), h('th', 'Domain'), h('th', 'Permissions'), h('th', 'Groups'), h('th', 'Maildrop'), h('th', 'Storage'), h('th', ''))),
 				h('tbody', shown.map(u => {
 					const usage = h('button.link', { type: 'button', onclick: () => showUsage(u, usage) }, 'show');
 					return h('tr',
 						h('td', h('b', u.name), u.hashed ? null : h('span.badge.warn', { title: 'The password is stored in plain text; set it again to hash it' }, ' plain')),
 						h('td', u.domain || h('span.faint', 'every domain')),
 						h('td', h('div.chips', u.permissions.map(p => h('span.badge', { class: p === 'ADMIN' ? 'gold' : '' }, p)))),
+						h('td', (u.groups || []).length ? h('div.chips', u.groups.map(g => h('span.badge.asis', g))) : h('span.faint', 'none')),
 						h('td.mono', u.maildrop),
 						h('td', usage),
 						h('td.actions',
 							h('button.small', { onclick: () => editUser(u) }, 'Edit'),
+							h('button.small', { onclick: () => mailboxAclDialog(u, users), title: 'Who may use this user\'s mailboxes (IMAP ACLs)' }, 'Mailboxes'),
 							h('button.small.danger', { onclick: () => deleteUser(u), disabled: u.name === state.user }, 'Delete')));
 				})))));
 		}
@@ -876,16 +980,18 @@
 			const pw2 = h('input', { type: 'password', autocomplete: 'new-password', required: true });
 			const perms = permChecks(['READ', 'WRITE']);
 			const drop = h('input', { type: 'text', placeholder: 'domain/user (default)' });
+			const groups = groupsInput([]);
 			const r = await dialog('Add user', h('div.form',
 				h('div.row', h('span', 'User name'), h('div.inline', local, dom)),
 				h('label.row', h('span', 'Password (at least 8 characters)'), pw),
 				h('label.row', h('span', 'Password again'), pw2),
 				h('div.row', h('span', 'Permissions'), perms),
-				h('label.row', h('span', 'Maildrop (directory under the mail root; empty for the default)'), drop)), {
+				h('label.row', h('span', 'Maildrop (directory under the mail root; empty for the default)'), drop),
+				h('label.row', h('span', 'Groups (each with its domain; mailbox ACLs name a group $name@domain)'), groups)), {
 				okLabel: 'Add', onOk: async () => {
 					if (pw.value !== pw2.value) throw new Error('The passwords are different');
 					const name = local.value.trim() + (dom.value ? '@' + dom.value : '');
-					return api('POST', '/users', { name, password: pw.value, permissions: perms.values(), maildrop: drop.value || null });
+					return api('POST', '/users', { name, password: pw.value, permissions: perms.values(), maildrop: drop.value || null, groups: groupsValue(groups) });
 				}
 			});
 			if (r) { users = r; draw(); toast('User added', 'ok'); }
@@ -896,24 +1002,29 @@
 			const pw2 = h('input', { type: 'password', autocomplete: 'new-password' });
 			const perms = permChecks(u.permissions);
 			const drop = h('input', { type: 'text', value: u.maildrop });
+			const groups = groupsInput(u.groups);
 			const r = await dialog('Edit ' + u.name, h('div.form',
 				h('label.row', h('span', 'New password (empty: keep the current one)'), pw),
 				h('label.row', h('span', 'New password again'), pw2),
 				h('div.row', h('span', 'Permissions'), perms),
 				h('label.row', h('span', 'Maildrop (empty: the default)'), drop),
+				h('label.row', h('span', 'Groups (each with its domain; mailbox ACLs name a group $name@domain)'), groups),
 				h('p.faint', 'Changing the maildrop doesn\'t move existing mail.')), {
 				okLabel: 'Save', onOk: async () => {
 					if (pw.value !== pw2.value) throw new Error('The passwords are different');
 					const md = drop.value.trim() === u.maildrop ? null : drop.value.trim();
-					return api('PUT', '/users/' + enc(u.name), { password: pw.value || null, permissions: perms.values(), maildrop: md });
+					return api('PUT', '/users/' + enc(u.name), { password: pw.value || null, permissions: perms.values(), maildrop: md, groups: groupsValue(groups) });
 				}
 			});
 			if (r) { users = r; draw(); toast('Saved', 'ok'); }
 		}
 
 		async function deleteUser(u) {
-			if (!await confirmDialog('Delete ' + u.name, u.name + ' can no longer log in or receive mail. The mail in ' + u.maildrop + ' is kept.', 'Delete')) return;
-			try { users = await api('DELETE', '/users/' + enc(u.name)); draw(); toast('Deleted', 'ok'); } catch (e) { fail(e); }
+			if (!await confirmDialog('Delete ' + u.name, u.name + ' can no longer log in or receive mail. The mail in ' + u.maildrop + ' is kept; other users\' mailboxes no longer share with ' + u.name + '.', 'Delete')) return;
+			try {
+				users = await api('DELETE', '/users/' + enc(u.name)); draw();
+				if (state.lastWarning) toast('Deleted. ' + state.lastWarning, 'bad'); else toast('Deleted', 'ok');
+			} catch (e) { fail(e); }
 		}
 
 		refresh();

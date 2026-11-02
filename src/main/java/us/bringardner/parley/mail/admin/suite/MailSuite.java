@@ -772,6 +772,36 @@ public final class MailSuite implements AutoCloseable {
 		return used;
 	}
 
+	/**
+	 * The mail store's administration bean of a running mail server (IMAP, POP3 or SMTP): mailbox
+	 * ACLs are changed through it, under that server's locks on the store.
+	 *
+	 * @return the bean, or null when no mail server runs (or none can be reached)
+	 * @since 2.0.0
+	 */
+	public synchronized us.bringardner.parley.mail.store.MailStoreAdminMXBean storeAdmin() {
+		connect();
+		ObjectName pattern;
+		try {
+			pattern = new ObjectName(ServerContext.JMX_DOMAIN + ":type=" + us.bringardner.parley.mail.store.MailStoreAdminMXBean.TYPE + ",*");
+		} catch (javax.management.MalformedObjectNameException e) {
+			throw new IllegalStateException(e);
+		}
+		for (Target t : new ArrayList<>(targets)) {
+			if (t.broken) {
+				continue;
+			}
+			try {
+				for (ObjectName n : new java.util.TreeSet<>(t.mbeans.queryNames(pattern, null))) {
+					return JMX.newMXBeanProxy(t.mbeans, n, us.bringardner.parley.mail.store.MailStoreAdminMXBean.class);
+				}
+			} catch (Exception e) {
+				broken(t, e);
+			}
+		}
+		return null;
+	}
+
 	public synchronized boolean isRunning(ServiceId id) {
 		return getState(id) == State.RUNNING;
 	}
