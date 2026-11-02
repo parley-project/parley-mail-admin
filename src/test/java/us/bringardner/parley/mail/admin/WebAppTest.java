@@ -474,8 +474,8 @@ public class WebAppTest {
 	@Order(5)
 	public void queueActions() throws Exception {
 		// to a smart host that refuses connections, with a retry schedule far away: it stays in the queue
-		ok("PUT", "/settings", Map.of("changes", Map.of("queue.retry", "600", "queue.relayHost", "127.0.0.1:" + freePort(),
-				"queue.relayTls", "none")));
+		ok("PUT", "/settings", Map.of("changes", Map.of("queue.retry", "10h", "queue.smartHost", "127.0.0.1", "queue.smartHost.port",
+				Integer.toString(freePort()), "queue.smartHost.tls", "none")));
 		ok("POST", "/services/all/restart-changed", null);
 		smtp(smtpPort, "admin@a.test", "someone@remote.invalid", "Subject: stuck\r\n\r\nbody\r\n");
 		waitFor(() -> {
@@ -588,7 +588,7 @@ public class WebAppTest {
 		}
 		// queueActions put the queue's settings in its own file
 		String q = Files.readString(new File(home, "mail/.smtp-queue/queue.properties").toPath());
-		assertTrue(q.contains("retry=600"), q);
+		assertTrue(q.contains("retry=10h"), q);
 		assertTrue(q.startsWith("# the queue\n"), "the file's comments are kept");
 		for (String f : new String[] { "parley-mail.properties", "parley-smtp.properties" }) {
 			File file = new File(home, f);

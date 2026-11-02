@@ -45,6 +45,9 @@ import us.bringardner.parley.smtp.queue.QueuedMessageInfo;
 public final class AdminApp implements AutoCloseable {
 
 	private static final System.Logger LOG = System.getLogger(AdminApp.class.getName());
+	/** The servers' log file in a settings file (parley-core's; 1.x's logFile) */
+	static final String SERVERS_LOG_FILE = "parley.log.file";
+
 	/** Settings that keep the Logs page's levels, e.g. parley.mail.admin.logLevel.SMTP=DEBUG. */
 	public static final String LOG_LEVEL_PREFIX = "parley.mail.admin.logLevel.";
 	/** The most of a queued message the Queue page shows. */
@@ -184,7 +187,7 @@ public final class AdminApp implements AutoCloseable {
 
 	/**
 	 * The users file changed (from the Users page or outside): servers of this application read it
-	 * now rather than at their next check (parley.net.acl.reloadSeconds). Servers run as services
+	 * now rather than at their next check (parley.net.acl.reloadInterval). Servers run as services
 	 * read it at their next check.
 	 */
 	private void usersChanged() {
@@ -358,7 +361,7 @@ public final class AdminApp implements AutoCloseable {
 	}
 
 	/**
-	 * The log files the Logs page shows: this application's, the servers' ({@code logFile} in a
+	 * The log files the Logs page shows: this application's, the servers' ({@code parley.log.file} in a
 	 * settings file, unless it's System.out or System.err) and those
 	 * {@value SettingsCatalog#ADMIN_LOG_FILES} names.
 	 */
@@ -368,7 +371,7 @@ public final class AdminApp implements AutoCloseable {
 			ret.add(logs.getFile());
 		}
 		for (PropertiesFile f : settings.getFiles()) {
-			String v = f.get("logFile");
+			String v = f.get(SERVERS_LOG_FILE);
 			if (!isBlank(v) && !v.trim().equals("System.out") && !v.trim().equals("System.err")) {
 				ret.add(new File(v.trim()));
 			}

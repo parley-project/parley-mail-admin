@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * The log files the Logs page shows: this application's own, the servers' (the {@code logFile}
+ * The log files the Logs page shows: this application's own, the servers' (the {@code parley.log.file}
  * setting of parley-core's logger in the settings files, with its rotated copies {@code .1},
  * {@code .2} ...) and any others the settings name. Only these files can be read through the page.
  */

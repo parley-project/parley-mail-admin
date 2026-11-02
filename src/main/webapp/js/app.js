@@ -1109,7 +1109,7 @@
 		const fileView = h('pre.message.logfile');
 		const fileDl = h('a.btn', { href: '#' }, 'Download');
 		root.appendChild(panel('Log files', h('div.toolbar', fileSel, h('button', { onclick: () => readFile() }, 'Refresh'), fileDl),
-			h('p.muted', 'This application\'s log file and the servers\' (logFile in a settings file), and those named in Settings > Admin. Servers run as services log here, not to the log above.'),
+			h('p.muted', 'This application\'s log file and the servers\' (parley.log.file in a settings file), and those named in Settings > Admin. Servers run as services log here, not to the log above.'),
 			fileView));
 		fileSel.addEventListener('change', () => readFile());
 
