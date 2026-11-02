@@ -76,8 +76,7 @@ public class RemoteModeTest {
 				+ "parley.mail.admin.jmxUser=parleyadmin\n"
 				+ "parley.mail.admin.jmxPasswordFile=" + new File(dir, "admin.password").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
 		Files.write(new File(conf, "parley-pop3.properties").toPath(), ("parley.mail.pop3.port=" + pop3Port + "\n").getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(conf, "parley-smtp.properties").toPath(), ("parley.mail.smtp.port=" + smtpPort + "\nparley.mail.smtp.hostname=mx.a.test\n"
-				+ "parley.mail.submission.port=0\n").getBytes(StandardCharsets.UTF_8));
+		Files.write(new File(conf, "parley-smtp.properties").toPath(), ("parley.mail.smtp.port=" + smtpPort + "\nparley.mail.smtp.hostname=mx.a.test\n").getBytes(StandardCharsets.UTF_8));
 		Files.write(new File(dir, "users.txt").toPath(), "# users\n".getBytes(StandardCharsets.UTF_8));
 		Files.write(new File(dir, "aliases.txt").toPath(), "# aliases\n".getBytes(StandardCharsets.UTF_8));
 
@@ -156,6 +155,31 @@ public class RemoteModeTest {
 			assertEquals("STOPPED", launcher.getServer("pop3").getState());
 			suite.start(ServiceId.POP3);
 			assertEquals("RUNNING", launcher.getServer("pop3").getState());
+
+			// a service turned off and on: the launcher reads parley.servers from its file again (as
+			// ServerMain sets it up when the list is in the launcher's settings file)
+			File shared = new File(conf, "parley-mail.properties");
+			launcher.setServerList(() -> {
+				Properties p = new Properties();
+				try (java.io.Reader r = Files.newBufferedReader(shared.toPath())) {
+					p.load(r);
+				}
+				return List.of(p.getProperty("parley.servers", "").split(","));
+			});
+			app.getSettings().set("parley.servers", "smtp,pop3");
+			suite.setListed(ServiceId.POP3, false);
+			assertEquals("OFF", launcher.getServer("pop3").getState());
+			assertEquals("Not listed in parley.servers", launcher.getServer("pop3").getError());
+			assertTrue(Files.readString(shared.toPath()).contains("parley.servers=smtp\n"));
+			assertEquals(MailSuite.State.OFF, suite.getState(ServiceId.POP3));
+			suite.setListed(ServiceId.POP3, true);
+			assertEquals("RUNNING", launcher.getServer("pop3").getState());
+			assertTrue(Files.readString(shared.toPath()).contains("parley.servers=smtp,pop3\n"));
+			// a launcher that doesn't run the service yet: the change needs it restarted
+			launcher.setServerList(null);
+			IOException later = assertThrows(IOException.class, () -> suite.setListed(ServiceId.IMAP, true));
+			assertTrue(later.getMessage().contains("restart the launcher"), later.getMessage());
+			suite.setListed(ServiceId.IMAP, false);
 
 			// the application stops: the service keeps running
 			app.close();

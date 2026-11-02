@@ -70,7 +70,10 @@ public final class MailSuite implements AutoCloseable {
 
 	public enum State {
 		STOPPED, RUNNING, FAILED,
-		/** turned off by its settings (its port is 0) */
+		/**
+		 * not run: not listed in {@value ServiceId#SERVERS}, or it can't run with its settings (a
+		 * service with implicit TLS and no key store); its error says which
+		 */
 		OFF,
 		/** no launcher that could be reached runs it */
 		UNAVAILABLE
@@ -127,6 +130,17 @@ public final class MailSuite implements AutoCloseable {
 				return JMX.newMXBeanProxy(mbeans, n, ParleyServerMBean.class); // an MXBean (parley-net)
 			}
 			return null;
+		}
+
+		/** Every launcher here reads its settings again (and, from its settings file, parley.servers) */
+		void reloadAll() throws Exception {
+			if (local != null) {
+				local.reloadSettings();
+				return;
+			}
+			for (ObjectName n : mbeans.queryNames(name("Launcher", "*"), null)) {
+				JMX.newMBeanProxy(mbeans, n, ParleyLauncherMBean.class).reloadSettings();
+			}
 		}
 
 		/** The queue of the SMTP server with this id (smtp, submission, ...), while it runs */
@@ -312,6 +326,16 @@ public final class MailSuite implements AutoCloseable {
 				ids.add(id.id());
 			}
 			ServerLauncher l = new ServerLauncher(LOCAL_NAME, new LaunchSettings(new Properties()), ids, settings.getDirectory(), new ServerContext());
+			// parley.servers says which run, as for the parley-mail service (only the mail services, here)
+			l.setServerList(() -> {
+				List<String> on = new ArrayList<>();
+				for (String s : listedIds()) {
+					if (ServiceId.parse(s) != null) {
+						on.add(s);
+					}
+				}
+				return on;
+			});
 			try {
 				l.init();
 			} catch (Exception e) {
@@ -470,9 +494,94 @@ public final class MailSuite implements AutoCloseable {
 		return u.isEmpty() ? "this application" : "the launchers at " + String.join(", ", u);
 	}
 
-	/** The service's port from the settings (0: turned off). */
+	/** The service's port from the settings (its standard port unless set). */
 	public int getConfiguredPort(ServiceId id) {
-		return (int) settings.getLong(id.portProperty(), id.defaultPort);
+		return (int) settings.getLong(id.portProperty(), id.standardPort);
+	}
+
+	/**
+	 * The ids {@value ServiceId#SERVERS} lists (the servers the launchers run); every mail service when
+	 * it isn't set (as this application's own launcher runs them).
+	 */
+	public List<String> listedIds() {
+		String v = settings.getEffective(ServiceId.SERVERS);
+		List<String> ret = new ArrayList<>();
+		if (v == null || v.trim().isEmpty()) {
+			for (ServiceId id : ServiceId.values()) {
+				ret.add(id.id());
+			}
+			return ret;
+		}
+		for (String id : v.trim().split("[,\\s]+")) {
+			if (!id.isEmpty()) {
+				ret.add(id.toLowerCase(java.util.Locale.ROOT));
+			}
+		}
+		return ret;
+	}
+
+	/** True if {@value ServiceId#SERVERS} lists the service: it runs (it is on) */
+	public boolean isListed(ServiceId id) {
+		return listedIds().contains(id.id());
+	}
+
+	/**
+	 * Turn a service on or off: add it to {@value ServiceId#SERVERS} (in parley-mail.properties) and
+	 * start it, or stop it and take it out. The launchers read the list again when their settings are
+	 * reloaded; one that doesn't (an older parley-net, or a list given on its command line) runs the
+	 * change when it is restarted.
+	 */
+	public synchronized void setListed(ServiceId id, boolean on) throws IOException {
+		if (settings.isSetByJvm(ServiceId.SERVERS)) {
+			throw new IllegalStateException(ServiceId.SERVERS + " is set with -D for this application, so it can't be changed here");
+		}
+		List<String> list = listedIds();
+		if (on != list.contains(id.id())) {
+			if (on) {
+				int at = list.size();
+				for (int i = 0; i < list.size(); i++) {
+					ServiceId other = ServiceId.parse(list.get(i));
+					if (other != null && other.ordinal() > id.ordinal()) {
+						at = i; // in the order of the services
+						break;
+					}
+				}
+				list.add(at, id.id());
+			} else {
+				list.remove(id.id());
+			}
+			settings.set(ServiceId.SERVERS, String.join(",", list));
+			LOG.log(System.Logger.Level.INFO, ServiceId.SERVERS + "=" + String.join(",", list));
+		}
+		reloadLaunchers();
+		if (on) {
+			if (find(id) == null) {
+				throw new IOException(ServiceId.SERVERS + " lists " + id.id() + " now, but " + where()
+						+ " doesn't run it yet: restart the launcher (the parley-mail service) to start it");
+			}
+			start(id);
+		} else if (isRunning(id)) {
+			stop(id);
+		}
+	}
+
+	/** Every launcher reads its settings again */
+	private void reloadLaunchers() throws IOException {
+		connect();
+		List<String> errors = new ArrayList<>();
+		for (Target t : targets) {
+			if (t.broken) {
+				continue;
+			}
+			try {
+				t.reloadAll();
+			} catch (Exception e) {
+				errors.add(t.where() + ": " + message(e));
+			}
+		}
+		if (!errors.isEmpty()) {
+			throw new IOException("Can't reload the settings: " + String.join("; ", errors));
+		}
 	}
 
 	public synchronized void start(ServiceId id) throws IOException {
@@ -484,8 +593,8 @@ public final class MailSuite implements AutoCloseable {
 		if (State.RUNNING.name().equals(b.getState())) {
 			return;
 		}
-		if (getConfiguredPort(id) <= 0) {
-			throw new IllegalStateException(id.label + " is turned off (its port, " + id.portProperty() + ", is 0)");
+		if (!isListed(id)) {
+			throw new IllegalStateException(id.label + " is off (" + ServiceId.SERVERS + " doesn't list " + id.id() + "): turn it on to start it");
 		}
 		String fp = fingerprint(id);
 		try {
@@ -534,11 +643,11 @@ public final class MailSuite implements AutoCloseable {
 		LOG.log(System.Logger.Level.INFO, id.label + " restarted");
 	}
 
-	/** Start every service whose port isn't 0. */
+	/** Start every service that is on and can run (a service with implicit TLS and no key store is skipped). */
 	public synchronized void startAll() throws IOException {
 		List<ServiceId> ids = new ArrayList<>();
 		for (ServiceId id : ServiceId.values()) {
-			if (getConfiguredPort(id) > 0 && !isRunning(id)) {
+			if (isListed(id) && !isRunning(id) && !(id.secure && !tlsConfigured(id))) {
 				ids.add(id);
 			}
 		}
@@ -726,7 +835,10 @@ public final class MailSuite implements AutoCloseable {
 		int connections = 0;
 		String error = null;
 		String where = null;
-		if (f == null) {
+		if (f == null && !isListed(id)) {
+			state = State.OFF; // the launchers don't know it: it was never listed
+			error = "Not listed in " + ServiceId.SERVERS;
+		} else if (f == null) {
 			error = "Not run by " + where() + (connectError != null ? ": " + connectError : "");
 		} else {
 			ParleyServerMBean b = (ParleyServerMBean) f[0];
@@ -747,7 +859,7 @@ public final class MailSuite implements AutoCloseable {
 		}
 		m.put("state", state.name());
 		m.put("port", port);
-		m.put("enabled", getConfiguredPort(id) > 0);
+		m.put("enabled", isListed(id));
 		m.put("started", started);
 		m.put("error", error);
 		m.put("restartNeeded", state == State.RUNNING && isRestartNeeded(id));

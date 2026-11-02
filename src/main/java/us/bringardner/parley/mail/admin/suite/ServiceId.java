@@ -8,15 +8,18 @@ import java.util.Locale;
  */
 public enum ServiceId {
 
-	SMTP(Protocol.SMTP, "SMTP", "Mail from other servers (MX)", "parley.mail.smtp", 25, 25, false),
-	SUBMISSION(Protocol.SMTP, "Submission", "Mail from users' clients; STARTTLS, then AUTH", "parley.mail.submission", 587, 587, false),
-	SUBMISSIONS(Protocol.SMTP, "Submission (TLS)", "Mail from users' clients over implicit TLS", "parley.mail.submissions", 465, 0, true),
-	IMAP(Protocol.IMAP, "IMAP", "Mailbox access; STARTTLS before LOGIN", "parley.mail.imap", 143, 143, false),
-	IMAPS(Protocol.IMAP, "IMAP (TLS)", "Mailbox access over implicit TLS", "parley.mail.imaps", 993, 0, true),
-	POP3(Protocol.POP3, "POP3", "Download mail; STLS before USER", "parley.mail.pop3", 110, 110, false),
-	POP3S(Protocol.POP3, "POP3 (TLS)", "Download mail over implicit TLS", "parley.mail.pop3s", 995, 0, true),
-	FTP(Protocol.FTP, "FTP", "Files in the mail store; AUTH TLS before login", "parley.mail.ftp", 21, 21, false),
-	FTPS(Protocol.FTP, "FTP (TLS)", "Files in the mail store over implicit TLS", "parley.mail.ftps", 990, 0, true);
+	SMTP(Protocol.SMTP, "SMTP", "Mail from other servers (MX)", "parley.mail.smtp", 25, false),
+	SUBMISSION(Protocol.SMTP, "Submission", "Mail from users' clients; STARTTLS, then AUTH", "parley.mail.submission", 587, false),
+	SUBMISSIONS(Protocol.SMTP, "Submission (TLS)", "Mail from users' clients over implicit TLS", "parley.mail.submissions", 465, true),
+	IMAP(Protocol.IMAP, "IMAP", "Mailbox access; STARTTLS before LOGIN", "parley.mail.imap", 143, false),
+	IMAPS(Protocol.IMAP, "IMAP (TLS)", "Mailbox access over implicit TLS", "parley.mail.imaps", 993, true),
+	POP3(Protocol.POP3, "POP3", "Download mail; STLS before USER", "parley.mail.pop3", 110, false),
+	POP3S(Protocol.POP3, "POP3 (TLS)", "Download mail over implicit TLS", "parley.mail.pop3s", 995, true),
+	FTP(Protocol.FTP, "FTP", "Files in the mail store; AUTH TLS before login", "parley.mail.ftp", 21, false),
+	FTPS(Protocol.FTP, "FTP (TLS)", "Files in the mail store over implicit TLS", "parley.mail.ftps", 990, true);
+
+	/** The setting that lists the servers that run (parley-net's launcher reads it), in parley-mail.properties */
+	public static final String SERVERS = "parley.servers";
 
 	public enum Protocol {
 		SMTP("parley.mail.smtp", "parley-smtp.properties"), IMAP("parley.mail.imap", "parley-imap.properties"),
@@ -38,24 +41,21 @@ public enum ServiceId {
 	public final String description;
 	/** The prefix of this listener's own settings. */
 	public final String prefix;
-	/** The standard port. */
-	public final int standardPort;
 	/**
-	 * The port when its setting isn't set: the standard port, or 0 (off) for the implicit TLS
-	 * services, which need a key store (as parley-smtp's, parley-imap's and parley-pop3's server
-	 * providers have it).
+	 * The standard port: the port when its setting isn't set. Whether the service runs is what
+	 * {@value #SERVERS} lists; a service with implicit TLS also needs a key store (as parley-mail's
+	 * server providers have it).
 	 */
-	public final int defaultPort;
+	public final int standardPort;
 	/** Implicit TLS. */
 	public final boolean secure;
 
-	ServiceId(Protocol protocol, String label, String description, String prefix, int standardPort, int defaultPort, boolean secure) {
+	ServiceId(Protocol protocol, String label, String description, String prefix, int standardPort, boolean secure) {
 		this.protocol = protocol;
 		this.label = label;
 		this.description = description;
 		this.prefix = prefix;
 		this.standardPort = standardPort;
-		this.defaultPort = defaultPort;
 		this.secure = secure;
 	}
 
@@ -84,8 +84,8 @@ public enum ServiceId {
 	 * reads (the mail root, TLS, parley-net and parley-core settings).
 	 */
 	public boolean isAffectedBy(String key) {
-		if (key.startsWith("parley.mail.admin.") || key.equals("parley.mail.users")) {
-			return false; // the admin application's own, or applied without a restart
+		if (key.startsWith("parley.mail.admin.") || key.equals("parley.mail.users") || key.equals(SERVERS) || key.startsWith(SERVERS + ".")) {
+			return false; // the admin application's own, applied without a restart, or the launcher's list
 		}
 		if (key.startsWith("store.")) {
 			return true;

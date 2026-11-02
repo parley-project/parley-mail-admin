@@ -283,12 +283,12 @@ public final class SettingsCatalog {
 		perServer(g, "dataTimeout", "Data timeout (ms)", NUMBER, "600000", "A transfer that moves no data for this long is aborted.");
 		perServer(g, "serverId", "Server id", TEXT, "from its name and port", "This server's id among those sharing the store.");
 
-		g = group("listeners", "Listeners", "Each service's own settings: its port (0 turns it off) and limits. Empty uses the default.");
+		g = group("listeners", "Listeners", "Each service's own settings: its port and limits. Empty uses the default. Which services run is set on the Dashboard (Turn on, Turn off).");
 		for (ServiceId s : ServiceId.values()) {
 			String p = s.prefix + ".";
 			String l = s.label + ": ";
-			add(g, s.portProperty(), l + "port", PORT, s.defaultPort == 0 ? "0 (off)" : Integer.toString(s.defaultPort),
-					s.description + ". 0 turns it off." + (s.defaultPort == 0 ? " The standard port is " + s.standardPort + "; it needs a key store." : ""));
+			add(g, s.portProperty(), l + "port", PORT, Integer.toString(s.standardPort),
+					s.description + "." + (s.secure ? " It needs a key store (the TLS page's or its own): without one it doesn't start." : ""));
 			add(g, p + "bindAddress", l + "bind address", TEXT, "every address", "Listen on this address only.");
 			add(g, p + "maxConnections", l + "most connections", NUMBER, "0 (no limit)", "Connections at once.");
 			add(g, p + "maxConnectionsPerClient", l + "most connections per client", NUMBER, "0 (no limit)", "Connections at once from one address.");

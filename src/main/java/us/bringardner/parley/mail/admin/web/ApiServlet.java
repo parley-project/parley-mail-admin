@@ -782,6 +782,12 @@ public class ApiServlet extends HttpServlet {
 		case "restart":
 			suite.restart(id);
 			break;
+		case "on": // parley.servers lists it, and it is started
+			suite.setListed(id, true);
+			break;
+		case "off": // it is stopped, and parley.servers doesn't list it
+			suite.setListed(id, false);
+			break;
 		default:
 			throw ApiException.notFound("The action " + action);
 		}
