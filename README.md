@@ -16,7 +16,7 @@ It gives you pages to:
 |---|---|
 | Dashboard | Where the servers run. Each service (SMTP, Submission, Submission over TLS, IMAP, IMAP over TLS, POP3, POP3 over TLS): state, port, TLS, uptime, open connections (with who is logged in); start, stop, restart; turn it on or off (it is added to or taken out of `parley.servers`, the list of services that run, and started or stopped); start or stop all. Recent warnings and errors. |
 | Domains | The local domains (the suite serves several): add and remove them, see each one's users and aliases, make its DKIM key, and get the DNS records to publish (MX, SPF, DKIM, DMARC). |
-| Users | Add, edit and delete users, per domain or for every domain: password, permissions (READ, WRITE, ADMIN), maildrop, and how much mail they keep. The servers read the users file again themselves: those in this application at once, services within `parley.net.acl.reloadSeconds` (15). |
+| Users | Add, edit and delete users, per domain or for every domain: password, permissions (READ, WRITE, ADMIN), maildrop, and how much mail they keep. The servers read the users file again themselves: those in this application at once, services within `parley.net.acl.reloadInterval` (15s). |
 | Aliases | Aliases per domain or for every domain. |
 | Queue | The messages waiting in the SMTP queue, each recipient's status and last result; read a message, retry it now, delete it, or retry them all. |
 | History | Every message the SMTP queue took and every delivery attempt, by date, address, id or result, and the whole story of one message (the history files the SMTP servers write). |
