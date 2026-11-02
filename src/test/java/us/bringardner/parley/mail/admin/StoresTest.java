@@ -277,7 +277,7 @@ public class StoresTest {
 		IPrincipal p = acl.getPrincipal("tony@a.test");
 		assertNotNull(p);
 		assertEquals("a.test/tony", p.getParameter("maildrop"));
-		assertTrue(p.authenticate("password1".getBytes(StandardCharsets.UTF_8)));
+		assertTrue(acl.verifyPassword(p, "password1".getBytes(StandardCharsets.UTF_8)));
 		assertTrue(acl.supportsScram("SHA-256"), "every user can log in with SCRAM");
 
 		u.update("tony@a.test", null, null, "somewhere/else");
