@@ -235,7 +235,6 @@
 		{ id: 'queue', label: 'Queue', render: queuePage },
 		{ id: 'history', label: 'History', render: historyPage },
 		{ sep: 'System', primaryOnly: true },
-		{ id: 'servers', label: 'Servers', render: serversPage, primaryOnly: true },
 		{ id: 'logs', label: 'Logs', render: logsPage, primaryOnly: true },
 		{ id: 'settings', label: 'Settings', render: settingsPage, primaryOnly: true }
 	];
@@ -336,6 +335,7 @@
 	function dashboardPage(root) {
 		const tiles = h('div.tiles');
 		const cards = h('div.cards');
+		const others = h('div');
 		const problems = h('div');
 		const where = h('div');
 		const tools = h('div.toolbar',
@@ -344,6 +344,7 @@
 		root.appendChild(tiles);
 		root.appendChild(where);
 		root.appendChild(panel('Services', tools, cards));
+		root.appendChild(others);
 		root.appendChild(panel('Recent warnings and errors', h('a', { href: '#/logs' }, 'Logs'), problems));
 
 		async function all(action) {
@@ -361,6 +362,58 @@
 			checkRestart();
 		}
 
+		// a server other than the mail services (DNS, FTP, SSH, ...), by its id, wherever it runs
+		async function actOther(s, action) {
+			if (action === 'stop' && s.connections > 0
+				&& !await confirmDialog('Stop ' + s.id, s.connections + ' client(s) are connected and will be disconnected.', 'Stop')) return;
+			try { await api('POST', '/servers/' + enc(s.id) + '/' + action); toast(s.id + ': ' + action + ' done', 'ok'); } catch (e) { fail(e); }
+			refresh();
+			checkRestart();
+		}
+
+		async function otherConnections(s) {
+			let l = [];
+			try { l = await api('GET', '/servers/' + enc(s.id) + '/connections'); } catch (e) { return fail(e); }
+			dialog(s.id + ' connections', l.length === 0 ? h('div.empty', 'No connections') :
+				h('table', h('thead', h('tr', h('th', 'Client'), h('th', 'User'), h('th', 'TLS'))),
+					h('tbody', l.map(c => h('tr', h('td.mono', c.remote), h('td', c.user || h('span.faint', 'not logged in')), h('td', c.tls ? 'yes' : ''))))),
+				{ okLabel: null });
+		}
+
+		/** Every server the launchers run that isn't one of the mail services above, a panel per place it runs. */
+		function drawOthers(servers) {
+			clear(others);
+			const groups = new Map();
+			for (const s of servers.filter(s => !s.mail)) {
+				const k = s.where + (s.launcher ? ' (' + s.launcher + ')' : '');
+				if (!groups.has(k)) groups.set(k, []);
+				groups.get(k).push(s);
+			}
+			for (const [where, group] of groups) {
+				const list = h('div.cards');
+				for (const s of group) {
+					if (!s.id) { list.appendChild(h('div.banner', s.error || 'Can\'t be read')); continue; }
+					list.appendChild(h('div.card', { class: String(s.state).toLowerCase() },
+						h('div.top', h('div.grow',
+							h('h3', s.id, ' ', stateBadge({ state: s.state, enabled: true }), ' ', s.restartNeeded ? h('span.badge.warn', 'restart') : null),
+							h('div.desc', s.description || ''))),
+						h('dl.facts',
+							s.port > 0 ? [h('dt', 'Port'), h('dd', String(s.port))] : null,
+							s.state === 'RUNNING' ? [h('dt', 'Up'), h('dd', ago(s.started))] : null,
+							s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', h('button.link', { type: 'button', onclick: () => otherConnections(s) }, String(s.connections)))] : null,
+							s.types && s.types.length ? [h('dt', 'Pages'), h('dd', s.types.map(t => TYPE_PAGES[t] ? h('a', { href: TYPE_PAGES[t] }, t + ' ') : h('span.faint', t + ' ')))] : null),
+						s.error ? h('div.err', s.error) : null,
+						h('div.actions',
+							s.state !== 'RUNNING' ? h('button.small', { disabled: s.state === 'OFF', title: s.state === 'OFF' ? (s.error || 'Off') : '', onclick: () => actOther(s, 'start') }, 'Start') : null,
+							s.state === 'RUNNING' ? h('button.small', { onclick: () => actOther(s, 'stop') }, 'Stop') : null,
+							s.state === 'RUNNING' ? h('button.small', { class: s.restartNeeded ? 'primary' : '', onclick: () => actOther(s, 'restart') }, 'Restart') : null)));
+				}
+				// a JMX service URL by its host and port (service:jmx:rmi:///jndi/rmi://127.0.0.1:9011/jmxrmi: 127.0.0.1:9011)
+				const at = String(where).replace(/^service:jmx:rmi:\/\/\/jndi\/rmi:\/\/([^/]+)\/jmxrmi/, '$1');
+				others.appendChild(panel('Other servers at ' + at, null, list));
+			}
+		}
+
 		async function connections(s) {
 			let list = [];
 			try { list = await api('GET', '/services/' + s.id + '/connections'); } catch (e) { return fail(e); }
@@ -373,11 +426,14 @@
 		async function refresh() {
 			let st;
 			try { st = await api('GET', '/status'); } catch (e) { return; }
+			let servers = [];
+			try { servers = await api('GET', '/servers'); } catch (e) { /* the mail services still show */ }
+			const other = servers.filter(s => s.id && !s.mail);
 			clear(tiles);
-			const running = st.services.filter(s => s.state === 'RUNNING').length;
+			const running = st.services.filter(s => s.state === 'RUNNING').length + other.filter(s => s.state === 'RUNNING').length;
 			const tile = (n, l, href) => h(href ? 'a.tile' : 'div.tile', href ? { href } : null, h('div.n', n), h('div.l', l));
 			add(tiles, [
-				tile(running + ' / ' + st.services.filter(s => s.enabled).length, 'Services running'),
+				tile(running + ' / ' + (st.services.filter(s => s.enabled).length + other.length), 'Services running'),
 				tile(st.domains.length, 'Domains', '#/domains'),
 				tile(st.users, 'Users', '#/users'),
 				tile(st.queue.running ? st.queue.messages : '–', 'Messages in queue', '#/queue'),
@@ -421,6 +477,7 @@
 						h('button.small', { title: s.enabled ? 'Stop it and take it out of parley.servers' : 'Add it to parley.servers and start it', onclick: () => act(s, s.enabled ? 'off' : 'on') },
 							s.enabled ? 'Turn off' : 'Turn on'))));
 			}
+			drawOthers(servers);
 			clear(problems);
 			if (!st.problems.length) problems.appendChild(h('div.empty', 'Nothing to report'));
 			for (const p of st.problems.slice().reverse()) {
@@ -553,67 +610,6 @@
 
 	/** The pages of the kinds of server this application knows, by the bean type a server has. */
 	const TYPE_PAGES = { Dns: '#/dns', MailQueue: '#/queue' };
-
-	function serversPage(root) {
-		const list = h('div');
-		root.appendChild(h('p.muted', 'Every Parley server the launchers run, whatever its kind: the mail servers, DNS, FTP, SSH, and any other. '
-			+ 'Start, stop or restart one here; its kind\'s own page (if this application has one) is linked.'));
-		root.appendChild(list);
-
-		async function act(s, action) {
-			if (action === 'stop' && s.connections > 0
-				&& !await confirmDialog('Stop ' + s.id, s.connections + ' client(s) are connected and will be disconnected.', 'Stop')) return;
-			try { await api('POST', '/servers/' + enc(s.id) + '/' + action); toast(s.id + ': ' + action + ' done', 'ok'); } catch (e) { fail(e); }
-			refresh();
-			checkRestart();
-		}
-
-		async function connections(s) {
-			let l = [];
-			try { l = await api('GET', '/servers/' + enc(s.id) + '/connections'); } catch (e) { return fail(e); }
-			dialog(s.id + ' connections', l.length === 0 ? h('div.empty', 'No connections') :
-				h('table', h('thead', h('tr', h('th', 'Client'), h('th', 'User'), h('th', 'TLS'))),
-					h('tbody', l.map(c => h('tr', h('td.mono', c.remote), h('td', c.user || h('span.faint', 'not logged in')), h('td', c.tls ? 'yes' : ''))))),
-				{ okLabel: null });
-		}
-
-		async function refresh() {
-			let servers;
-			try { servers = await api('GET', '/servers'); } catch (e) { return; }
-			clear(list);
-			const groups = new Map();
-			for (const s of servers) {
-				const k = s.where + (s.launcher ? ' (' + s.launcher + ')' : '');
-				if (!groups.has(k)) groups.set(k, []);
-				groups.get(k).push(s);
-			}
-			if (!servers.length) list.appendChild(h('div.empty', 'No launcher reached runs a server'));
-			for (const [where, group] of groups) {
-				const cards = h('div.cards');
-				for (const s of group) {
-					if (!s.id) { cards.appendChild(h('div.banner', s.error || 'Can\'t be read')); continue; }
-					cards.appendChild(h('div.card', { class: String(s.state).toLowerCase() },
-						h('div.top', h('div.grow',
-							h('h3', s.id, ' ', stateBadge({ state: s.state, enabled: true }), ' ', s.restartNeeded ? h('span.badge.warn', 'restart') : null),
-							h('div.desc', s.description || ''))),
-						h('dl.facts',
-							s.port > 0 ? [h('dt', 'Port'), h('dd', String(s.port))] : null,
-							s.state === 'RUNNING' ? [h('dt', 'Up'), h('dd', ago(s.started))] : null,
-							s.state === 'RUNNING' ? [h('dt', 'Connections'), h('dd', h('button.link', { type: 'button', onclick: () => connections(s) }, String(s.connections)))] : null,
-							s.types && s.types.length ? [h('dt', 'Pages'), h('dd', s.types.map(t => TYPE_PAGES[t] ? h('a', { href: TYPE_PAGES[t] }, t + ' ') : h('span.faint', t + ' ')))] : null),
-						s.error ? h('div.err', s.error) : null,
-						h('div.actions',
-							s.state !== 'RUNNING' ? h('button.small', { disabled: s.state === 'OFF', title: s.state === 'OFF' ? (s.error || 'Off') : '', onclick: () => act(s, 'start') }, 'Start') : null,
-							s.state === 'RUNNING' ? h('button.small', { onclick: () => act(s, 'stop') }, 'Stop') : null,
-							s.state === 'RUNNING' ? h('button.small', { class: s.restartNeeded ? 'primary' : '', onclick: () => act(s, 'restart') }, 'Restart') : null)));
-				}
-				list.appendChild(panel(where, null, cards));
-			}
-		}
-		refresh();
-		every(5000, refresh);
-		return { refresh };
-	}
 
 	// ------------------------------------------------------------------ DNS
 
