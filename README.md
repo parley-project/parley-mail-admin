@@ -7,9 +7,15 @@ users and DNS. It is the mail suite's application, in two parts built from this 
 - **the server side** (`us.bringardner.parley.mail.admin.server`, published as
   `parley-mail-admin-VERSION-server.jar`): the launcher that runs the suite's servers together, every
   server's provider (`smtp`, `submission`, `submissions`, `imap`, `imaps`, `pop3`, `pop3s`, `ftp`,
-  `ftps`, `dns`), and the suite's FTP access control (`FtpAcl`). It uses no web classes
+  `ftps`, `dns`), what the servers share (`ServerContext`, one user list per users file with
+  `SharedUsers`, and their JMX beans, the stores' and the SMTP queues' among them), the suite's FTP
+  access control (`FtpAcl`), and `StoreSetup` (a store's and its queue's settings made in a store that
+  isn't on the local disk, for the packaging's `parley-servers-setup`). It uses no web classes
   (`ServerPackageTest`), so the servers run without the web application;
 - **the web application** (`parley-mail-admin-VERSION.war`): the pages, managing the servers with JMX.
+  The DNS page writes the shared zone's file and a new domain's zone file itself (the DNS server only
+  reads zone files) and tells the DNS server to read them again, so the admin runs where the DNS
+  server's files are.
 
 The servers can run either
 

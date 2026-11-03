@@ -2,6 +2,19 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-03: the rest of the deployment pieces come here, To-Do 15.1-15.6)
+
+- **`StoreSetup`** (from parley-mail) is `us.bringardner.parley.mail.admin.server.StoreSetup`, in the server jar, for
+  `parley-servers-setup`; `settings.list` lists `parley.mail.admin.**` (from parley-mail's).
+- **`ServerContext`** (from parley-net) is `us.bringardner.parley.mail.admin.server.ServerContext`. `SharedUsers`
+  gives the launcher's mail servers one list per users file (the mail servers no longer share one by themselves),
+  and `MailServices` makes a mail server from its configuration and runs it with its store bean (and the SMTP
+  queue's) registered by the launcher's id.
+- **The DNS page writes the zone files** (`ZoneFiles`): the shared zone's (records added, changed, deleted: the
+  serial raised, the text checked with parley-dns's `SharedZoneText`, the file before kept as `.previous`, refused if
+  the file changed meanwhile) and a new domain's `$INHERIT` zone file; then the DNS server reads them again. The
+  DNS server no longer writes files.
+
 ### Changed (2026-11-03: the mail suite's launcher and providers are the application's)
 
 - **The server side of the application** is `us.bringardner.parley.mail.admin.server`, also published as
