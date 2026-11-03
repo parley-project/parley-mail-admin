@@ -34,12 +34,12 @@ import javax.management.remote.JMXServiceURL;
 import us.bringardner.parley.mail.admin.settings.PropertiesFile;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
-import us.bringardner.parley.net.server.LaunchSettings;
+import us.bringardner.parley.mail.admin.server.LaunchSettings;
 import us.bringardner.parley.net.server.ParleyConnection;
-import us.bringardner.parley.net.server.ParleyLauncherMBean;
-import us.bringardner.parley.net.server.ParleyServerMBean;
+import us.bringardner.parley.mail.admin.server.ParleyLauncherMBean;
+import us.bringardner.parley.mail.admin.server.ParleyServerMBean;
 import us.bringardner.parley.net.server.ServerContext;
-import us.bringardner.parley.net.server.ServerLauncher;
+import us.bringardner.parley.mail.admin.server.ServerLauncher;
 import us.bringardner.parley.smtp.queue.MailQueueMXBean;
 
 /**

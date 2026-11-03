@@ -1,0 +1,10 @@
+us.bringardner.parley.mail.admin.server.SmtpProviders$Smtp
+us.bringardner.parley.mail.admin.server.SmtpProviders$Submission
+us.bringardner.parley.mail.admin.server.SmtpProviders$Submissions
+us.bringardner.parley.mail.admin.server.ImapProviders$Imap
+us.bringardner.parley.mail.admin.server.ImapProviders$Imaps
+us.bringardner.parley.mail.admin.server.Pop3Providers$Pop3
+us.bringardner.parley.mail.admin.server.Pop3Providers$Pop3s
+us.bringardner.parley.mail.admin.server.FtpProviders$Ftp
+us.bringardner.parley.mail.admin.server.FtpProviders$Ftps
+us.bringardner.parley.mail.admin.server.DnsServerProvider
