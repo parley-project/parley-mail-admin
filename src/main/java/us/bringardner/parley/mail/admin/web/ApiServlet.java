@@ -1339,35 +1339,42 @@ public class ApiServlet extends HttpServlet {
 		return m;
 	}
 
+	/**
+	 * The history between two days (from, to: YYYY-MM-DD, inclusive) in the time zone {@code tz}
+	 * (the viewer's, an IANA name; default this machine's), newest first. {@code latest=true}
+	 * gives one row per message, its newest event.
+	 */
 	private Object history(Router.Request q) throws IOException {
+		java.time.ZoneId zone;
+		try {
+			String tz = q.query("tz", null);
+			zone = tz == null || tz.isEmpty() ? java.time.ZoneId.systemDefault() : java.time.ZoneId.of(tz);
+		} catch (java.time.DateTimeException e) {
+			throw ApiException.badRequest("Unknown time zone " + q.query("tz", null));
+		}
 		LocalDate to;
 		LocalDate from;
 		try {
-			to = LocalDate.parse(q.query("to", LocalDate.now().toString()));
+			to = LocalDate.parse(q.query("to", LocalDate.now(zone).toString()));
 			from = LocalDate.parse(q.query("from", to.toString()));
 		} catch (DateTimeParseException e) {
 			throw ApiException.badRequest("Dates are YYYY-MM-DD");
 		}
+		if (to.isBefore(from)) {
+			LocalDate t = from;
+			from = to;
+			to = t;
+		}
 		Set<String> types = null;
 		String t = q.query("type", null);
-		if (t != null) {
+		if (t != null && !t.isEmpty()) {
 			types = new HashSet<>(Arrays.asList(t.toUpperCase(Locale.ROOT).split("\\s*,\\s*")));
 		}
 		int limit = (int) Math.max(1, Math.min(10000, q.queryLong("limit", 1000)));
+		boolean latest = Boolean.parseBoolean(q.query("latest", "false"));
 		AdminScope scope = scope(q);
-		if (scope.isPrimary()) {
-			return app.getHistory().query(from, to, q.query("q", null), types, limit);
-		}
-		// another domain's administrator: only events about its mail, from the most the store reads
-		List<Map<String, Object>> ret = new ArrayList<>();
-		for (Map<String, Object> m : app.getHistory().query(from, to, q.query("q", null), types, 10000)) {
-			if (ret.size() >= limit) {
-				break;
-			}
-			if (isMine(scope, m)) {
-				ret.add(m);
-			}
-		}
-		return ret;
+		// another domain's administrator: only events about its mail
+		return app.getHistory().query(from.atStartOfDay(zone).toInstant(), to.plusDays(1).atStartOfDay(zone).toInstant(),
+				q.query("q", null), types, limit, latest, scope.isPrimary() ? null : m -> isMine(scope, m));
 	}
 }
