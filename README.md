@@ -1,13 +1,26 @@
 # parley-mail-admin
 
 A web application that manages the **Parley** mail suite from a browser: `parley-smtp`,
-`parley-imap` and `parley-pop3`, all serving one mail store with one user list. The servers are
-parley-net launcher servers, managed with JMX, so they can run either
+`parley-imap` and `parley-pop3`, all serving one mail store with one user list, with FTP for the mail
+users and DNS. It is the mail suite's application, in two parts built from this project:
+
+- **the server side** (`us.bringardner.parley.mail.admin.server`, published as
+  `parley-mail-admin-VERSION-server.jar`): the launcher that runs the suite's servers together, every
+  server's provider (`smtp`, `submission`, `submissions`, `imap`, `imaps`, `pop3`, `pop3s`, `ftp`,
+  `ftps`, `dns`), and the suite's FTP access control (`FtpAcl`). It uses no web classes
+  (`ServerPackageTest`), so the servers run without the web application;
+- **the web application** (`parley-mail-admin-VERSION.war`): the pages, managing the servers with JMX.
+
+The servers can run either
 
 1. in this application's process (the servlet container's): the default; or
-2. as services of their own (`ServerMain`, parley-net's generic launcher, run by systemd, launchd or
-   a Windows service), alone or several per process, with this application managing them over their
-   JMX addresses. The servers don't need it: it's a convenience.
+2. as services of their own (`LauncherMain`, run by systemd, launchd or a Windows service, with the
+   server jar and the protocol modules on the class path), alone or several per process, with this
+   application managing them over their JMX addresses. The servers don't need it: it's a convenience.
+
+Each server stands alone in the launcher: one that can't start, or stops by itself, is FAILED with
+its error (the Dashboard shows it) and the others keep running; a process exits only when no server
+in it is running.
 
 Either way they read the same settings files, in the settings folder (below), which the pages edit.
 It gives you pages to:
@@ -81,7 +94,7 @@ the folders the group and permissions you want the servers to share.
 
 ### The servers in this application (the default)
 
-With `parley.mail.admin.jmxUrl` empty, a parley-net `ServerLauncher` in the web application runs
+With `parley.mail.admin.jmxUrl` empty, a `ServerLauncher` (the server side's) in the web application runs
 every service (ids `smtp`, `submission`, `submissions`, `imap`, `imaps`, `pop3`, `pop3s`) from the
 settings folder's files; stopping or undeploying the web application stops them. Their JMX beans
 (`us.bringardner.parley:type=Server,name=<id>`, `type=Launcher,name=ParleyMailAdmin`, and each
@@ -106,13 +119,13 @@ running SMTP server's queue, `type=MailQueue,name=<id>`) are on the JVM's platfo
 
 ### The servers as services
 
-Run the servers with parley-net's launcher (see parley-net's "Running servers: as a service, alone
-or together" and parley-mail's "Running the mail suite"), with remote JMX turned on, e.g.
+Run the servers with the suite's launcher (`LauncherMain`, in the server jar; see parley-mail's
+"Running the mail suite"), with remote JMX turned on, e.g.
 
 ```
 java -Dcom.sun.management.jmxremote.port=9010 -Dcom.sun.management.jmxremote.host=localhost \
      -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false \
-     -cp ... us.bringardner.parley.net.server.ServerMain parley.servers smtp,submission,imap,pop3
+     -cp ... us.bringardner.parley.mail.admin.server.LauncherMain parley.servers smtp,submission,imap,pop3
 ```
 
 and set `parley.mail.admin.jmxUrl` (Settings > Admin) to its JMX service URL,

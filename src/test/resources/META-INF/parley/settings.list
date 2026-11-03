@@ -1,0 +1,5 @@
+# The test servers' settings (ServerLauncherTest's fake server, KnownSettingsTest)
+prefix parley.fake
+parley.fake.value
+parley.fake.family
+parley.fake.configFile

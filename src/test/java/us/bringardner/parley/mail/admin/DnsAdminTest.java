@@ -36,9 +36,9 @@ import org.junit.jupiter.api.io.TempDir;
 import us.bringardner.parley.dns.server.DnsServer;
 import us.bringardner.parley.mail.admin.dns.DnsAdmin;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
-import us.bringardner.parley.net.server.LaunchSettings;
+import us.bringardner.parley.mail.admin.server.LaunchSettings;
 import us.bringardner.parley.net.server.ServerContext;
-import us.bringardner.parley.net.server.ServerLauncher;
+import us.bringardner.parley.mail.admin.server.ServerLauncher;
 
 /**
  * The admin and a Parley DNS server run by a launcher "process" (in this JVM, behind a JMX RMI

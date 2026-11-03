@@ -2,6 +2,23 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-03: the mail suite's launcher and providers are the application's)
+
+- **The server side of the application** is `us.bringardner.parley.mail.admin.server`, also published as
+  `parley-mail-admin-VERSION-server.jar` (a second jar from this project), which the parley-mail service runs without
+  the web application: the launcher (`ServerLauncher`, `ServerProvider`, `LaunchSettings`, the `ParleyServerMBean`
+  and `ParleyLauncherMBean` interfaces, from parley-net), its main (`LauncherMain`, parley-net's `ServerMain.main`
+  and `launch` until now) and `DnsMain` (DNS alone, managed like the other servers), the providers of every server
+  (`SmtpProviders`, `ImapProviders`, `Pop3Providers`, `DnsServerProvider` from their modules, `MailServerProvider`
+  from parley-mail) and the suite's FTP servers and access control (`FtpProviders`, `FtpAcl`, `SuiteAcl`,
+  `StoreDomains`, from parley-mail). Ids, settings names and JMX names are unchanged. `ServerPackageTest` checks the
+  package uses no web classes.
+- **One server never stops another**: a server that can't start is FAILED with its error, which is printed, and
+  the others start and keep running (`startAll` no longer stops those started and throws); the process exits only
+  when no server is running. Before, one server that couldn't start stopped every server in the process.
+- The tests run each test class in a JVM of its own (`reuseForks=false`): the application picks Parley's logger
+  class before any Parley object logs, which the server tests would otherwise have done first.
+
 ### Changed (2026-11-02: To-Do 3.6)
 
 - The mail store's bean is now named by the server's id (parley-mail), so it is one of a server's beans; the Servers

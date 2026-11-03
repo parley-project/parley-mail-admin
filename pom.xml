@@ -135,10 +135,39 @@
 				<artifactId>maven-war-plugin</artifactId>
 				<version>3.4.0</version>
 			</plugin>
+			<!-- The servers' side of the application in a jar of its own, parley-mail-admin-VERSION-server.jar:
+			     the launcher, every server's provider and the suite's FTP access control
+			     (us.bringardner.parley.mail.admin.server), which the parley-mail service runs without the
+			     web application. ServerPackageTest checks the package uses no web classes. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-jar-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>server</id>
+						<phase>package</phase>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+						<configuration>
+							<classifier>server</classifier>
+							<includes>
+								<include>us/bringardner/parley/mail/admin/server/**</include>
+								<include>META-INF/services/us.bringardner.parley.mail.admin.server.ServerProvider</include>
+								<include>META-INF/parley/settings.list</include>
+							</includes>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
+					<!-- each test class in a JVM of its own: the admin picks Parley's logger class
+					     (AdminLogger) before any Parley object logs, which the server tests would
+					     otherwise have done first in a shared JVM -->
+					<reuseForks>false</reuseForks>
 					<!-- tests run the servers on free ports with a scratch home under target/ -->
 					<systemPropertyVariables>
 						<java.io.tmpdir>${project.build.directory}</java.io.tmpdir>

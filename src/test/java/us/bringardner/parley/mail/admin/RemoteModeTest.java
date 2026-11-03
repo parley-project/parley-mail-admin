@@ -33,9 +33,9 @@ import org.junit.jupiter.api.io.TempDir;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
-import us.bringardner.parley.net.server.LaunchSettings;
+import us.bringardner.parley.mail.admin.server.LaunchSettings;
 import us.bringardner.parley.net.server.ServerContext;
-import us.bringardner.parley.net.server.ServerLauncher;
+import us.bringardner.parley.mail.admin.server.ServerLauncher;
 
 /**
  * The servers run by a launcher "process" (one in this JVM, with its own MBean server behind a JMX

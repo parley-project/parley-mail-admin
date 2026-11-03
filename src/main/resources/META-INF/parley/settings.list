@@ -1,0 +1,38 @@
+# The settings the server side of parley-mail-admin reads (us.bringardner.parley.mail.admin.server),
+# for the servers' start-up check (format: parley-net's KnownSettings).
+
+# the launcher
+parley.servers
+parley.servers.configFile
+
+# the suite's FTP servers (ftp and ftps)
+prefix parley.mail.ftp
+prefix parley.mail.ftps
+parley.mail.ftp.configFile
+
+# their folder in the mail store
+parley.mail.{ftp,ftps}.root
+
+# who may log in and where each user's root is (FtpAcl)
+parley.mail.{ftp,ftps}.loginPermission
+parley.mail.{ftp,ftps}.primaryRoot
+parley.mail.{ftp,ftps}.domainRoot
+
+# parley-ftp's FtpServer reads these under each server's prefix
+parley.mail.{ftp,ftps}.allowForeignDataAddress
+parley.mail.{ftp,ftps}.allowedLinkTargets
+parley.mail.{ftp,ftps}.bufferSize
+parley.mail.{ftp,ftps}.connectTimeout
+parley.mail.{ftp,ftps}.dataTimeout
+parley.mail.{ftp,ftps}.externalAddress
+parley.mail.{ftp,ftps}.linger
+parley.mail.{ftp,ftps}.passivePort
+parley.mail.{ftp,ftps}.passiveMinPort
+parley.mail.{ftp,ftps}.passiveMaxPort
+parley.mail.{ftp,ftps}.requireTls
+parley.mail.{ftp,ftps}.storeAtOffset
+parley.mail.{ftp,ftps}.symlinkPolicy
+parley.mail.{ftp,ftps}.uploadMode
+
+# read by the suite's ftp to find the queue (parley-smtp's setting)
+parley.mail.smtp.queue
