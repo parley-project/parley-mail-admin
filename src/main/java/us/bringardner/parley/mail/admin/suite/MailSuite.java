@@ -367,6 +367,14 @@ public final class MailSuite implements AutoCloseable {
 			throw e.getCause() instanceof Exception ? (Exception) e.getCause() : e;
 		}
 		Target t = new Target(url, c, c.getMBeanServerConnection(), null);
+		// the JMX client says when the connection fails (the launcher restarted, say): the next call
+		// connects again, rather than finding out by failing
+		c.addConnectionNotificationListener((n, handback) -> {
+			if (javax.management.remote.JMXConnectionNotification.FAILED.equals(n.getType())
+					|| javax.management.remote.JMXConnectionNotification.CLOSED.equals(n.getType())) {
+				t.broken = true;
+			}
+		}, null, null);
 		if (t.launcher(null) == null) {
 			t.close();
 			throw new IOException("no Parley launcher there (us.bringardner.parley:type=Launcher)");
@@ -1119,8 +1127,25 @@ public final class MailSuite implements AutoCloseable {
 		return null;
 	}
 
-	/** The bean types any launcher reached has (Dns, MailQueue, ...): which type-specific pages apply. */
+	/**
+	 * The bean types any launcher reached has (Dns, MailQueue, ...): which type-specific pages apply.
+	 * A connection found broken (its launcher restarted) is made again and asked once more, so the
+	 * pages don't go missing until the next call.
+	 */
 	public synchronized List<String> types() {
+		List<String> ret = typesOnce();
+		boolean broken = false;
+		for (Target t : targets) {
+			broken |= t.broken;
+		}
+		if (broken) {
+			lastAttempt = 0; // connect again now
+			ret = typesOnce();
+		}
+		return ret;
+	}
+
+	private List<String> typesOnce() {
 		connect();
 		java.util.TreeSet<String> ret = new java.util.TreeSet<>();
 		for (Target t : targets) {
