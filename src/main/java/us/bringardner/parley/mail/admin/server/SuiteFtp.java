@@ -57,7 +57,7 @@ final class SuiteFtp {
 		FileSource mailRoot = MaildropRoot.open(root, source, connection, AbstractMailServer.MAIL_FILE_SOURCE_PROP);
 		String queue = c.getProperty("parley.mail.smtp.queue", "").trim();
 		StoreDomains domains = new StoreDomains(MaildropRoot.child(mailRoot, queue.isEmpty() ? ".smtp-queue" : queue));
-		FileBasedAcl list = users == null || users.trim().isEmpty() ? null : SharedUsers.list(context, new File(users.trim()).getCanonicalFile(), c.getProperty(FileBasedAcl.PROP_RELOAD_INTERVAL));
+		FileBasedAcl list = users == null || users.trim().isEmpty() ? null : SharedUsers.list(context, new File(users.trim()).getCanonicalFile(), c.getProperty(FileBasedAcl.PROP_RELOAD_INTERVAL), c);
 		FtpAcl acl = new FtpAcl(list, domains, c, prefix);
 
 		FileSource folder;
