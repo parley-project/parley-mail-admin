@@ -33,7 +33,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import us.bringardner.parley.net.server.ServerContext;
 import us.bringardner.parley.smtp.queue.MailQueueMXBean;
 import us.bringardner.parley.smtp.queue.QueueHistory;
 
@@ -258,7 +257,7 @@ public class TestSmtpProviders {
 		assertEquals("235", auth(submission, "jose", "other"), "its own users");
 		assertEquals("535", auth(submission, "tony", "secret"), "not the shared users");
 		assertEquals("235", auth(smtp, "tony", "secret"), "the relay has the shared users");
-		assertNotNull(us.bringardner.parley.mail.server.AbstractMailServer.sharedUsers(context, new File(dir, "users.txt")));
+		assertNotNull(SharedUsers.find(context, new File(dir, "users.txt")));
 	}
 
 	@Test

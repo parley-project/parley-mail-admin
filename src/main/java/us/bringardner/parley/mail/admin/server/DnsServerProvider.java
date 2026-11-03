@@ -5,7 +5,6 @@ import us.bringardner.parley.dns.server.DnsServer;
 import java.util.Properties;
 
 import us.bringardner.parley.core.BaseObject;
-import us.bringardner.parley.net.server.ServerContext;
 import us.bringardner.parley.net.server.ServerMain;
 
 /**

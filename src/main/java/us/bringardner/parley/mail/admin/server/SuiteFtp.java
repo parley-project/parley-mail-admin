@@ -13,7 +13,6 @@ import us.bringardner.parley.mail.store.MailLocks;
 import us.bringardner.parley.mail.store.MaildropRoot;
 import us.bringardner.parley.net.server.FileBasedAcl;
 import us.bringardner.parley.net.server.Server;
-import us.bringardner.parley.net.server.ServerContext;
 import us.bringardner.parley.net.server.ServerMain;
 
 /**
@@ -58,7 +57,7 @@ final class SuiteFtp {
 		FileSource mailRoot = MaildropRoot.open(root, source, connection, AbstractMailServer.MAIL_FILE_SOURCE_PROP);
 		String queue = c.getProperty("parley.mail.smtp.queue", "").trim();
 		StoreDomains domains = new StoreDomains(MaildropRoot.child(mailRoot, queue.isEmpty() ? ".smtp-queue" : queue));
-		FileBasedAcl list = users == null || users.trim().isEmpty() ? null : sharedUsers(context, new File(users.trim()).getCanonicalFile());
+		FileBasedAcl list = users == null || users.trim().isEmpty() ? null : SharedUsers.list(context, new File(users.trim()).getCanonicalFile(), c.getProperty(FileBasedAcl.PROP_RELOAD_INTERVAL));
 		FtpAcl acl = new FtpAcl(list, domains, c, prefix);
 
 		FileSource folder;
@@ -112,14 +111,5 @@ final class SuiteFtp {
 			throw new IOException("The setting " + name + " is required");
 		}
 		return ret.trim();
-	}
-
-	/** The mail servers' user list of this file (the one they share, made here if none has yet) */
-	private static FileBasedAcl sharedUsers(ServerContext context, File file) throws Exception {
-		return context.shared(AbstractMailServer.SHARED_USERS_KEY + file.getPath(), FileBasedAcl.class, () -> {
-			FileBasedAcl acl = new FileBasedAcl();
-			acl.initialize(file);
-			return acl;
-		});
 	}
 }
