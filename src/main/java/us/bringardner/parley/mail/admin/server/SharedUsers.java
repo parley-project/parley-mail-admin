@@ -32,15 +32,21 @@ public final class SharedUsers {
 			return;
 		}
 		String reload = server.getProperty(FileBasedAcl.PROP_RELOAD_INTERVAL);
-		server.setAccessControl(list(context, file, reload));
+		server.setAccessControl(list(context, file, reload, server.getConfiguration()));
 	}
 
-	/** The list of this (canonical) file the context's servers share, made the first time it's asked for */
-	public static FileBasedAcl list(ServerContext context, File file, String reload) throws IOException {
+	/**
+	 * The list of this (canonical) file the context's servers share, made the first time it's asked for
+	 * @param reload the servers' {@link FileBasedAcl#PROP_RELOAD_INTERVAL} (part of the key)
+	 * @param configuration the settings the list is made with (the first server's, which have that
+	 *  reload setting), or null for the system properties
+	 */
+	public static FileBasedAcl list(ServerContext context, File file, String reload, java.util.Properties configuration) throws IOException {
 		String key = KEY + file.getPath() + (reload == null ? "" : "|" + reload.trim());
 		try {
 			return context.shared(key, FileBasedAcl.class, () -> {
-				FileBasedAcl acl = new FileBasedAcl();
+				// made with the servers' settings, as a server makes its own list (its reload interval)
+				FileBasedAcl acl = us.bringardner.parley.core.BaseObject.makeWith(configuration, FileBasedAcl::new);
 				acl.initialize(file);
 				return acl;
 			});

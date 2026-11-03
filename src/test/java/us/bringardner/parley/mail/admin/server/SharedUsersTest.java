@@ -102,6 +102,7 @@ public class SharedUsersTest {
 		Plain a = MailServices.make(one, fast, () -> new Plain("parley.mail.a"));
 		Plain b = MailServices.make(one, plain, () -> new Plain("parley.mail.a"));
 		assertNotSame(a.getAccessControl(), b.getAccessControl());
+		assertSame(fast, ((FileBasedAcl) a.getAccessControl()).getConfiguration(), "made with the servers' settings: their reload interval");
 		assertNotNull(SharedUsers.find(one, users), "found under either key");
 	}
 

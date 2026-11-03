@@ -43,7 +43,7 @@ final class ZoneFiles {
 
 	/** The shared zone's records as its file has them, the SOA first */
 	static List<Record> sharedRecords(File file) throws IOException {
-		return SharedZoneText.records(read(file));
+		return SharedZoneText.records(read(file), file.getAbsoluteFile().getParentFile());
 	}
 
 	static void addShared(File file, String name, String type, long ttl, List<String> values, Runnable reload) throws Exception {
@@ -134,10 +134,16 @@ final class ZoneFiles {
 			if (journal.exists()) {
 				throw new IllegalArgumentException("An old journal of the zone is there: " + journal + "; move it away first");
 			}
-			String text = SharedZoneText.inheritingZone(name, read(sharedFile));
+			String text = SharedZoneText.inheritingZone(name, read(sharedFile), zoneDir);
 			File tmp = File.createTempFile("." + name, ".tmp", zoneDir);
 			try {
 				Files.write(tmp.toPath(), text.getBytes(StandardCharsets.UTF_8));
+				try {
+					// readable by the DNS server whatever this process's umask (as the packaging makes zone files)
+					Files.setPosixFilePermissions(tmp.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rw-rw-r--"));
+				} catch (UnsupportedOperationException e) {
+					// not a POSIX file system
+				}
 				// a link appears whole and fails if the file is there by now (a move would replace it)
 				Files.createLink(file.toPath(), tmp.toPath());
 			} catch (java.nio.file.FileAlreadyExistsException e) {
@@ -213,7 +219,7 @@ final class ZoneFiles {
 			String before = read(file);
 			List<Record> recs;
 			try {
-				recs = new ArrayList<Record>(SharedZoneText.records(before));
+				recs = new ArrayList<Record>(SharedZoneText.records(before, file.getAbsoluteFile().getParentFile()));
 			} catch (IOException e) {
 				throw new IllegalStateException(e.getMessage() + " (" + file + "; fix the file by hand)", e);
 			}
@@ -227,7 +233,7 @@ final class ZoneFiles {
 			}
 			String t = SharedZoneText.text(recs, HEADER);
 			try {
-				SharedZoneText.check(t);
+				SharedZoneText.check(t, file.getAbsoluteFile().getParentFile());
 			} catch (IOException e) {
 				throw new IllegalArgumentException(explain(e.getMessage(), recs), e);
 			}

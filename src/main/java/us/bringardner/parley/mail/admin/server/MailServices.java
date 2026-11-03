@@ -104,11 +104,9 @@ final class MailServices {
 
 			@Override
 			public void stop(long timeoutMillis) throws InterruptedException {
-				try {
-					s.stop(timeoutMillis);
-				} finally {
-					unregister();
-				}
+				// first, so no change through the store's bean runs once the server gives the store up
+				unregister();
+				s.stop(timeoutMillis);
 			}
 
 			@Override
