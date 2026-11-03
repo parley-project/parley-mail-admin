@@ -5,6 +5,10 @@
 parley.servers
 parley.servers.configFile
 
+# the admin application's own, which share parley-mail.properties with the servers (FtpAcl, run by
+# the launcher, reads parley.mail.admin.primaryDomain)
+parley.mail.admin.**
+
 # the suite's FTP servers (ftp and ftps)
 prefix parley.mail.ftp
 prefix parley.mail.ftps
