@@ -413,6 +413,16 @@ public class WebAppTest {
 		JsonNode timeline = ok("GET", "/history/" + id, null);
 		assertEquals("QUEUED", timeline.get(0).get("type").asText());
 		assertEquals("COMPLETED", timeline.get(timeline.size() - 1).get("type").asText());
+		// the History page: one row per message, its latest event, by the viewer's day
+		int rows = 0;
+		for (JsonNode e : ok("GET", "/history?latest=true&tz=Pacific%2FKiritimati&from="
+				+ java.time.LocalDate.now(java.time.ZoneId.of("Pacific/Kiritimati")), null)) {
+			if (e.get("id").asText().equals(id)) {
+				rows++;
+				assertEquals("COMPLETED", e.get("type").asText());
+			}
+		}
+		assertEquals(1, rows);
 		assertTrue(new File(home, "mail/b.test/tony").isDirectory());
 
 		assertEquals(1, pop3Count("tony@b.test", "tonypass1"));

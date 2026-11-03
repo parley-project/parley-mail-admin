@@ -1157,11 +1157,13 @@
 		const list = h('div');
 		const form = h('form.toolbar', h('span.muted', 'From'), from, h('span.muted', 'to'), to, type, q, h('button.primary', { type: 'submit' }, 'Search'));
 		form.addEventListener('submit', e => { e.preventDefault(); refresh(); });
-		root.appendChild(h('p.muted', 'Every message the SMTP queue took, each delivery attempt and its result, kept for the days set in Settings > Queue.'));
+		root.appendChild(h('p.muted', 'Every message the SMTP queue took, with its latest event; click a message for each delivery attempt and its result. Kept for the days set in Settings > Queue.'));
 		root.appendChild(panel('History', null, form, list));
 
 		async function refresh() {
-			const params = new URLSearchParams({ from: from.value, to: to.value, q: q.value, type: type.value, limit: 1000 });
+			// one row per message, its latest event; days are the viewer's, whatever the server's time zone
+			const params = new URLSearchParams({ from: from.value, to: to.value, q: q.value, type: type.value, limit: 1000,
+				latest: true, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || '' });
 			let rows;
 			try { rows = await api('GET', '/history?' + params); } catch (e) { return fail(e); }
 			clear(list).appendChild(rows.length === 0 ? h('div.empty', 'Nothing found') : h('div.table-wrap', h('table',
@@ -1173,7 +1175,7 @@
 					h('td', r.from || h('span.faint', '<>')),
 					h('td', r.recipient || (r.recipients || []).join(', ')),
 					h('td.result', r.status ? r.status + ' ' : '', r.result || '', r.remoteMta ? h('div.faint', 'via ' + r.remoteMta) : null)))))));
-			if (rows.length === 1000) list.appendChild(h('p.faint', 'Showing the newest 1000; narrow the search to see more.'));
+			if (rows.length === 1000) list.appendChild(h('p.faint', 'Showing the newest 1000 messages; narrow the search to see more.'));
 		}
 
 		async function timeline(id) {
