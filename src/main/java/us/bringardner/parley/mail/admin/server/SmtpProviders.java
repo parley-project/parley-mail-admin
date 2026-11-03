@@ -2,18 +2,14 @@ package us.bringardner.parley.mail.admin.server;
 
 import us.bringardner.parley.smtp.server.SmtpServer;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.management.JMException;
-import javax.management.ObjectName;
 
 import us.bringardner.parley.mail.server.AbstractMailServer;
-import us.bringardner.parley.net.server.ServerContext;
 import us.bringardner.parley.net.server.ServerMain;
 import us.bringardner.parley.smtp.SMTP;
 import us.bringardner.parley.smtp.queue.MailQueueBean;
@@ -39,64 +35,16 @@ public final class SmtpProviders {
 	private SmtpProviders() {
 	}
 
-	/** A server whose queue is a JMX bean while it runs */
+	/** A server whose store and queue are JMX beans while it runs */
 	static ServerMain.Service service(SmtpServer server, String id, String name, ServerContext context) {
-		ServerMain.Service s = ServerMain.service(server, name);
-		AtomicBoolean registered = new AtomicBoolean();
-		final ObjectName[] bean = new ObjectName[1];
-		Runnable unregister = () -> {
-			if (registered.compareAndSet(true, false) && bean[0] != null) {
-				context.unregister(bean[0]);
+		return MailServices.service(server, id, name, context, c -> {
+			try {
+				return java.util.Collections.singletonList(c.register("MailQueue", id, new MailQueueBean(server.getQueue(), server.getQueueHistory())));
+			} catch (JMException e) {
+				System.err.println("Can't register the queue's JMX bean: " + e);
+				return java.util.Collections.emptyList();
 			}
-		};
-		return new ServerMain.Service() {
-			@Override
-			public String name() {
-				return s.name();
-			}
-
-			@Override
-			public void startAndWait(long timeoutMillis) throws IOException {
-				s.startAndWait(timeoutMillis);
-				if (registered.compareAndSet(false, true)) {
-					try {
-						bean[0] = context.register("MailQueue", id, new MailQueueBean(server.getQueue(), server.getQueueHistory()));
-					} catch (JMException | RuntimeException e) {
-						System.err.println("Can't register the queue's JMX bean: " + e);
-					}
-				}
-			}
-
-			@Override
-			public int port() {
-				return s.port();
-			}
-
-			@Override
-			public void stop(long timeoutMillis) throws InterruptedException {
-				try {
-					s.stop(timeoutMillis);
-				} finally {
-					unregister.run();
-				}
-			}
-
-			@Override
-			public void awaitStop() throws InterruptedException {
-				s.awaitStop();
-				unregister.run();
-			}
-
-			@Override
-			public int connections() {
-				return s.connections();
-			}
-
-			@Override
-			public java.util.List<us.bringardner.parley.net.server.ParleyConnection> connectionList() {
-				return s.connectionList();
-			}
-		};
+		});
 	}
 
 	/** Read by 1.x for a relay with implicit TLS, which 2.0.0 doesn't have (RFC 8314's implicit TLS is submission's) */
@@ -122,7 +70,7 @@ public final class SmtpProviders {
 		@Override
 		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
 			int port = port(configuration);
-			SmtpServer s = AbstractMailServer.makeIn(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, false, false));
+			SmtpServer s = MailServices.make(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, false, false));
 			return service(s, id(), "SMTP server", context);
 		}
 	}
@@ -137,7 +85,7 @@ public final class SmtpProviders {
 		@Override
 		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
 			int port = port(configuration);
-			SmtpServer s = AbstractMailServer.makeIn(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, false, true));
+			SmtpServer s = MailServices.make(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, false, true));
 			return service(s, id(), "Submission server", context);
 		}
 	}
@@ -152,7 +100,7 @@ public final class SmtpProviders {
 		@Override
 		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
 			int port = port(configuration);
-			SmtpServer s = AbstractMailServer.makeIn(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, true, true));
+			SmtpServer s = MailServices.make(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, true, true));
 			return service(s, id(), "Submission server (implicit TLS)", context);
 		}
 	}

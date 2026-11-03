@@ -191,10 +191,10 @@ public final class AdminApp implements AutoCloseable {
 	 * read it at their next check.
 	 */
 	private void usersChanged() {
-		us.bringardner.parley.net.server.ServerContext context = suite.isLocal() ? suite.localContext() : null;
+		us.bringardner.parley.mail.admin.server.ServerContext context = suite.isLocal() ? suite.localContext() : null;
 		if (context != null) {
 			try {
-				us.bringardner.parley.net.server.FileBasedAcl acl = AbstractMailServer.sharedUsers(context, users.getFile());
+				us.bringardner.parley.net.server.FileBasedAcl acl = us.bringardner.parley.mail.admin.server.SharedUsers.find(context, users.getFile());
 				if (acl != null) {
 					acl.reloadNow(); // else no server has read it yet
 				}

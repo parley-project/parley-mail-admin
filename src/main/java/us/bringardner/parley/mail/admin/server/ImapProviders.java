@@ -8,7 +8,6 @@ import java.util.Properties;
 
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.imap.IMAP;
-import us.bringardner.parley.net.server.ServerContext;
 import us.bringardner.parley.net.server.ServerMain;
 
 /**
@@ -43,8 +42,8 @@ public final class ImapProviders {
 		@Override
 		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
 			int port = port(configuration);
-			return ServerMain.service(AbstractMailServer.makeIn(context, configuration, () -> new ImapServer(port, ImapServer.IMAP_NAME, false)),
-					"IMAP server");
+			return MailServices.service(MailServices.make(context, configuration, () -> new ImapServer(port, ImapServer.IMAP_NAME, false)), id(),
+					"IMAP server", context);
 		}
 	}
 
@@ -58,8 +57,8 @@ public final class ImapProviders {
 		@Override
 		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
 			int port = port(configuration);
-			return ServerMain.service(AbstractMailServer.makeIn(context, configuration, () -> new ImapServer(port, ImapServer.IMAP_NAME, true)),
-					"IMAP server (implicit TLS)");
+			return MailServices.service(MailServices.make(context, configuration, () -> new ImapServer(port, ImapServer.IMAP_NAME, true)), id(),
+					"IMAP server (implicit TLS)", context);
 		}
 	}
 }

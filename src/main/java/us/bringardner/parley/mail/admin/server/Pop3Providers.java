@@ -8,7 +8,6 @@ import java.util.Properties;
 
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.pop3.POP3;
-import us.bringardner.parley.net.server.ServerContext;
 import us.bringardner.parley.net.server.ServerMain;
 
 /**
@@ -43,8 +42,8 @@ public final class Pop3Providers {
 		@Override
 		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
 			int port = port(configuration);
-			return ServerMain.service(AbstractMailServer.makeIn(context, configuration, () -> new Pop3Server(port, Pop3Server.POP3_NAME, false)),
-					"POP3 server");
+			return MailServices.service(MailServices.make(context, configuration, () -> new Pop3Server(port, Pop3Server.POP3_NAME, false)), id(),
+					"POP3 server", context);
 		}
 	}
 
@@ -58,8 +57,8 @@ public final class Pop3Providers {
 		@Override
 		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
 			int port = port(configuration);
-			return ServerMain.service(AbstractMailServer.makeIn(context, configuration, () -> new Pop3Server(port, Pop3Server.POP3_NAME, true)),
-					"POP3 server (implicit TLS)");
+			return MailServices.service(MailServices.make(context, configuration, () -> new Pop3Server(port, Pop3Server.POP3_NAME, true)), id(),
+					"POP3 server (implicit TLS)", context);
 		}
 	}
 }

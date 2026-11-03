@@ -21,7 +21,6 @@ import javax.management.ObjectName;
 
 import us.bringardner.parley.net.server.KnownSettings;
 import us.bringardner.parley.net.server.ParleyConnection;
-import us.bringardner.parley.net.server.ServerContext;
 import us.bringardner.parley.net.server.ServerMain;
 import us.bringardner.parley.plugin.Plugins;
 
@@ -364,9 +363,8 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	}
 
 	private ServerMain.Service create(Entry e) throws Exception {
-		// the server is made knowing its id (ServerContext.getServerIdBeingMade)
-		return context.making(e.provider.id(), () -> e.provider.usesConfiguration()
-				? e.provider.create(context, settings.configuration(e.provider.id())) : e.provider.create(context));
+		return e.provider.usesConfiguration() ? e.provider.create(context, settings.configuration(e.provider.id()))
+				: e.provider.create(context);
 	}
 
 	/** Run on the launcher's control thread (at once when already on it, or after close) */
