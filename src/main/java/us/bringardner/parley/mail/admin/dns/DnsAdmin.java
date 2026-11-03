@@ -35,7 +35,9 @@ import us.bringardner.parley.mail.admin.suite.MailSuite;
  * domains' zones, which inherit the shared zone's records and add or override some, and their
  * records. Records are read from the bean and changed with dynamic updates (RFC 2136) signed with
  * the TSIG key in {@value SettingsCatalog#ADMIN_DNS_KEY_FILE}, sent to the DNS server's TCP port,
- * so they are journaled and the secondaries told, as for any update.
+ * so they are journaled and the secondaries told, as for any update. The DNS server writes no zone
+ * file: the shared zone's file and a new domain's zone file are written here ({@link ZoneFiles}),
+ * where the server reads them, and the server is told to read them again.
  */
 public final class DnsAdmin {
 
@@ -167,17 +169,40 @@ public final class DnsAdmin {
 
 	/** Add records to the shared zone (one per value); the TTL becomes the set's */
 	public void addSharedRecords(String name, String type, long ttl, List<String> values) throws Exception {
-		require().bean.addSharedRecords(name, type, ttl, values == null ? new String[0] : values.toArray(new String[0]));
+		DnsServerMXBean b = require().bean;
+		ZoneFiles.addShared(sharedFile(b), name, type, ttl, values, reload(b));
 	}
 
 	/** Replace one record of the shared zone with another (any name, type, TTL and data) */
 	public void changeSharedRecord(String name, String type, String data, String newName, String newType, long ttl, String newData) throws Exception {
-		require().bean.changeSharedRecord(name, type, data, newName, newType, ttl, newData);
+		DnsServerMXBean b = require().bean;
+		ZoneFiles.changeShared(sharedFile(b), name, type, data, newName, newType, ttl, newData, reload(b));
 	}
 
 	/** Delete one record of the shared zone */
 	public void deleteSharedRecord(String name, String type, String data) throws Exception {
-		require().bean.deleteSharedRecord(name, type, data);
+		DnsServerMXBean b = require().bean;
+		ZoneFiles.deleteShared(sharedFile(b), name, type, data, reload(b));
+	}
+
+	/** The shared zone's file, where the DNS server reads it */
+	private static File sharedFile(DnsServerMXBean b) {
+		String f = sharedZoneFile(b);
+		if (f == null) {
+			throw new IllegalStateException("The DNS server has no shared zone (parley.dns.sharedZone is not set)");
+		}
+		return new File(f);
+	}
+
+	/** Tell the DNS server to read the zone files again, so a change is served at once */
+	private static Runnable reload(DnsServerMXBean b) {
+		return () -> {
+			try {
+				b.reload();
+			} catch (Exception e) {
+				throw new IllegalStateException("The file was written but the DNS server didn't read it again: " + e.getMessage(), e);
+			}
+		};
 	}
 
 	private static Map<String, Object> record(DnsRecordInfo r) {
@@ -340,7 +365,33 @@ public final class DnsAdmin {
 		if (d.equals(p)) {
 			throw new IllegalStateException("The primary domain's zone is made by hand");
 		}
-		require().bean.createInheritingZone(d);
+		DnsServerMXBean b = require().bean;
+		for (DnsZoneInfo z : b.getZones()) {
+			if (norm(z.getName()).equals(d)) {
+				throw new IllegalArgumentException(z.getFile() == null ? "Zone " + d + " is served already: it is a listed domain, served from"
+						+ " the shared zone; its zone file is written when one of its records is changed" : "Zone " + d + " exists already");
+			}
+		}
+		String dir = b.getZoneDirectory();
+		if (dir == null) {
+			throw new IllegalStateException("The DNS server has no zone directory");
+		}
+		File file = ZoneFiles.createInheriting(new File(dir), sharedFile(b), d);
+		try {
+			b.reload();
+		} catch (Exception e) {
+			file.delete();
+			throw e;
+		}
+		boolean served = false;
+		for (DnsZoneInfo z : b.getZones()) {
+			served |= norm(z.getName()).equals(d);
+		}
+		if (!served) {
+			file.delete();
+			b.reload();
+			throw new IllegalStateException("Made " + file + " but the zone didn't load (removed again); see the DNS server's errors");
+		}
 	}
 
 	/**
