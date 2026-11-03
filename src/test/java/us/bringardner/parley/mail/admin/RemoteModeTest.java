@@ -181,6 +181,15 @@ public class RemoteModeTest {
 			assertTrue(later.getMessage().contains("restart the launcher"), later.getMessage());
 			suite.setListed(ServiceId.IMAP, false);
 
+			// the service restarts (a new JMX connector at the same address): the very first call
+			// after it still finds the service's beans, so its pages (Queue, DNS) don't go missing
+			assertTrue(suite.types().contains("MailQueue"), suite.types().toString());
+			cs.stop();
+			cs = JMXConnectorServerFactory.newJMXConnectorServer(new JMXServiceURL(url), env, mbs);
+			cs.start();
+			assertTrue(suite.types().contains("MailQueue"), "the first call after the restart");
+			assertEquals(MailSuite.State.RUNNING, suite.getState(ServiceId.POP3));
+
 			// the application stops: the service keeps running
 			app.close();
 			app = null;
