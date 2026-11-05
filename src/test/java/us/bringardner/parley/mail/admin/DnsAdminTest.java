@@ -129,7 +129,7 @@ public class DnsAdminTest {
 				+ "parley.dns.sharedZone=" + new File(dnsDir, "shared.zone").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.dns.zoneDir=" + new File(dnsDir, "zones").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.dns.masterZone=a.test\nparley.dns.bindAddress=127.0.0.1\nparley.dns.port=" + freePort() + "\n"
-				+ "parley.dns.adminPort=" + freePort() + "\nparley.dns.recursionAvailable=false\n"
+				+ "parley.dns.recursionAvailable=false\n"
 				+ "parley.dns.tsigKeyFile=admin.key\nparley.dns.updateKeys=parley-admin\n");
 		write(new File(conf, "parley-mail.properties"), "parley.mail.root=" + root + "\n"
 				+ "parley.mail.users=" + new File(dir, "users.txt").getAbsolutePath().replace('\\', '/') + "\n"

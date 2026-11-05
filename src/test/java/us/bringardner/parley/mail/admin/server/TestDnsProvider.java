@@ -59,7 +59,6 @@ public class TestDnsProvider {
 					+"parley.dns.masterZone=primary.test\n"
 					+"parley.dns.bindAddress=127.0.0.1\n"
 					+"parley.dns.port="+freePort()+"\n"
-					+"parley.dns.adminPort="+freePort()+"\n"
 					+"parley.dns.recursionAvailable=false\n");
 		}
 		mbs = MBeanServerFactory.newMBeanServer();
