@@ -42,7 +42,6 @@ public class DnsKnownSettingsTest {
 		system.setProperty("parley.dns.port", "" + freePort());
 		system.setProperty("parley.dns.udpPort", "" + freePort());
 		system.setProperty("parley.dns.tcpPort", "" + freePort());
-		system.setProperty("parley.dns.adminPort", "" + freePort());
 		ServerMain.Service s = new DnsServerProvider().create(new ServerContext(), system);
 		s.startAndWait(10000);
 		s.stop(10000);
