@@ -2,6 +2,27 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-06: users, logins and permissions come from parley-iam)
+
+- **The Users page keeps `group:` lines**, the lines parley-net's `FileUserRegistry` uses for a group with no members
+  (`group: support@example.com`), when it rewrites the users file.
+- **The suite's FTP servers use a parley-iam user registry**: `SuiteAcl` and `FtpAcl` (parley-net access control
+  lists, whose interface is gone) are `SuiteUserRegistry` and `FtpUserRegistry`, parley-iam `UserRegistry`s over the
+  users file's registry the mail servers share. That registry checks the passwords and answers every permission
+  check; a login is `name@domain` of a local domain, and the user's root is the principal's `userRoot` attribute.
+  The settings are unchanged (`loginPermission`, `primaryRoot`, `domainRoot`); `loginPermission` is now a
+  permission the registry is asked about (names ignore case). A domain list or a login-permission check that can't
+  be answered is UNAVAILABLE (FTP's `421`), never a refusal.
+- **`SharedUsers`** shares parley-net's `FileUserRegistry` (was `FileBasedAcl`): `list` and `find` return one, and
+  `share` gives it to the server with `setUserRegistry`.
+- **Admin logins go through a parley-iam user registry**: `AdminApp.authenticateAdmin(name, password, requester)`
+  asks the users file's `FileUserRegistry` to check the password, then whether the user holds `admin`; the login
+  page answers 503 (not counted as a failure) when the registry can't answer. `UserRecord.hasPermission` ignores
+  case, as parley-iam's permission names do. `UserStore.authenticate` stays for the file's own checks.
+- **parley-iam** is a direct dependency. `SettingsCatalog` names `FileUserRegistry`'s settings (unchanged keys:
+  `parley.net.acl.reloadInterval`, `parley.net.acl.hashWait`). The test submission server's
+  `authenticationProvider` is `us.bringardner.parley.net.server.FileUserRegistry`.
+
 ### Changed (2026-11-03: the rest of the deployment pieces come here, To-Do 15.1-15.6)
 
 - **`StoreSetup`** (from parley-mail) is `us.bringardner.parley.mail.admin.server.StoreSetup`, in the server jar, for

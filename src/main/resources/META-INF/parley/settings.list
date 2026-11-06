@@ -5,7 +5,7 @@
 parley.servers
 parley.servers.configFile
 
-# the admin application's own, which share parley-mail.properties with the servers (FtpAcl, run by
+# the admin application's own, which share parley-mail.properties with the servers (FtpUserRegistry, run by
 # the launcher, reads parley.mail.admin.primaryDomain)
 parley.mail.admin.**
 
@@ -17,7 +17,7 @@ parley.mail.ftp.configFile
 # their folder in the mail store
 parley.mail.{ftp,ftps}.root
 
-# who may log in and where each user's root is (FtpAcl)
+# who may log in and where each user's root is (FtpUserRegistry)
 parley.mail.{ftp,ftps}.loginPermission
 parley.mail.{ftp,ftps}.primaryRoot
 parley.mail.{ftp,ftps}.domainRoot

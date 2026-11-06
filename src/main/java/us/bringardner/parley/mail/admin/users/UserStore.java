@@ -16,12 +16,12 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 import us.bringardner.parley.mail.admin.FileRewrite;
-import us.bringardner.parley.net.server.FileBasedAcl;
+import us.bringardner.parley.net.server.FileUserRegistry;
 
 /**
  * The users file, edited by the Users page. Comments and the order of the lines are kept.
  * Passwords are stored as PBKDF2 hashes with SCRAM-SHA-256 and SCRAM-SHA-1 credentials
- * ({@link FileBasedAcl#hashPasswordWithScram}), so every login mechanism works.
+ * ({@link FileUserRegistry#hashPasswordWithScram}), so every login mechanism works.
  * <p>
  * Names are kept in lower case. A user named {@code name@domain} gets the mail of that domain only, in the maildrop
  * {@code domain/name} unless another is given; a user without a domain gets mail for every local
@@ -92,7 +92,7 @@ public final class UserStore {
 			String t = l.trim();
 			UserRecord u = t.isEmpty() || t.startsWith("#") ? null : UserRecord.parse(t);
 			if (u != null) {
-				// a later line wins, as in FileBasedAcl
+				// a later line wins, as in FileUserRegistry
 				for (Line old : lines) {
 					if (old.user != null && old.user.getName().equals(u.getName())) {
 						old.user = null;
@@ -172,7 +172,7 @@ public final class UserStore {
 			if (get(name) != null) {
 				throw new IllegalArgumentException("The user " + name + " already exists");
 			}
-			UserRecord u = new UserRecord(name, FileBasedAcl.hashPasswordWithScram(password));
+			UserRecord u = new UserRecord(name, FileUserRegistry.hashPasswordWithScram(password));
 			u.setPermissions(perms);
 			u.setParameter(UserRecord.MAILDROP, drop == null ? defaultMaildrop(u) : drop);
 			u.setGroups(grp);
@@ -207,11 +207,11 @@ public final class UserStore {
 			if (u == null) {
 				throw new IllegalArgumentException("No user " + name);
 			}
-			if (perms != null && u.hasPermission(UserRecord.ADMIN) && !perms.contains(UserRecord.ADMIN) && countAdmins() == 1) {
+			if (perms != null && u.hasPermission(UserRecord.ADMIN) && perms.stream().noneMatch(UserRecord.ADMIN::equalsIgnoreCase) && countAdmins() == 1) {
 				throw new IllegalArgumentException("The last administrator can't lose ADMIN");
 			}
 			if (password != null) {
-				u.setCredential(FileBasedAcl.hashPasswordWithScram(password));
+				u.setCredential(FileUserRegistry.hashPasswordWithScram(password));
 			}
 			if (perms != null) {
 				u.setPermissions(perms);
@@ -293,7 +293,9 @@ public final class UserStore {
 	}
 
 	/**
-	 * Check a password.
+	 * Check a password against this file's line (the user's name in any case). The admin pages
+	 * don't log in with this: they ask the users file's parley-iam registry
+	 * ({@code AdminApp.authenticateAdmin}), as the mail servers do.
 	 *
 	 * @return the user, or null if there's no such user or the password is wrong
 	 */
@@ -301,14 +303,14 @@ public final class UserStore {
 		UserRecord u = name == null ? null : get(name.trim());
 		if (u == null || password == null) {
 			// spend the same time, so a guesser can't tell which names exist
-			FileBasedAcl.verifyPassword("x".toCharArray(), DUMMY_HASH);
+			FileUserRegistry.verifyPassword("x".toCharArray(), DUMMY_HASH);
 			return null;
 		}
 		String stored = u.getCredential();
 		boolean ok;
-		if (stored.startsWith(FileBasedAcl.HASH_PREFIX)) {
+		if (stored.startsWith(FileUserRegistry.HASH_PREFIX)) {
 			String hash = stored.split(";")[0].trim();
-			ok = FileBasedAcl.verifyPassword(password, hash);
+			ok = FileUserRegistry.verifyPassword(password, hash);
 		} else if (stored.startsWith("{")) {
 			ok = false; // a credential this application doesn't know
 		} else {
@@ -317,7 +319,7 @@ public final class UserStore {
 		return ok ? u : null;
 	}
 
-	private static final String DUMMY_HASH = FileBasedAcl.hashPassword("not a password".toCharArray());
+	private static final String DUMMY_HASH = FileUserRegistry.hashPassword("not a password".toCharArray());
 
 	private synchronized void save() throws IOException {
 		StringBuilder out = new StringBuilder();
@@ -326,7 +328,8 @@ public final class UserStore {
 				out.append(l.user.format()).append('\n');
 			} else if (l.text != null) {
 				String t = l.text.trim();
-				if (t.isEmpty() || t.startsWith("#")) {
+				if (t.isEmpty() || t.startsWith("#") || t.startsWith(FileUserRegistry.GROUP_LINE_PREFIX)) {
+					// comments, and the lines that keep groups with no members (group: name)
 					out.append(l.text).append('\n');
 				}
 				// a deleted user's original line is dropped

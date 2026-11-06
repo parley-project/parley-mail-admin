@@ -4,20 +4,23 @@ import java.io.IOException;
 import java.util.Locale;
 import java.util.Properties;
 
-import us.bringardner.parley.net.server.IAccessControlList;
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.net.server.IDomainList;
-import us.bringardner.parley.net.server.IPermission;
-import us.bringardner.parley.net.server.IPrincipal;
-import us.bringardner.parley.net.server.Permission;
 
 /**
- * The mail suite's FTP access control: who may log in to the suite's FTP servers and where each
+ * The mail suite's FTP user registry: who may log in to the suite's FTP servers and where each
  * user's root is, set by the administrator with the server's settings (after its prefix,
  * {@code parley.mail.ftp} or {@code parley.mail.ftps}). The users are the mail users of the suite's
- * local domains ({@link SuiteAcl}).
+ * local domains ({@link SuiteUserRegistry}).
  * <ul>
- * <li>{@code loginPermission}: only users who have this permission in the user list may log in
- * (ADMIN, say). Not set: every mail user of a local domain.</li>
+ * <li>{@code loginPermission}: only users the shared user registry gives this permission may log in
+ * (admin, say; the registry decides, and names ignore case). Not set: every mail user of a local
+ * domain. A registry that can't answer the check is a temporary failure (FTP's 421), never a
+ * refusal.</li>
  * <li>{@code primaryRoot}: the root of the primary domain's users ({@code parley.mail.admin.primaryDomain}),
  * a folder on the server's own disk (/data/home, say).</li>
  * <li>{@code domainRoot}: the root of the other domains' users, a folder on the server's own disk in
@@ -28,10 +31,12 @@ import us.bringardner.parley.net.server.Permission;
  * server's disk, and the FTP server's own root is the deepest folder they have in common (/data/home
  * for the examples), where it keeps its lock folder. A root that doesn't exist is made when its user
  * logs in, so the server's account needs to be able to write there. Users can't leave their root.
+ * <p>
+ * Before 2.0.0 this was {@code FtpAcl}, a parley-net access control list; the settings are unchanged.
  *
  * @since 2.0.0
  */
-final class FtpAcl extends SuiteAcl {
+final class FtpUserRegistry extends SuiteUserRegistry {
 
 	/** The setting (after the server's prefix): the permission a user needs to log in */
 	static final String LOGIN_PERMISSION = "loginPermission";
@@ -42,23 +47,23 @@ final class FtpAcl extends SuiteAcl {
 	/** The suite's primary domain (parley-mail-admin's setting, in parley-mail.properties) */
 	static final String PRIMARY_DOMAIN = "parley.mail.admin.primaryDomain";
 
-	private final IPermission loginPermission;
+	private final ParleyPermission loginPermission;
 	private final String primaryDomain;
 	private final String primaryRoot;
 	private final String domainRoot;
 	private final String base;
 
 	/**
-	 * @param users the user list the mail servers share; null: no one can log in
+	 * @param users the user registry the mail servers share; null: no one can log in
 	 * @param domains the suite's local domains
 	 * @param c the server's configuration
 	 * @param prefix the server's prefix
 	 * @throws IOException if only one of the roots is set, or a root isn't an absolute path
 	 */
-	FtpAcl(IAccessControlList users, IDomainList domains, Properties c, String prefix) throws IOException {
+	FtpUserRegistry(UserRegistry users, IDomainList domains, Properties c, String prefix) throws IOException {
 		super(users, domains);
 		String p = setting(c, prefix + "." + LOGIN_PERMISSION);
-		this.loginPermission = p == null ? null : new Permission(p.toUpperCase(Locale.ROOT));
+		this.loginPermission = p == null ? null : new BasicParleyPermission(p, null);
 		String d = setting(c, PRIMARY_DOMAIN);
 		this.primaryDomain = d == null ? null : d.toLowerCase(Locale.ROOT);
 		this.primaryRoot = folder(setting(c, prefix + "." + PRIMARY_ROOT), prefix + "." + PRIMARY_ROOT);
@@ -102,9 +107,13 @@ final class FtpAcl extends SuiteAcl {
 		return primaryDomain;
 	}
 
+	/** With {@code loginPermission} set, the shared registry's answer to that permission check. */
 	@Override
-	boolean admits(IPrincipal user) {
-		return loginPermission == null || user.hasPermission(loginPermission);
+	AuthorizationResult admits(Requester loggedIn) {
+		if (loginPermission == null) {
+			return super.admits(loggedIn);
+		}
+		return checkPermission(loggedIn, loginPermission, null);
 	}
 
 	@Override
