@@ -1125,11 +1125,40 @@ public class ApiServlet extends HttpServlet {
 		return m;
 	}
 
+	/**
+	 * The users this administrator may see. With {@code limit}, one page of those matching
+	 * {@code domain} ({@code *} every one, empty the users without a domain, else that domain) and
+	 * {@code q} (part of the name, any case), from {@code offset}: {total, offset, limit, users}.
+	 * Without it, every user (the list the changes answer with).
+	 */
 	private Object users(Router.Request q) {
-		AdminScope scope = scope(q);
+		if (q.query("limit", null) == null) {
+			return userList(scope(q), "*", null);
+		}
+		String domain = q.query("domain", "*");
+		String text = q.query("q", null);
+		List<Object> all = userList(scope(q), domain, text == null || text.trim().isEmpty() ? null : text.trim().toLowerCase(Locale.ROOT));
+		int limit = (int) Math.max(1, Math.min(1000, q.queryLong("limit", 100)));
+		int offset = (int) Math.max(0, Math.min(all.size(), q.queryLong("offset", 0)));
+		Map<String, Object> m = new LinkedHashMap<>();
+		m.put("total", all.size());
+		m.put("offset", offset);
+		m.put("limit", limit);
+		m.put("users", all.subList(offset, Math.min(all.size(), offset + limit)));
+		return m;
+	}
+
+	private List<Object> userList(AdminScope scope, String domain, String text) {
 		List<Object> list = new ArrayList<>();
 		for (UserRecord u : app.getUsers().list()) {
 			if (!scope.allowsDomain(u.getDomain())) {
+				continue;
+			}
+			String d = u.getDomain();
+			if (!"*".equals(domain) && !(domain.isEmpty() ? d == null || d.isEmpty() : domain.equalsIgnoreCase(d))) {
+				continue;
+			}
+			if (text != null && !u.getName().toLowerCase(Locale.ROOT).contains(text)) {
 				continue;
 			}
 			Map<String, Object> m = new LinkedHashMap<>();
