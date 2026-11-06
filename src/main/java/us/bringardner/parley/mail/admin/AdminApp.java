@@ -18,6 +18,13 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 
 import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.core.ILogger;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.PasswordCredential;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.StandardPermissions;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.domains.DomainService;
 import us.bringardner.parley.mail.admin.history.HistoryStore;
@@ -32,6 +39,7 @@ import us.bringardner.parley.mail.admin.suite.MailSuite;
 import us.bringardner.parley.mail.admin.users.AliasStore;
 import us.bringardner.parley.mail.admin.users.UserStore;
 import us.bringardner.parley.mail.server.AbstractMailServer;
+import us.bringardner.parley.net.server.FileUserRegistry;
 import us.bringardner.parley.smtp.queue.MailQueueMXBean;
 import us.bringardner.parley.smtp.queue.QueueHistory;
 import us.bringardner.parley.smtp.queue.QueuedMessageInfo;
@@ -97,7 +105,7 @@ public final class AdminApp implements AutoCloseable {
 		settings.setNewQueueDefaults(java.util.Collections.singletonMap("aliases", path(home.defaultAliasesFile())));
 		applyLogLevels();
 
-		// the servers read the users file again themselves when it changes (parley-net's FileBasedAcl)
+		// the servers read the users file again themselves when it changes (parley-net's FileUserRegistry)
 		users = new UserStore(new File(settings.get(SettingsCatalog.USERS)));
 		users.load();
 		aliases = new AliasStore(aliasesFile());
@@ -194,13 +202,90 @@ public final class AdminApp implements AutoCloseable {
 		us.bringardner.parley.mail.admin.server.ServerContext context = suite.isLocal() ? suite.localContext() : null;
 		if (context != null) {
 			try {
-				us.bringardner.parley.net.server.FileBasedAcl acl = us.bringardner.parley.mail.admin.server.SharedUsers.find(context, users.getFile());
-				if (acl != null) {
-					acl.reloadNow(); // else no server has read it yet
+				FileUserRegistry registry = us.bringardner.parley.mail.admin.server.SharedUsers.find(context, users.getFile());
+				if (registry != null) {
+					registry.reloadNow(); // else no server has read it yet
 				}
 			} catch (IOException | RuntimeException e) {
-				LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile() + "; they keep the previous list", e);
+				LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile() + "; they keep the users they had", e);
 			}
+		}
+		FileUserRegistry logins;
+		synchronized (this) {
+			logins = loginRegistry;
+		}
+		if (logins != null) {
+			logins.reloadNow(); // a changed password or permission counts at the next login
+		}
+	}
+
+	/** The permission an administrator of the admin pages holds */
+	public static final ParleyPermission ADMIN_PERMISSION = new BasicParleyPermission(StandardPermissions.ADMIN, null);
+
+	/** The server name the admin pages' logins give the user registry ({@link Requester#getServerName()}) */
+	public static final String LOGIN_SERVER_NAME = "parley-mail-admin";
+
+	/** The registry of the users file the admin pages log in with (guarded by this), made when first needed */
+	private FileUserRegistry loginRegistry;
+
+	/**
+	 * The parley-iam user registry of the users file ({@code parley.mail.users}, parley-net's
+	 * {@link FileUserRegistry}, as the mail servers read it), for the admin pages' logins; null when
+	 * the file doesn't exist yet (no users).
+	 *
+	 * @throws IOException if the file can't be read
+	 */
+	private synchronized FileUserRegistry loginRegistry() throws IOException {
+		File f = users.getFile().getCanonicalFile();
+		if (!f.exists()) {
+			return null;
+		}
+		if (loginRegistry == null || !f.equals(loginRegistry.getSourceFile())) {
+			FileUserRegistry r = new FileUserRegistry();
+			r.initialize(f);
+			loginRegistry = r;
+		}
+		return loginRegistry;
+	}
+
+	/**
+	 * Log in to the admin pages: the users file's registry checks the password, then answers whether
+	 * the user holds the {@code admin} permission. Mail users holding it are the administrators.
+	 *
+	 * @param requester who is asking (the browser's address, whether the connection is secure)
+	 * @return AUTHENTICATED with the registry's principal when the password is right and the user is
+	 *         an administrator; REFUSED for a wrong password, an unknown user or one without
+	 *         {@code admin}; UNAVAILABLE when the registry can't answer now (the file can't be read),
+	 *         never a refusal
+	 */
+	public AuthenticationResult authenticateAdmin(String name, char[] password, Requester requester) {
+		FileUserRegistry registry;
+		try {
+			registry = loginRegistry();
+		} catch (IOException e) {
+			return AuthenticationResult.unavailable("The users file " + users.getFile() + " can't be read: " + e.getMessage());
+		}
+		if (registry == null) {
+			return AuthenticationResult.refused("no users file");
+		}
+		PasswordCredential credential = new PasswordCredential(name, password == null ? new char[0] : password, requester);
+		AuthenticationResult result;
+		try {
+			result = registry.authenticate(credential);
+		} finally {
+			credential.clear();
+		}
+		if (result.getStatus() != AuthenticationResult.Status.AUTHENTICATED) {
+			return result;
+		}
+		AuthorizationResult admin = registry.checkPermission(requester.loggedIn(result), ADMIN_PERMISSION, null);
+		switch (admin.getStatus()) {
+			case ALLOWED:
+				return result;
+			case UNAVAILABLE:
+				return AuthenticationResult.unavailable(admin.getReason());
+			default:
+				return AuthenticationResult.refused(result.getPrincipal().getName() + " isn't an administrator: " + admin.getReason());
 		}
 	}
 

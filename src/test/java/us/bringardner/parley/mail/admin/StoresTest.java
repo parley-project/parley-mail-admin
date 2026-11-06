@@ -25,8 +25,13 @@ import us.bringardner.parley.mail.admin.suite.ServiceId;
 import us.bringardner.parley.mail.admin.users.AliasStore;
 import us.bringardner.parley.mail.admin.users.UserRecord;
 import us.bringardner.parley.mail.admin.users.UserStore;
-import us.bringardner.parley.net.server.FileBasedAcl;
-import us.bringardner.parley.net.server.IPrincipal;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.PasswordCredential;
+import us.bringardner.parley.iam.ProofCredential;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.StoredCredentialType;
+import us.bringardner.parley.net.server.FileUserRegistry;
 
 /** The files the pages edit: settings, users and aliases, and the log and history files they read. */
 public class StoresTest {
@@ -271,14 +276,15 @@ public class StoresTest {
 		assertTrue(text.startsWith("# users\nold , secret , READ\ntony@a.test , {PBKDF2}"), text);
 		assertTrue(text.contains(" , READ|WRITE|ADMIN , maildrop=a.test/tony\n"), text);
 
-		// the servers' list (parley-net's FileBasedAcl) reads the same file
-		FileBasedAcl acl = new FileBasedAcl();
-		acl.initialize(f);
-		IPrincipal p = acl.getPrincipal("tony@a.test");
+		// the servers' registry (parley-net's FileUserRegistry) reads the same file
+		FileUserRegistry registry = new FileUserRegistry();
+		registry.initialize(f);
+		ParleyPrincipal p = registry.findPrincipal("tony@a.test");
 		assertNotNull(p);
-		assertEquals("a.test/tony", p.getParameter("maildrop"));
-		assertTrue(acl.verifyPassword(p, "password1".getBytes(StandardCharsets.UTF_8)));
-		assertTrue(acl.supportsScram("SHA-256"), "every user can log in with SCRAM");
+		assertEquals("a.test/tony", p.getAttribute("maildrop"));
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, registry.authenticate(
+				new PasswordCredential("tony@a.test", "password1".toCharArray(), Requester.withoutAddress("test"))).getStatus());
+		assertTrue(registry.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256), "every user can log in with SCRAM");
 
 		u.update("tony@a.test", null, null, "somewhere/else");
 		assertEquals("somewhere/else", u.get("tony@a.test").getMaildrop());

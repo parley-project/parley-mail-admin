@@ -248,7 +248,7 @@ public class TestSmtpProviders {
 		write("parley-mail.properties", "parley.mail.root=" + new File(dir, "mail").getPath(), "parley.mail.users=" + new File(dir, "users.txt").getPath());
 		write("parley-smtp.properties", "parley.mail.smtp.port=" + smtp, "parley.mail.submission.port=" + submission,
 				"parley.mail.smtp.hostname=localhost", "parley.mail.submission.hostname=localhost",
-				"parley.mail.submission.authenticationProvider=us.bringardner.parley.net.server.FileBasedAcl",
+				"parley.mail.submission.authenticationProvider=us.bringardner.parley.net.server.FileUserRegistry",
 				"parley.mail.submission.userFile=" + new File(dir, "own.txt").getPath());
 		ServerContext context = new ServerContext(javax.management.MBeanServerFactory.newMBeanServer());
 		launcher = new ServerLauncher("SmtpUsersTest", new LaunchSettings(new Properties()), Arrays.asList("smtp", "submission"), dir, context);

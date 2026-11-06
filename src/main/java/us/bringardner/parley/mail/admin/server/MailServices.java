@@ -16,7 +16,7 @@ import us.bringardner.parley.net.server.ParleyConnection;
 import us.bringardner.parley.net.server.ServerMain;
 
 /**
- * How the launcher makes and runs a mail server: from its own configuration, with the user list the
+ * How the launcher makes and runs a mail server: from its own configuration, with the user registry the
  * launcher's servers share ({@link SharedUsers}), and while it runs with its beans registered in the
  * launcher's {@link ServerContext}: its store's administration
  * ({@code us.bringardner.parley:type=MailStore,name=ID}, the launcher's id for it) and any others the

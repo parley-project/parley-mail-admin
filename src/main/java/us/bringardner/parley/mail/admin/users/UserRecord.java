@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * One line of the users file (parley-net's FileBasedAcl format):
+ * One line of the users file (parley-net's FileUserRegistry format):
  * {@code name , credential , PERM|PERM , key=value|key=value}.
  */
 public final class UserRecord {
@@ -17,7 +17,7 @@ public final class UserRecord {
 	public static final String WRITE = "WRITE";
 	public static final String ADMIN = "ADMIN";
 	public static final String MAILDROP = "maildrop";
-	/** The parameter listing the user's groups, separated by {@code ;} (parley-net's FileBasedAcl) */
+	/** The parameter listing the user's groups, separated by {@code ;} (parley-net's FileUserRegistry) */
 	public static final String GROUPS = "groups";
 
 	private final String name;
@@ -30,11 +30,11 @@ public final class UserRecord {
 		this.credential = credential;
 	}
 
-	/** Parse a line of the file; null if it isn't a user (FileBasedAcl ignores it too). */
+	/** Parse a line of the file; null if it isn't a user (FileUserRegistry ignores it too). */
 	static UserRecord parse(String line) {
 		String[] parts = line.split(",");
 		if (parts.length < 3) {
-			return null; // FileBasedAcl needs name, credential and permissions
+			return null; // FileUserRegistry needs name, credential and permissions
 		}
 		UserRecord u = new UserRecord(parts[0].trim(), parts[1].trim());
 		for (String p : parts[2].split("\\|")) {
@@ -112,8 +112,17 @@ public final class UserRecord {
 		permissions.addAll(perms);
 	}
 
+	/**
+	 * True if the line lists this permission, in any case: parley-iam's permission names ignore
+	 * case, so {@code admin} and {@code ADMIN} are one permission to the servers too.
+	 */
 	public boolean hasPermission(String p) {
-		return permissions.contains(p);
+		for (String held : permissions) {
+			if (held.equalsIgnoreCase(p)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	public Map<String, String> getParameters() {

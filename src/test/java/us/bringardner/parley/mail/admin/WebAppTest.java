@@ -798,6 +798,11 @@ public class WebAppTest {
 		HttpClient other = HttpClient.newBuilder().cookieHandler(new CookieManager()).build();
 		// an administrator with no domain administers nothing
 		assertEquals(401, callAs(other, "none", "POST", "/login", Map.of("user", "nodomain", "password", "nodomain12")).statusCode());
+		// the users file's registry checks the password and the admin permission, as soon as a user is added
+		ok("POST", "/users", Map.of("name", "mailer@c.test", "password", "mailerpass1", "permissions", List.of("READ", "WRITE")));
+		assertEquals(401, callAs(other, "none", "POST", "/login", Map.of("user", "mailer@c.test", "password", "mailerpass1")).statusCode(),
+				"a mail user without admin");
+		ok("DELETE", "/users/mailer@c.test", null);
 
 		HttpResponse<String> r = callAs(other, "none", "POST", "/login", Map.of("user", "boss@c.test", "password", "bosspass12"));
 		assertEquals(200, r.statusCode(), r.body());
