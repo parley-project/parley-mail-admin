@@ -4,6 +4,8 @@
 
 ### Changed (2026-11-06: users, logins and permissions come from parley-iam)
 
+- **The Users page keeps `group:` lines**, the lines parley-net's `FileUserRegistry` uses for a group with no members
+  (`group: support@example.com`), when it rewrites the users file.
 - **The suite's FTP servers use a parley-iam user registry**: `SuiteAcl` and `FtpAcl` (parley-net access control
   lists, whose interface is gone) are `SuiteUserRegistry` and `FtpUserRegistry`, parley-iam `UserRegistry`s over the
   users file's registry the mail servers share. That registry checks the passwords and answers every permission
