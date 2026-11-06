@@ -19,12 +19,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.mail.server.AbstractMailServer;
-import us.bringardner.parley.net.server.FileBasedAcl;
-import us.bringardner.parley.net.server.IAccessControlList;
+import us.bringardner.parley.net.server.FileUserRegistry;
 
 /**
- * The launcher's mail servers share one user list per users file (moved here from parley-mail and
+ * The launcher's mail servers share one user registry per users file (moved here from parley-mail and
  * parley-net with ServerContext): per launcher, not per JVM; closed with the context.
  */
 public class SharedUsersTest {
@@ -72,23 +72,23 @@ public class SharedUsersTest {
 		Plain a = made(one, "parley.mail.a");
 		Plain b = made(one, "parley.mail.b");
 		Plain c = made(two, "parley.mail.a");
-		IAccessControlList acl = a.getAccessControl();
-		assertNotNull(acl);
-		assertNotNull(acl.getPrincipal("tony"));
-		assertSame(acl, b.getAccessControl());
-		assertSame(acl, SharedUsers.find(one, users));
-		assertNotSame(acl, c.getAccessControl(), "another launcher has its own");
+		UserRegistry registry = a.getUserRegistry();
+		assertNotNull(registry);
+		assertNotNull(registry.findPrincipal("tony"));
+		assertSame(registry, b.getUserRegistry());
+		assertSame(registry, SharedUsers.find(one, users));
+		assertNotSame(registry, c.getUserRegistry(), "another launcher has its own");
 		assertNull(SharedUsers.find(new ServerContext(MBeanServerFactory.newMBeanServer()), users));
 
 		Plain byCode = new Plain("parley.mail.a");
-		assertNotNull(byCode.getAccessControl());
-		assertNotSame(acl, byCode.getAccessControl(), "made by code: a list of its own");
+		assertNotNull(byCode.getUserRegistry());
+		assertNotSame(registry, byCode.getUserRegistry(), "made by code: a registry of its own");
 
-		// the application changed the file: the shared list reads it now
+		// the application changed the file: the shared registry reads it now
 		Files.write(users.toPath(), "tony,secret,READ\njose,other,READ\n".getBytes(StandardCharsets.UTF_8));
 		users.setLastModified(System.currentTimeMillis() + 5000);
 		SharedUsers.find(one, users).reloadNow();
-		assertNotNull(b.getAccessControl().getPrincipal("jose"));
+		assertNotNull(b.getUserRegistry().findPrincipal("jose"));
 	}
 
 	@Test
@@ -96,17 +96,17 @@ public class SharedUsersTest {
 		File users = file("users.txt", "tony,secret,READ\n");
 		java.util.Properties fast = new java.util.Properties();
 		fast.setProperty(AbstractMailServer.MAIL_USERS_PROP, users.getPath());
-		fast.setProperty(FileBasedAcl.PROP_RELOAD_INTERVAL, "1s");
+		fast.setProperty(FileUserRegistry.PROP_RELOAD_INTERVAL, "1s");
 		java.util.Properties plain = new java.util.Properties();
 		plain.setProperty(AbstractMailServer.MAIL_USERS_PROP, users.getPath());
 		Plain a = MailServices.make(one, fast, () -> new Plain("parley.mail.a"));
 		Plain b = MailServices.make(one, plain, () -> new Plain("parley.mail.a"));
-		assertNotSame(a.getAccessControl(), b.getAccessControl());
-		assertSame(fast, ((FileBasedAcl) a.getAccessControl()).getConfiguration(), "made with the servers' settings: their reload interval");
+		assertNotSame(a.getUserRegistry(), b.getUserRegistry());
+		assertSame(fast, ((FileUserRegistry) a.getUserRegistry()).getConfiguration(), "made with the servers' settings: their reload interval");
 		assertNotNull(SharedUsers.find(one, users), "found under either key");
 	}
 
-	static class CountingAcl extends FileBasedAcl {
+	static class CountingRegistry extends FileUserRegistry {
 		final AtomicInteger closed = new AtomicInteger();
 
 		@Override
@@ -116,13 +116,13 @@ public class SharedUsersTest {
 	}
 
 	@Test
-	public void aSharedListIsClosedWithTheContext() throws Exception {
+	public void aSharedRegistryIsClosedWithTheContext() throws Exception {
 		ServerContext context = new ServerContext(MBeanServerFactory.newMBeanServer());
-		CountingAcl shared = context.shared("users", CountingAcl.class, CountingAcl::new);
-		assertSame(shared, context.shared("users", CountingAcl.class, CountingAcl::new));
+		CountingRegistry shared = context.shared("users", CountingRegistry.class, CountingRegistry::new);
+		assertSame(shared, context.shared("users", CountingRegistry.class, CountingRegistry::new));
 		assertEquals(0, shared.closed.get());
 		context.close();
-		assertEquals(1, shared.closed.get(), "an IAccessControlList is AutoCloseable, so the context closes it");
+		assertEquals(1, shared.closed.get(), "a UserRegistry is Closeable, so the context closes it");
 		assertTrue(context.sharedKeys().isEmpty());
 	}
 }

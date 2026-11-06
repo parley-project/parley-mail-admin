@@ -106,7 +106,7 @@ public final class SettingsCatalog {
 	public static final String ADMIN_DNS_KEY_FILE = "parley.mail.admin.dnsKeyFile";
 	/** The address the DNS page sends updates to, when it isn't the host of the DNS server's JMX address */
 	public static final String ADMIN_DNS_HOST = "parley.mail.admin.dnsHost";
-	public static final String ACL_RELOAD_INTERVAL = us.bringardner.parley.net.server.FileBasedAcl.PROP_RELOAD_INTERVAL;
+	public static final String ACL_RELOAD_INTERVAL = us.bringardner.parley.net.server.FileUserRegistry.PROP_RELOAD_INTERVAL;
 	public static final String ADMIN_LOG_BUFFER = "parley.mail.admin.logBufferSize";
 	public static final String ADMIN_LOG_FILE_SIZE = "parley.mail.admin.logFileSize";
 
@@ -122,12 +122,12 @@ public final class SettingsCatalog {
 		add(g, FILE_SOURCE, "Mail root file system", TEXT, "the default (local files)",
 				"The parley-files FileSource factory for the mail root, e.g. a database or SFTP factory id. Empty for local files.");
 		add(g, USERS, "Users file", PATH, null,
-				"The user list every server uses (FileBasedAcl format). The servers read it again when it changes (Users page or not), within the time below.");
+				"The users every server uses (parley-net's FileUserRegistry format). The servers read it again when it changes (Users page or not), within the time below.");
 		add(g, ACL_RELOAD_INTERVAL, "Users file check", DURATION, "15s",
 				"How often the servers look for changes to the users file (30s, 1m); 0: never (a restart reads it).");
 		add(g, "parley.net.acl.maxConcurrentHashes", "Password checks at once", NUMBER, "the number of processors",
 				"How many password hashes are checked at the same time (each takes about 0.1 s of a processor), so a flood of logins can't use every processor.");
-		add(g, us.bringardner.parley.net.server.FileBasedAcl.PROP_HASH_WAIT, "Password check wait", DURATION, "30s",
+		add(g, us.bringardner.parley.net.server.FileUserRegistry.PROP_HASH_WAIT, "Password check wait", DURATION, "30s",
 				"How long a login waits for its turn to check a password before it fails.");
 
 		g = group("store", "Store", "The mail store's own settings, in .parley-store.properties in the mail root: every server that uses the store reads them, so they can't disagree. A store without the file isn't used.");

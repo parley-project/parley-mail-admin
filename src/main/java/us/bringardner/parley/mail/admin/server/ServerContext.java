@@ -16,7 +16,7 @@ import javax.management.ObjectName;
 
 /**
  * What the servers one {@link ServerLauncher} runs share in their JVM: objects by name (the mail
- * servers' user list, see {@link SharedUsers}), and the management beans the launcher registers for
+ * servers' user registry, see {@link SharedUsers}), and the management beans the launcher registers for
  * them. A shared object lives as long as the launcher: restarting one server keeps it, so its
  * settings change only when every server using it, or the process, is restarted. (Moved here from
  * parley-net: what servers share is the application's choice.)

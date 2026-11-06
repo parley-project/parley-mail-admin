@@ -1,15 +1,15 @@
 # parley-mail-admin
 
 A web application that manages the **Parley** mail suite from a browser: `parley-smtp`,
-`parley-imap` and `parley-pop3`, all serving one mail store with one user list, with FTP for the mail
+`parley-imap` and `parley-pop3`, all serving one mail store with one users file, with FTP for the mail
 users and DNS. It is the mail suite's application, in two parts built from this project:
 
 - **the server side** (`us.bringardner.parley.mail.admin.server`, published as
   `parley-mail-admin-VERSION-server.jar`): the launcher that runs the suite's servers together, every
   server's provider (`smtp`, `submission`, `submissions`, `imap`, `imaps`, `pop3`, `pop3s`, `ftp`,
-  `ftps`, `dns`), what the servers share (`ServerContext`, one user list per users file with
-  `SharedUsers`, and their JMX beans, the stores' and the SMTP queues' among them), the suite's FTP
-  access control (`FtpAcl`), and `StoreSetup` (a store's and its queue's settings made in a store that
+  `ftps`, `dns`), what the servers share (`ServerContext`, one parley-iam user registry per users file
+  with `SharedUsers`, and their JMX beans, the stores' and the SMTP queues' among them), the suite's FTP
+  user registry (`FtpUserRegistry`, see [FTP logins](#ftp-logins)), and `StoreSetup` (a store's and its queue's settings made in a store that
   isn't on the local disk, for the packaging's `parley-servers-setup`). It uses no web classes
   (`ServerPackageTest`), so the servers run without the web application;
 - **the web application** (`parley-mail-admin-VERSION.war`): the pages, managing the servers with JMX.
@@ -203,7 +203,7 @@ SMTP server's (`parley.mail.smtp.hostname`, `parley.mail.submission.hostname`,
 
 | File | What |
 |---|---|
-| `users.txt` | The users (`parley.mail.users`), in parley-net's FileBasedAcl format; the servers read it again when it changes. |
+| `users.txt` | The users (`parley.mail.users`), in parley-net's FileUserRegistry format; the servers read it again when it changes. |
 | `aliases.txt` | The aliases, when the queue names no other file (its `aliases`). |
 | `logs/parley-mail.log` | This application's log (rotated at `parley.mail.admin.logFileSize`, 5 old files kept). |
 | `dkim/` | DKIM keys made on the Domains page, each with its DNS record. |
@@ -239,7 +239,7 @@ entries, and sets or removes an entry for a user, a group or anyone, positive or
 2. A mailbox with no entry for its owner gives the owner every right. The owner's own rights can be narrowed,
    but the owner always keeps `l` and `a` (so can't be locked out); Reset gives every right back.
 3. A group is written `$name@domain` in an ACL. A user's groups are set in the Add and Edit user dialogs, each
-   with its domain (`sales@example.com`), and kept in the users file as FileBasedAcl's `groups=a;b`.
+   with its domain (`sales@example.com`), and kept in the users file as FileUserRegistry's `groups=a;b`.
 4. A user is named as the users file names it; one the file doesn't have is refused, as IMAP's SETACL refuses it.
 5. Deleting a user takes the user out of every other user's ACLs and out of the share index
    (`.imap-shares`), so LIST no longer offers anything to the user's name. The user's own mail is kept.
@@ -267,8 +267,9 @@ re-adding it).
   server registers (parley-mail's `MailStoreAdminMXBean`; `MailSuite.storeAdmin()` finds it).
 - `settings.SettingsService` edits the settings files; `settings.SettingsCatalog` describes the
   settings the Settings page offers (any other `parley.*` setting can go on its Other tab).
-- `users.UserStore` and `users.AliasStore` edit the files; the servers' user list is parley-mail's
-  shared `FileBasedAcl` of `parley.mail.users`, which reads the file again when it changes.
+- `users.UserStore` and `users.AliasStore` edit the files; the servers' user registry is parley-net's
+  `FileUserRegistry` of `parley.mail.users` (one per launcher, `server.SharedUsers`), which reads the file
+  again when it changes.
   Passwords are stored as PBKDF2 hashes with SCRAM-SHA-256 and SCRAM-SHA-1 credentials, so every
   login mechanism works.
 - `FileRewrite` writes a file through a temporary file and a rename, keeping the original's
@@ -281,9 +282,43 @@ re-adding it).
   JavaScript) use; `web.AdminFilter` requires a logged-in user with the ADMIN permission and a
   CSRF token for every change, and sets a strict Content-Security-Policy.
 
+## FTP logins
+
+The suite's FTP servers (`ftp`, `ftps`) use `FtpUserRegistry`, a parley-iam `UserRegistry` over the
+users file's registry the mail servers share: the registry checks the passwords and answers every
+permission check (`read`, `write`, `admin`, as parley-ftp asks them). A login is `name@domain` of one of
+the suite's local domains; groups and names that would be a path don't log in. Each user's root is the
+principal's `userRoot` attribute, which parley-ftp makes when the user first logs in. Set after the
+server's prefix (`parley.mail.ftp` or `parley.mail.ftps`):
+
+| Setting | What |
+|---|---|
+| `loginPermission` | Only users the registry gives this permission may log in (`admin`, say). Not set: every mail user of a local domain. |
+| `primaryRoot` | The root of the primary domain's users on the server's own disk (`/data/home`, say). |
+| `domainRoot` | The root of the other domains' users, `{domain}` and `{name}` filled in (`/data/home/{domain}`, say). |
+
+With neither root, each user's root is their folder in the store's FTP folder (`<root>/<domain>/<name>`);
+`primaryRoot` and `domainRoot` go together. For example, a server where only administrators log in, the
+primary domain's with `/data/home` and the others with `/data/home/<domain>` (made when they first log in):
+
+```
+parley.mail.ftp.loginPermission=admin
+parley.mail.ftp.primaryRoot=/data/home
+parley.mail.ftp.domainRoot=/data/home/{domain}
+```
+
+A registry that can't answer (the domains or the login permission can't be checked) gets FTP's `421`, try
+again later, never a refusal.
+
 ## Logging in
 
-Administrators are mail users with the ADMIN permission (Users page). While no user has it, the
+Administrators are mail users with the ADMIN permission (Users page). A login goes to a parley-iam user
+registry of the users file (parley-net's `FileUserRegistry`, as the mail servers read it): it checks
+the password, then answers whether the user holds `admin` (permission names ignore case, so `ADMIN` and
+`admin` are the same). A wrong password, an unknown user and a user without `admin` all get the same
+answer. When the registry can't answer (the users file can't be read), the login gets 503 "try again
+later", which isn't counted as a failed attempt. Names are matched as the file writes them (the Users
+page keeps them in lower case). While no user has ADMIN, the
 first page creates one. After 10 login attempts from one address in 15 minutes without success,
 that address must wait (behind a reverse proxy every client has the proxy's address, so they share
 that limit). A user who loses ADMIN, or is deleted, is logged out at their next request.
