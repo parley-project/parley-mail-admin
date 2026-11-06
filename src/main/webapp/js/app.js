@@ -483,7 +483,7 @@
 			for (const p of st.problems.slice().reverse()) {
 				problems.appendChild(h('div.problem',
 					h('span.badge', { class: p.level === 'ERROR' ? 'bad' : 'warn' }, p.level), ' ',
-					h('span.faint', fmtTime(p.time) + ' ' + p.source + ' '), p.message));
+					h('span.faint', fmtTime(p.time) + ' ' + p.source + ' '), shortLists(p.message)));
 			}
 		}
 		refresh();
@@ -495,6 +495,13 @@
 
 	function domainsPage(root) {
 		const list = h('div');
+		const table = h('div');
+		const count = h('span.muted');
+		const search = h('input', { type: 'search', placeholder: 'Search domains' });
+		let domains = [];
+		search.addEventListener('input', () => draw());
+		list.appendChild(h('div.pager', search, count));
+		list.appendChild(table);
 		const input = h('input.domain-input', { type: 'text', placeholder: 'example.com' });
 		const addForm = h('form.toolbar', input, h('button.primary', { type: 'submit' }, 'Add domain'));
 		addForm.addEventListener('submit', async e => {
@@ -511,12 +518,20 @@
 		root.appendChild(state.primary ? panel('Local domains', addForm, list) : panel('Your domain', list));
 
 		async function refresh() {
-			let domains;
 			try { domains = await api('GET', '/domains'); } catch (e) { return fail(e); }
 			state.domains = domains.map(d => d.domain);
-			clear(list).appendChild(h('div.table-wrap', h('table',
+			draw();
+		}
+
+		function draw() {
+			const q = search.value.trim().toLowerCase();
+			const shown = domains.filter(d => !q || d.domain.includes(q) || (d.unicode || '').toLowerCase().includes(q));
+			count.textContent = q ? shown.length + ' of ' + domains.length + ' domains' : domains.length + (domains.length === 1 ? ' domain' : ' domains');
+			// the search only helps with more than a few
+			search.parentNode.style.display = domains.length > 10 ? '' : 'none';
+			clear(table).appendChild(shown.length === 0 ? h('div.empty', 'No domains match') : h('div.table-wrap', h('table',
 				h('thead', h('tr', h('th', 'Domain'), h('th', 'Users'), h('th', 'Aliases'), h('th', 'DKIM'), h('th', 'Spam filter'), h('th', ''))),
-				h('tbody', domains.map(d => h('tr',
+				h('tbody', shown.map(d => h('tr',
 					h('td', h('b', d.domain), d.unicode ? h('span.muted', ' (' + d.unicode + ')') : null),
 					h('td', h('a', { href: '#/users', onclick: () => { state.userDomain = d.domain; } }, String(d.users))),
 					h('td', String(d.aliases)),
@@ -619,10 +634,45 @@
 		return n.endsWith('.' + d) ? n.substring(0, n.length - d.length - 1) : n + '.';
 	}
 
+	/**
+	 * A message with a long list in it ("... [a.example, b.example, ...] ..."): the list shortened to
+	 * its first few, and "and N more" to see the rest.
+	 */
+	function shortLists(text) {
+		const parts = [];
+		let last = 0;
+		const re = /\[([^\[\]]*)\]/g;
+		let m;
+		while ((m = re.exec(text)) !== null) {
+			const items = m[1].split(/,\s*/);
+			if (items.length <= 5) continue;
+			parts.push(text.substring(last, m.index));
+			const more = h('button.link', { type: 'button' }, 'and ' + (items.length - 3) + ' more');
+			const span = h('span', items.slice(0, 3).join(', ') + ', ', more);
+			more.addEventListener('click', () => span.replaceWith(h('span', items.join(', '))));
+			parts.push(span);
+			last = m.index + m[0].length;
+		}
+		if (!parts.length) return text;
+		parts.push(text.substring(last));
+		return parts;
+	}
+
 	function dnsPage(root) {
 		const SHARED = '\u0000shared';
 		const status = h('div');
-		const tabs = h('div.tabs');
+		// a domain to show: typed (the list narrows as you type), or the shared zone's button
+		const pickId = 'dns-domains';
+		const pick = h('input.domain-pick', { type: 'text', list: pickId, autocomplete: 'off', spellcheck: false, placeholder: 'Type a domain', title: 'Type part of a domain, then pick it' });
+		const pickList = h('datalist', { id: pickId });
+		const sharedButton = h('button.small', { type: 'button', onclick: () => show(SHARED) }, 'Shared zone');
+		const count = h('span.muted');
+		const tabs = h('div.pager', h('span', 'Domain'), pick, pickList, sharedButton, count);
+		let known = [];
+		pick.addEventListener('focus', () => pick.select());
+		const choose = () => { const v = pick.value.trim().toLowerCase().replace(/\.+$/, ''); if (known.includes(v)) { if (v !== current) show(v); } else if (current && current !== SHARED) pick.value = current; };
+		pick.addEventListener('change', choose);
+		pick.addEventListener('input', () => { if (known.includes(pick.value.trim().toLowerCase())) choose(); });
 		const body = h('div');
 		root.appendChild(h('p.muted', 'A domain with no zone file is served from the shared zone; a domain\'s own records add to the shared zone\'s '
 			+ 'or override them, by name and type. Changes are made on the DNS server at once.'));
@@ -642,11 +692,12 @@
 			}
 			const first = state.adminDomain && domains.includes(state.adminDomain) ? [state.adminDomain] : [];
 			const order = first.concat(domains.filter(d => d !== state.adminDomain).sort());
+			known = order.slice();
+			clear(pickList);
+			for (const d of order) pickList.appendChild(h('option', { value: d }));
+			count.textContent = order.length + (order.length === 1 ? ' domain' : ' domains');
+			sharedButton.style.display = st && st.sharedZone ? '' : 'none';
 			if (st && st.sharedZone) order.push(SHARED);
-			clear(tabs);
-			for (const d of order) {
-				tabs.appendChild(h('button.tab', { type: 'button', 'data-domain': d, onclick: () => show(d) }, d === SHARED ? 'Shared zone' : d));
-			}
 			if (!order.length) { clear(body).appendChild(h('div.empty', 'No domains')); return; }
 			show(order.includes(current) ? current : order[0]);
 		}
@@ -663,8 +714,8 @@
 					h('dt', 'Zones'), h('dd', String(s.zones.length)),
 					h('dt', 'Zone folder'), h('dd.mono', s.zoneDirectory || ''),
 					s.sharedZone ? [h('dt', 'Shared zone'), h('dd.mono', s.sharedZone)] : null),
-				s.keyProblem ? h('div.banner', s.keyProblem) : null,
-				(s.errors || []).map(e => h('div.err', e))));
+				s.keyProblem ? h('div.banner', shortLists(s.keyProblem)) : null,
+				(s.errors || []).map(e => h('div.err', shortLists(e)))));
 		}
 
 		const shared = () => current === SHARED;
@@ -673,7 +724,8 @@
 		async function show(d) {
 			current = d;
 			state.dnsDomain = d;
-			for (const b of tabs.querySelectorAll('button')) b.classList.toggle('active', b.dataset.domain === d);
+			pick.value = d === SHARED ? '' : d;
+			sharedButton.classList.toggle('primary', d === SHARED);
 			try { zone = shared() ? asShared(await api('GET', '/dns/shared')) : await api('GET', '/dns/zones/' + enc(d)); }
 			catch (e) { clear(body).appendChild(h('div.banner', e.message)); return; }
 			draw();
@@ -807,11 +859,45 @@
 
 	const PERMS = ['READ', 'WRITE', 'ADMIN'];
 
+	/**
+	 * A domain to choose, typed or picked from a list that narrows as you type (hundreds of domains
+	 * are too many to scroll). Its value is '*' (allowAll: every user, alias ...), '' (no domain:
+	 * every domain) or a domain; a text that names none goes back to the last one chosen. 'change'
+	 * fires when the choice changes.
+	 */
+	let pickerCount = 0;
 	function domainSelect(selected, allowAll) {
-		return h('select',
-			allowAll ? h('option', { value: '*' }, 'All domains') : null,
-			h('option', { value: '' }, allowAll ? 'No domain (every domain)' : '(no domain: every domain)'),
-			state.domains.map(d => h('option', { value: d }, '@' + d)));
+		const id = 'domains-' + (++pickerCount);
+		const labels = new Map();
+		if (allowAll) labels.set('*', 'All domains');
+		labels.set('', allowAll ? 'No domain (every domain)' : '(no domain: every domain)');
+		for (const d of state.domains) labels.set(d, '@' + d);
+		const byLabel = new Map([...labels].map(([v, l]) => [l.toLowerCase(), v]));
+		const input = h('input.domain-pick', { type: 'text', list: id, autocomplete: 'off', spellcheck: false,
+			placeholder: 'Type a domain', title: 'Type part of a domain, then pick it' });
+		const list = h('datalist', { id }, [...labels.values()].map(l => h('option', { value: l })));
+		const wrap = h('span.domain-picker', input, list);
+		let current = selected != null && labels.has(selected) ? selected : (allowAll ? '*' : '');
+		input.value = labels.get(current);
+		function parse(text) {
+			const t = text.trim().toLowerCase();
+			if (byLabel.has(t)) return byLabel.get(t);
+			const bare = t.replace(/^@/, '');
+			return labels.has(bare) && bare !== '' && bare !== '*' ? bare : undefined;
+		}
+		function commit() {
+			const v = parse(input.value);
+			if (v === undefined) { input.value = labels.get(current); return; }
+			input.value = labels.get(v);
+			if (v !== current) { current = v; wrap.dispatchEvent(new Event('change')); }
+		}
+		input.addEventListener('change', commit);
+		// a pick from the list (or an exact name) counts at once, without leaving the field
+		input.addEventListener('input', () => { if (parse(input.value) !== undefined && input.value.trim().toLowerCase() === (labels.get(parse(input.value)) || '').toLowerCase()) commit(); });
+		input.addEventListener('focus', () => input.select());
+		Object.defineProperty(wrap, 'value', { get: () => current, set: v => { if (labels.has(v)) { current = v; input.value = labels.get(v); } } });
+		Object.defineProperty(wrap, 'disabled', { get: () => input.disabled, set: v => { input.disabled = v; } });
+		return wrap;
 	}
 
 	function permChecks(selected) {
@@ -922,26 +1008,51 @@
 		await dialog('Mailboxes of ' + u.name, body, { okLabel: null, wide: true });
 	}
 
+	const USERS_PAGE = 100;
+
 	function usersPage(root) {
-		const filter = domainSelect(null, true);
-		filter.value = state.userDomain !== undefined ? state.userDomain : '*';
+		const chosen = state.userDomain;
+		const filter = domainSelect(chosen !== undefined ? chosen : '*', true);
 		state.userDomain = undefined;
 		const search = h('input', { type: 'search', placeholder: 'Search' });
 		const list = h('div');
+		const count = h('div.pager');
 		let users = [];
-		filter.addEventListener('change', draw);
-		search.addEventListener('input', draw);
+		let total = 0, offset = 0, first = chosen === undefined;
+		let timer = null;
+		filter.addEventListener('change', () => { offset = 0; refresh(); });
+		// the server searches: after a pause in typing, not at every key
+		search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { offset = 0; refresh(); }, 250); });
 		root.appendChild(h('p.muted', 'READ: log in and read mail (IMAP, POP3) or files (FTP). WRITE: change mailboxes, send mail and change files. ADMIN: use these pages. Changes take effect at once.'));
-		root.appendChild(panel('Users', h('div.toolbar', filter, search, h('button.primary', { onclick: addUser }, 'Add user')), list));
+		root.appendChild(panel('Users', h('div.toolbar', filter, search, h('button.primary', { onclick: addUser }, 'Add user')), h('div', count, list)));
 
+		/** One page of the users the domain and search ask for. */
 		async function refresh() {
-			try { users = await api('GET', '/users'); } catch (e) { return fail(e); }
+			let r;
+			const params = () => new URLSearchParams({ domain: filter.value, q: search.value.trim(), offset, limit: USERS_PAGE });
+			try { r = await api('GET', '/users?' + params()); } catch (e) { return fail(e); }
+			// more users than a page: start on the administrator's own domain rather than all of them
+			if (first && r.total > USERS_PAGE && state.adminDomain && state.domains.includes(state.adminDomain)) {
+				filter.value = state.adminDomain;
+				try { r = await api('GET', '/users?' + params()); } catch (e) { return fail(e); }
+			}
+			first = false;
+			users = r.users; total = r.total; offset = r.offset;
 			draw();
 		}
 
 		function draw() {
-			const d = filter.value, q = search.value.trim().toLowerCase();
-			const shown = users.filter(u => (d === '*' || (d === '' ? !u.domain : u.domain === d)) && (!q || u.name.toLowerCase().includes(q)));
+			const shown = users;
+			clear(count);
+			if (total > 0) {
+				const last = Math.min(total, offset + shown.length);
+				count.appendChild(h('span.muted', total <= USERS_PAGE ? total + (total === 1 ? ' user' : ' users')
+					: 'Users ' + (offset + 1) + '–' + last + ' of ' + total.toLocaleString()));
+				if (total > USERS_PAGE) {
+					count.appendChild(h('button.small', { disabled: offset === 0, onclick: () => { offset = Math.max(0, offset - USERS_PAGE); refresh(); } }, 'Previous'));
+					count.appendChild(h('button.small', { disabled: last >= total, onclick: () => { offset += USERS_PAGE; refresh(); } }, 'Next'));
+				}
+			}
 			clear(list).appendChild(shown.length === 0 ? h('div.empty', 'No users') : h('div.table-wrap', h('table',
 				h('thead', h('tr', h('th', 'User'), h('th', 'Domain'), h('th', 'Permissions'), h('th', 'Groups'), h('th', 'Maildrop'), h('th', 'Storage'), h('th', ''))),
 				h('tbody', shown.map(u => {
@@ -955,9 +1066,16 @@
 						h('td', usage),
 						h('td.actions',
 							h('button.small', { onclick: () => editUser(u) }, 'Edit'),
-							h('button.small', { onclick: () => mailboxAclDialog(u, users), title: 'Who may use this user\'s mailboxes (IMAP ACLs)' }, 'Mailboxes'),
+							h('button.small', { onclick: () => openMailboxAcls(u), title: 'Who may use this user\'s mailboxes (IMAP ACLs)' }, 'Mailboxes'),
 							h('button.small.danger', { onclick: () => deleteUser(u), disabled: u.name === state.user }, 'Delete')));
 				})))));
+		}
+
+		/** The sharing dialog suggests the users and groups of the user's own domain. */
+		async function openMailboxAcls(u) {
+			let r;
+			try { r = await api('GET', '/users?' + new URLSearchParams({ domain: u.domain || '', limit: 1000 })); } catch (e) { return fail(e); }
+			mailboxAclDialog(u, r.users);
 		}
 
 		async function showUsage(u, el) {
@@ -990,7 +1108,7 @@
 					return api('POST', '/users', { name, password: pw.value, permissions: perms.values(), maildrop: drop.value || null, groups: groupsValue(groups) });
 				}
 			});
-			if (r) { users = r; draw(); toast('User added', 'ok'); }
+			if (r) { refresh(); toast('User added', 'ok'); }
 		}
 
 		async function editUser(u) {
@@ -1012,13 +1130,13 @@
 					return api('PUT', '/users/' + enc(u.name), { password: pw.value || null, permissions: perms.values(), maildrop: md, groups: groupsValue(groups) });
 				}
 			});
-			if (r) { users = r; draw(); toast('Saved', 'ok'); }
+			if (r) { refresh(); toast('Saved', 'ok'); }
 		}
 
 		async function deleteUser(u) {
 			if (!await confirmDialog('Delete ' + u.name, u.name + ' can no longer log in or receive mail. The mail in ' + u.maildrop + ' is kept; other users\' mailboxes no longer share with ' + u.name + '.', 'Delete')) return;
 			try {
-				users = await api('DELETE', '/users/' + enc(u.name)); draw();
+				await api('DELETE', '/users/' + enc(u.name)); refresh();
 				if (state.lastWarning) toast('Deleted. ' + state.lastWarning, 'bad'); else toast('Deleted', 'ok');
 			} catch (e) { fail(e); }
 		}
@@ -1034,14 +1152,29 @@
 		const note = h('div');
 		root.appendChild(h('p.muted', 'An alias with a domain (sales@example.com) is for that domain; one without (postmaster) is for every local domain. Members are users or addresses; a member without @ takes the alias\'s domain. The SMTP services read the aliases when they start.'));
 		root.appendChild(note);
-		root.appendChild(panel('Aliases', h('button.primary', { onclick: () => edit(null) }, 'Add alias'), list));
+		const filter = domainSelect('*', true);
+		const search = h('input', { type: 'search', placeholder: 'Search' });
+		const count = h('div.pager');
+		filter.addEventListener('change', () => draw());
+		search.addEventListener('input', () => draw());
+		root.appendChild(panel('Aliases', h('div.toolbar', filter, search, h('button.primary', { onclick: () => edit(null) }, 'Add alias')), h('div', count, list)));
 		let data;
 
 		async function refresh(d) {
 			try { data = d || await api('GET', '/aliases'); } catch (e) { return fail(e); }
 			clear(note);
-			const a = data.aliases;
-			clear(list).appendChild(a.length === 0 ? h('div.empty', 'No aliases') : h('div.table-wrap', h('table',
+			draw();
+		}
+
+		/** The aliases of the domain chosen (or those for every domain) whose name or members have the text searched for. */
+		function draw() {
+			const dom = filter.value, q = search.value.trim().toLowerCase();
+			const all = data.aliases;
+			const a = all.filter(x => (dom === '*' || (dom === '' ? !x.domain : x.domain === dom))
+				&& (!q || x.name.toLowerCase().includes(q) || x.members.some(m => m.toLowerCase().includes(q))));
+			clear(count);
+			if (all.length) count.appendChild(h('span.muted', a.length === all.length ? all.length + (all.length === 1 ? ' alias' : ' aliases') : a.length + ' of ' + all.length + ' aliases'));
+			clear(list).appendChild(a.length === 0 ? h('div.empty', all.length ? 'No aliases match' : 'No aliases') : h('div.table-wrap', h('table',
 				h('thead', h('tr', h('th', 'Alias'), h('th', 'Members'), h('th', ''))),
 				h('tbody', a.map(x => h('tr', h('td', h('b', x.name), x.domain ? null : h('span.faint', ' (every domain)')),
 					h('td', x.members.join(', ')),

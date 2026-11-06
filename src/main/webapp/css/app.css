@@ -121,6 +121,10 @@ h3 { font-size: 15px; }
 .tabs-wrap { padding: 0; }
 .spaced { margin-top: 14px; }
 .domain-input { width: 260px; }
+/* a domain to choose by typing (the list narrows as you type) */
+.domain-pick { width: 260px; }
+/* a count of what a list shows, with its search and paging, above the list */
+.pager { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; }
 .problem { padding: 5px 0; border-bottom: 1px solid var(--line-soft); }
 .problem:last-child { border-bottom: none; }
 

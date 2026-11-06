@@ -365,6 +365,17 @@ public class WebAppTest {
 		ok("POST", "/users", Map.of("name", "tony@b.test", "password", "tonypass1", "permissions", java.util.List.of("READ", "WRITE")));
 		assertEquals(400, call("POST", "/users", Map.of("name", "x@c.test", "password", "xxxxxxxx1")).statusCode(), "not a local domain");
 		ok("PUT", "/aliases/sales@b.test", Map.of("members", java.util.List.of("tony")));
+		// the Users page asks for a page at a time: of a domain, a search, from an offset
+		JsonNode page = ok("GET", "/users?domain=b.test&limit=10", null);
+		assertEquals(1, page.get("total").asInt(), page.toString());
+		assertEquals("tony@b.test", page.get("users").get(0).get("name").asText());
+		JsonNode every = ok("GET", "/users?domain=*&q=TONY&limit=1&offset=0", null);
+		assertEquals(1, every.get("users").size());
+		assertTrue(every.get("total").asInt() >= 1);
+		assertEquals(0, ok("GET", "/users?domain=b.test&q=nobody&limit=10", null).get("total").asInt());
+		JsonNode past = ok("GET", "/users?domain=b.test&limit=10&offset=50", null);
+		assertEquals(0, past.get("users").size(), "an offset past the end gives no users");
+		assertTrue(ok("GET", "/users", null).isArray(), "without limit: every user, as before");
 
 		// domains, DKIM and aliases are used at once: no service needs a restart for them (the SMTP server's own spam
 		// settings, changed above, are read when it starts)
@@ -801,6 +812,11 @@ public class WebAppTest {
 		for (JsonNode u : users) {
 			assertEquals("c.test", u.get("domain").asText(), users.toString());
 		}
+		JsonNode paged = json.readTree(callAs(other, token, "GET", "/users?domain=*&limit=100", null).body());
+		for (JsonNode u : paged.get("users")) {
+			assertEquals("c.test", u.get("domain").asText(), paged.toString());
+		}
+		assertEquals(users.size(), paged.get("total").asInt(), "a page too has only its domain's users");
 		JsonNode aliases = json.readTree(callAs(other, token, "GET", "/aliases", null).body()).get("aliases");
 		assertEquals(1, aliases.size(), aliases.toString());
 		JsonNode domains = json.readTree(callAs(other, token, "GET", "/domains", null).body());
