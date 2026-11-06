@@ -328,7 +328,8 @@ public final class UserStore {
 				out.append(l.user.format()).append('\n');
 			} else if (l.text != null) {
 				String t = l.text.trim();
-				if (t.isEmpty() || t.startsWith("#")) {
+				if (t.isEmpty() || t.startsWith("#") || t.startsWith(FileUserRegistry.GROUP_LINE_PREFIX)) {
+					// comments, and the lines that keep groups with no members (group: name)
 					out.append(l.text).append('\n');
 				}
 				// a deleted user's original line is dropped
