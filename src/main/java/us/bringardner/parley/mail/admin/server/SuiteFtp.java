@@ -11,7 +11,7 @@ import us.bringardner.parley.ftp.server.FtpServer;
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.mail.store.MailLocks;
 import us.bringardner.parley.mail.store.MaildropRoot;
-import us.bringardner.parley.net.server.FileBasedAcl;
+import us.bringardner.parley.net.server.FileUserRegistry;
 import us.bringardner.parley.net.server.Server;
 import us.bringardner.parley.net.server.ServerMain;
 
@@ -57,13 +57,13 @@ final class SuiteFtp {
 		FileSource mailRoot = MaildropRoot.open(root, source, connection, AbstractMailServer.MAIL_FILE_SOURCE_PROP);
 		String queue = c.getProperty("parley.mail.smtp.queue", "").trim();
 		StoreDomains domains = new StoreDomains(MaildropRoot.child(mailRoot, queue.isEmpty() ? ".smtp-queue" : queue));
-		FileBasedAcl list = users == null || users.trim().isEmpty() ? null : SharedUsers.list(context, new File(users.trim()).getCanonicalFile(), c.getProperty(FileBasedAcl.PROP_RELOAD_INTERVAL), c);
-		FtpAcl acl = new FtpAcl(list, domains, c, prefix);
+		FileUserRegistry list = users == null || users.trim().isEmpty() ? null : SharedUsers.list(context, new File(users.trim()).getCanonicalFile(), c.getProperty(FileUserRegistry.PROP_RELOAD_INTERVAL), c);
+		FtpUserRegistry registry = new FtpUserRegistry(list, domains, c, prefix);
 
 		FileSource folder;
-		if (acl.usesServerDisk()) {
-			// the users' roots are folders on this machine's disk, all in the one FtpAcl names
-			folder = FileSourceFactory.getDefaultFactory().createFileSource(acl.serverDiskBase());
+		if (registry.usesServerDisk()) {
+			// the users' roots are folders on this machine's disk, all in the one FtpUserRegistry names
+			folder = FileSourceFactory.getDefaultFactory().createFileSource(registry.serverDiskBase());
 		} else {
 			String folderName = c.getProperty(prefix + "." + FtpProviders.ROOT, FtpProviders.DEFAULT_ROOT).trim();
 			folder = MaildropRoot.child(mailRoot, folderName.isEmpty() ? FtpProviders.DEFAULT_ROOT : folderName);
@@ -73,11 +73,11 @@ final class SuiteFtp {
 		}
 
 		FtpServer server = BaseObject.makeWith(c, () -> new SuiteFtpServer(port, secure, prefix, folder, mailRoot));
-		server.setAccessControl(acl);
+		server.setUserRegistry(registry);
 		configure(server, c, secure);
-		if (acl.usesServerDisk() && acl.primaryDomain() == null) {
-			server.logInfo("No primary domain (" + FtpAcl.PRIMARY_DOMAIN + "): every user of " + server.getName()
-					+ " gets " + prefix + "." + FtpAcl.DOMAIN_ROOT);
+		if (registry.usesServerDisk() && registry.primaryDomain() == null) {
+			server.logInfo("No primary domain (" + FtpUserRegistry.PRIMARY_DOMAIN + "): every user of " + server.getName()
+					+ " gets " + prefix + "." + FtpUserRegistry.DOMAIN_ROOT);
 		}
 		if (list == null) {
 			server.logInfo("No users file (" + AbstractMailServer.MAIL_USERS_PROP + "): no one can log in to " + server.getName());

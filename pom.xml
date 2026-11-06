@@ -70,6 +70,13 @@
 			<artifactId>parley-ftp</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<!-- Used directly: users, logins and permissions (UserRegistry, ParleyPermission) for the
+		     suite's FTP servers and the admin pages' logins -->
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-iam</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 		<!-- Logo and Margot, served under /brand/ -->
 		<dependency>
 			<groupId>us.bringardner.parley</groupId>
@@ -136,7 +143,7 @@
 				<version>3.4.0</version>
 			</plugin>
 			<!-- The servers' side of the application in a jar of its own, parley-mail-admin-VERSION-server.jar:
-			     the launcher, every server's provider and the suite's FTP access control
+			     the launcher, every server's provider and the suite's FTP user registry
 			     (us.bringardner.parley.mail.admin.server), which the parley-mail service runs without the
 			     web application. ServerPackageTest checks the package uses no web classes. -->
 			<plugin>

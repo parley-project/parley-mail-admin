@@ -29,6 +29,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.mail.admin.AdminApp;
 import us.bringardner.parley.mail.admin.domains.DomainService;
 import us.bringardner.parley.mail.admin.users.AdminScope;
@@ -630,9 +632,26 @@ public class ApiServlet extends HttpServlet {
 		}
 		String name = q.requiredText("user");
 		char[] password = q.password("password");
-		UserRecord u = app.getUsers().authenticate(name, password);
+		// the users file's registry checks the password and answers whether the user holds admin
+		AuthenticationResult result;
+		try {
+			result = app.authenticateAdmin(name, password, requester(q.http));
+		} finally {
+			if (password != null) {
+				Arrays.fill(password, '\0');
+			}
+		}
+		if (result.getStatus() == AuthenticationResult.Status.UNAVAILABLE) {
+			// the registry couldn't answer: not a failed login, and never "denied"
+			failures.computeIfPresent(ip, (k, v) -> v[0] <= 1 ? null : new long[] { v[0] - 1, v[1] });
+			LOG.log(System.Logger.Level.ERROR, "Can't check the admin login of '" + printable(name) + "' from " + ip + ": " + result.getReason());
+			throw new ApiException(503, "Logins can't be checked now; try again later");
+		}
+		UserRecord u = result.getStatus() == AuthenticationResult.Status.AUTHENTICATED
+				? app.getUsers().get(result.getPrincipal().getName()) : null;
 		if (u == null || AdminScope.of(u, app.getPrimaryDomain()) == null) {
-			LOG.log(System.Logger.Level.WARNING, "Failed admin login for '" + printable(name) + "' from " + ip);
+			LOG.log(System.Logger.Level.WARNING, "Failed admin login for '" + printable(name) + "' from " + ip
+					+ (result.getReason() == null ? "" : ": " + printable(result.getReason())));
 			try {
 				Thread.sleep(500);
 			} catch (InterruptedException e) {
@@ -645,6 +664,21 @@ public class ApiServlet extends HttpServlet {
 		AdminFilter.login(q.http, u.getName());
 		LOG.log(System.Logger.Level.INFO, u.getName() + " logged in to the admin pages from " + ip);
 		return session(q);
+	}
+
+	/** Who is logging in, for the user registry: the browser's address and whether the connection is secure */
+	private static Requester requester(HttpServletRequest req) {
+		String address = req.getRemoteAddr();
+		try {
+			if (address == null || address.isEmpty()) {
+				throw new java.net.UnknownHostException("no address");
+			}
+			// an address literal: no name lookup
+			java.net.InetAddress client = java.net.InetAddress.getByName(address);
+			return Requester.connected(client, req.getLocalPort(), req.isSecure(), Requester.Transport.TCP, AdminApp.LOGIN_SERVER_NAME);
+		} catch (java.net.UnknownHostException | RuntimeException e) {
+			return Requester.withoutAddress(AdminApp.LOGIN_SERVER_NAME).withSecure(req.isSecure());
+		}
 	}
 
 	/** Text for the log: no control characters (no forged log lines), at most 100 characters. */
