@@ -5,10 +5,10 @@ import java.util.Locale;
 import java.util.Properties;
 
 import us.bringardner.parley.iam.AuthorizationResult;
-import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.UserRegistry;
+import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.net.server.IDomainList;
 
 /**
