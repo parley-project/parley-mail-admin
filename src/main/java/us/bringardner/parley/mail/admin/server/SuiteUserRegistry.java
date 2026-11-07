@@ -124,7 +124,7 @@ class SuiteUserRegistry implements UserRegistry {
 		if (name == null || users == null) {
 			return null;
 		}
-		ParleyPrincipal p = users.findPrincipal(name);
+		ParleyPrincipal p = users.findUser(name);
 		return p == null ? null : rooted(p);
 	}
 
