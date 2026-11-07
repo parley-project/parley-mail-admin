@@ -1,72 +1,49 @@
 package us.bringardner.parley.mail.admin.users;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
 /**
- * One line of the users file (parley-net's FileUserRegistry format):
- * {@code name , credential , PERM|PERM , key=value|key=value}.
+ * A user as the Users page shows it, read from the user registry by {@link UserService}: its name,
+ * the permissions granted to it, its maildrop, its groups, and whether it is turned on. A value: a
+ * change goes through {@link UserService}, which then reads the user again.
  */
 public final class UserRecord {
 
 	public static final String READ = "READ";
 	public static final String WRITE = "WRITE";
 	public static final String ADMIN = "ADMIN";
+	/** The attribute naming the user's maildrop (the servers read it too) */
 	public static final String MAILDROP = "maildrop";
-	/** The parameter listing the user's groups, separated by {@code ;} (parley-net's FileUserRegistry) */
-	public static final String GROUPS = "groups";
 
 	private final String name;
-	private String credential;
-	private final Set<String> permissions = new LinkedHashSet<>();
-	private final Map<String, String> parameters = new LinkedHashMap<>();
+	private final Set<String> permissions;
+	private final String maildrop;
+	private final List<String> groups;
+	private final boolean enabled;
+	private final boolean plainText;
+	private final boolean scram;
 
-	public UserRecord(String name, String credential) {
+	/**
+	 * @param maildrop the maildrop attribute, or null when the user has none
+	 * @param groups the user's groups; empty for a turned-off user, whose groups the registry doesn't give
+	 * @param plainText true when the password is kept in plain text
+	 * @param scram true when the user can log in with SCRAM-SHA-256
+	 */
+	UserRecord(String name, Collection<String> permissions, String maildrop, Collection<String> groups,
+			boolean enabled, boolean plainText, boolean scram) {
 		this.name = name;
-		this.credential = credential;
-	}
-
-	/** Parse a line of the file; null if it isn't a user (FileUserRegistry ignores it too). */
-	static UserRecord parse(String line) {
-		String[] parts = line.split(",");
-		if (parts.length < 3) {
-			return null; // FileUserRegistry needs name, credential and permissions
-		}
-		UserRecord u = new UserRecord(parts[0].trim(), parts[1].trim());
-		for (String p : parts[2].split("\\|")) {
-			if (!p.trim().isEmpty()) {
-				u.permissions.add(p.trim());
-			}
-		}
-		if (parts.length > 3) {
-			for (String a : parts[3].split("\\|")) {
-				String[] kv = a.split("=");
-				if (kv.length == 2) {
-					u.parameters.put(kv[0].trim(), kv[1].trim());
-				}
-			}
-		}
-		return u;
-	}
-
-	String format() {
-		StringBuilder b = new StringBuilder(name).append(" , ").append(credential).append(" , ").append(String.join("|", permissions));
-		if (!parameters.isEmpty()) {
-			b.append(" , ");
-			boolean first = true;
-			for (Map.Entry<String, String> e : parameters.entrySet()) {
-				if (!first) {
-					b.append('|');
-				}
-				b.append(e.getKey()).append('=').append(e.getValue());
-				first = false;
-			}
-		}
-		return b.toString();
+		this.permissions = Collections.unmodifiableSet(new LinkedHashSet<>(permissions));
+		this.maildrop = maildrop;
+		this.groups = Collections.unmodifiableList(new ArrayList<>(groups));
+		this.enabled = enabled;
+		this.plainText = plainText;
+		this.scram = scram;
 	}
 
 	public String getName() {
@@ -85,35 +62,27 @@ public final class UserRecord {
 		return at < 0 ? name : name.substring(0, at);
 	}
 
-	String getCredential() {
-		return credential;
-	}
-
-	void setCredential(String credential) {
-		this.credential = credential;
-	}
-
-	/** True if the password is stored hashed (not in plain text). */
+	/** False when the password is kept in plain text. */
 	public boolean isHashed() {
-		return credential.startsWith("{");
+		return !plainText;
 	}
 
 	/** True if the user can log in with SCRAM-SHA-256. */
 	public boolean hasScram() {
-		return credential.contains("{SCRAM-SHA-256}") || !isHashed();
+		return scram;
+	}
+
+	/** True when the user is turned on: it can log in and get mail. */
+	public boolean isEnabled() {
+		return enabled;
 	}
 
 	public Set<String> getPermissions() {
-		return Collections.unmodifiableSet(permissions);
-	}
-
-	void setPermissions(Set<String> perms) {
-		permissions.clear();
-		permissions.addAll(perms);
+		return permissions;
 	}
 
 	/**
-	 * True if the line lists this permission, in any case: parley-iam's permission names ignore
+	 * True if the user holds this permission, in any case: parley-iam's permission names ignore
 	 * case, so {@code admin} and {@code ADMIN} are one permission to the servers too.
 	 */
 	public boolean hasPermission(String p) {
@@ -125,39 +94,26 @@ public final class UserRecord {
 		return false;
 	}
 
-	public Map<String, String> getParameters() {
-		return Collections.unmodifiableMap(parameters);
+	/** True for a user that is turned on and holds ADMIN: one who can use the admin pages. */
+	public boolean isActiveAdmin() {
+		return enabled && hasPermission(ADMIN);
 	}
 
-	void setParameter(String key, String value) {
-		if (value == null || value.isEmpty()) {
-			parameters.remove(key);
-		} else {
-			parameters.put(key, value);
-		}
+	/**
+	 * The user's groups (full names, such as sales@bringardner.us). Empty for a turned-off user:
+	 * the registry doesn't say which groups it is in until it is turned on again.
+	 */
+	public List<String> getGroups() {
+		return groups;
 	}
 
-	/** The user's groups (full names, such as sales@bringardner.us), in the order written. */
-	public java.util.List<String> getGroups() {
-		java.util.List<String> ret = new java.util.ArrayList<>();
-		String v = parameters.get(GROUPS);
-		if (v != null) {
-			for (String g : v.split(";")) {
-				if (!g.trim().isEmpty() && !ret.contains(g.trim())) {
-					ret.add(g.trim());
-				}
-			}
-		}
-		return ret;
+	/** The maildrop attribute, or null when the user has none (its maildrop is then its name). */
+	String getMaildropAttribute() {
+		return maildrop;
 	}
 
-	void setGroups(java.util.Collection<String> groups) {
-		setParameter(GROUPS, groups == null || groups.isEmpty() ? null : String.join(";", groups));
-	}
-
-	/** The maildrop directory relative to the mail root: the parameter, or the name. */
+	/** The maildrop directory relative to the mail root: the attribute, or the name. */
 	public String getMaildrop() {
-		String m = parameters.get(MAILDROP);
-		return m != null ? m : name;
+		return maildrop != null ? maildrop : name;
 	}
 }

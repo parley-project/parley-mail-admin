@@ -267,9 +267,11 @@ re-adding it).
   server registers (parley-mail's `MailStoreAdminMXBean`; `MailSuite.storeAdmin()` finds it).
 - `settings.SettingsService` edits the settings files; `settings.SettingsCatalog` describes the
   settings the Settings page offers (any other `parley.*` setting can go on its Other tab).
-- `users.UserStore` and `users.AliasStore` edit the files; the servers' user registry is parley-net's
-  `FileUserRegistry` of `parley.mail.users` (one per launcher, `server.SharedUsers`), which reads the file
-  again when it changes.
+- `users.UserService` keeps the users in the servers' parley-iam user registry, parley-net's
+  `FileUserRegistry` of `parley.mail.users` (one per launcher, `server.SharedUsers`, used by the pages when the
+  servers run in this process; otherwise one of the pages' own over the same file), with this application's rules
+  (password length, local domains, maildrops, group names, the last administrator). Adding or changing a user is
+  one parley-iam change set, so the file is written once. `users.AliasStore` edits the aliases file.
   Passwords are stored as PBKDF2 hashes with SCRAM-SHA-256 and SCRAM-SHA-1 credentials, so every
   login mechanism works.
 - `FileRewrite` writes a file through a temporary file and a rename, keeping the original's

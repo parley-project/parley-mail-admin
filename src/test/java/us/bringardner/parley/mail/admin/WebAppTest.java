@@ -376,6 +376,16 @@ public class WebAppTest {
 		JsonNode past = ok("GET", "/users?domain=b.test&limit=10&offset=50", null);
 		assertEquals(0, past.get("users").size(), "an offset past the end gives no users");
 		assertTrue(ok("GET", "/users", null).isArray(), "without limit: every user, as before");
+		assertTrue(page.get("editable").asBoolean(), "the users file's registry can change users");
+		assertTrue(page.get("users").get(0).get("enabled").asBoolean(), "a user is added turned on");
+
+		// the Active checkbox: turned off, a user is kept but can't log in; turned on again, it can
+		ok("PUT", "/users/tony@b.test", Map.of("active", false));
+		assertFalse(ok("GET", "/users?domain=b.test&limit=10", null).get("users").get(0).get("enabled").asBoolean());
+		ok("PUT", "/users/Tony@B.test", Map.of("active", true));
+		assertTrue(ok("GET", "/users?domain=b.test&limit=10", null).get("users").get(0).get("enabled").asBoolean(), "a name in any case");
+		assertEquals(400, call("PUT", "/users/admin@a.test", Map.of("active", false)).statusCode(), "you can't turn yourself off");
+		assertEquals(400, call("PUT", "/users/tony@b.test", Map.of("active", "no")).statusCode(), "active is true or false");
 
 		// domains, DKIM and aliases are used at once: no service needs a restart for them (the SMTP server's own spam
 		// settings, changed above, are read when it starts)

@@ -110,6 +110,15 @@ public class ApiServlet extends HttpServlet {
 			write(res, result);
 		} catch (ApiException e) {
 			error(res, e.getStatus(), e.getMessage());
+		} catch (us.bringardner.parley.iam.UserRegistryUnavailableException e) {
+			unavailable(res, path, e);
+		} catch (java.io.UncheckedIOException e) {
+			if (e.getCause() instanceof us.bringardner.parley.iam.UserRegistryUnavailableException) {
+				unavailable(res, path, e.getCause());
+			} else {
+				LOG.log(System.Logger.Level.ERROR, req.getMethod() + " " + path + " failed", e);
+				error(res, 500, e.getMessage());
+			}
 		} catch (IllegalArgumentException e) {
 			error(res, 400, e.getMessage());
 		} catch (IllegalStateException e) {
@@ -118,6 +127,12 @@ public class ApiServlet extends HttpServlet {
 			LOG.log(System.Logger.Level.ERROR, req.getMethod() + " " + path + " failed", e);
 			error(res, 500, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
 		}
+	}
+
+	/** The user registry can't answer now: not the request's fault, and never "not allowed". */
+	private void unavailable(HttpServletResponse res, String path, Throwable e) throws IOException {
+		LOG.log(System.Logger.Level.ERROR, path + ": the user registry can't answer now: " + e.getMessage());
+		error(res, 503, "The users can't be read or changed now: " + e.getMessage());
 	}
 
 	/** The request attribute holding the logged-in administrator's {@link AdminScope}. */
@@ -424,8 +439,9 @@ public class ApiServlet extends HttpServlet {
 		r.post("/users", q -> {
 			requireAddress(q, q.requiredText("name"), "The user");
 			requireMaildrop(q, q.text("maildrop"));
+			Boolean active = q.bool("active");
 			app.getUsers().add(q.requiredText("name"), required(q.password("password"), "password"), permissions(q.list("permissions")),
-					q.text("maildrop"), q.list("groups"));
+					q.text("maildrop"), q.list("groups"), active == null || active);
 			LOG.log(System.Logger.Level.INFO, q.user() + " added the user " + q.text("name"));
 			return users(q);
 		});
@@ -433,7 +449,12 @@ public class ApiServlet extends HttpServlet {
 			requireAddress(q, q.param(0), "The user");
 			requireMaildrop(q, q.text("maildrop"));
 			List<String> perms = q.list("permissions");
-			app.getUsers().update(q.param(0), q.password("password"), perms == null ? null : permissions(perms), q.text("maildrop"), q.list("groups"));
+			Boolean active = q.bool("active");
+			if (Boolean.FALSE.equals(active) && q.param(0).equalsIgnoreCase(q.user())) {
+				throw ApiException.badRequest("You can't turn yourself off");
+			}
+			app.getUsers().update(q.param(0), q.password("password"), perms == null ? null : permissions(perms), q.text("maildrop"),
+					q.list("groups"), active);
 			LOG.log(System.Logger.Level.INFO, q.user() + " changed the user " + q.param(0));
 			return users(q);
 		});
@@ -1179,6 +1200,7 @@ public class ApiServlet extends HttpServlet {
 		m.put("offset", offset);
 		m.put("limit", limit);
 		m.put("users", all.subList(offset, Math.min(all.size(), offset + limit)));
+		m.put("editable", app.getUsers().isEditable());
 		return m;
 	}
 
@@ -1201,6 +1223,7 @@ public class ApiServlet extends HttpServlet {
 			m.put("permissions", u.getPermissions());
 			m.put("maildrop", u.getMaildrop());
 			m.put("groups", u.getGroups());
+			m.put("enabled", u.isEnabled());
 			m.put("hashed", u.isHashed());
 			m.put("scram", u.hasScram());
 			list.add(m);

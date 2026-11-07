@@ -907,6 +907,18 @@
 		return el;
 	}
 
+	/**
+	 * The Active checkbox: checked, the user is on (can log in and get mail); unchecked, it is
+	 * turned off. Yourself: shown, but you can't turn yourself off.
+	 */
+	function activeCheck(checked, self) {
+		const box = h('input', { type: 'checkbox', checked, disabled: self });
+		const el = h('div.checks', h('label', { title: self ? 'You can\'t turn yourself off' : '' }, box,
+			'On: can log in and get mail (unchecked: turned off, kept but can\'t log in or get mail)'));
+		el.checked = () => box.checked;
+		return el;
+	}
+
 	/** Group names typed as a list (commas or spaces), each with its domain: sales@example.com. */
 	function groupsInput(groups) {
 		return h('input', { type: 'text', value: (groups || []).join(', '), placeholder: 'sales@example.com, support@example.com' });
@@ -1017,6 +1029,9 @@
 		const search = h('input', { type: 'search', placeholder: 'Search' });
 		const list = h('div');
 		const count = h('div.pager');
+		const readOnly = h('p.faint', { hidden: true }, 'The user registry in use can\'t add, change or delete users, so this page only shows them.');
+		const addButton = h('button.primary', { onclick: addUser }, 'Add user');
+		let editable = true;
 		let users = [];
 		let total = 0, offset = 0, first = chosen === undefined;
 		let timer = null;
@@ -1024,7 +1039,7 @@
 		// the server searches: after a pause in typing, not at every key
 		search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { offset = 0; refresh(); }, 250); });
 		root.appendChild(h('p.muted', 'READ: log in and read mail (IMAP, POP3) or files (FTP). WRITE: change mailboxes, send mail and change files. ADMIN: use these pages. Changes take effect at once.'));
-		root.appendChild(panel('Users', h('div.toolbar', filter, search, h('button.primary', { onclick: addUser }, 'Add user')), h('div', count, list)));
+		root.appendChild(panel('Users', h('div.toolbar', filter, search, addButton), h('div', readOnly, count, list)));
 
 		/** One page of the users the domain and search ask for. */
 		async function refresh() {
@@ -1038,6 +1053,9 @@
 			}
 			first = false;
 			users = r.users; total = r.total; offset = r.offset;
+			editable = r.editable !== false;
+			readOnly.hidden = editable;
+			addButton.disabled = !editable;
 			draw();
 		}
 
@@ -1058,16 +1076,18 @@
 				h('tbody', shown.map(u => {
 					const usage = h('button.link', { type: 'button', onclick: () => showUsage(u, usage) }, 'show');
 					return h('tr',
-						h('td', h('b', u.name), u.hashed ? null : h('span.badge.warn', { title: 'The password is stored in plain text; set it again to hash it' }, ' plain')),
+						h('td', h('b', u.name), u.hashed ? null : h('span.badge.warn', { title: 'The password is stored in plain text; set it again to hash it' }, ' plain'),
+							u.enabled === false ? h('span.badge.bad', { title: 'Turned off: can\'t log in or get mail (Edit, Active, to turn it on)' }, ' off') : null),
 						h('td', u.domain || h('span.faint', 'every domain')),
 						h('td', h('div.chips', u.permissions.map(p => h('span.badge', { class: p === 'ADMIN' ? 'gold' : '' }, p)))),
-						h('td', (u.groups || []).length ? h('div.chips', u.groups.map(g => h('span.badge.asis', g))) : h('span.faint', 'none')),
+						h('td', u.enabled === false ? h('span.faint', { title: 'The registry gives a turned-off user\'s groups once it is turned on again' }, 'shown when on')
+							: (u.groups || []).length ? h('div.chips', u.groups.map(g => h('span.badge.asis', g))) : h('span.faint', 'none')),
 						h('td.mono', u.maildrop),
 						h('td', usage),
 						h('td.actions',
-							h('button.small', { onclick: () => editUser(u) }, 'Edit'),
+							h('button.small', { onclick: () => editUser(u), disabled: !editable }, 'Edit'),
 							h('button.small', { onclick: () => openMailboxAcls(u), title: 'Who may use this user\'s mailboxes (IMAP ACLs)' }, 'Mailboxes'),
-							h('button.small.danger', { onclick: () => deleteUser(u), disabled: u.name === state.user }, 'Delete')));
+							h('button.small.danger', { onclick: () => deleteUser(u), disabled: !editable || u.name === state.user }, 'Delete')));
 				})))));
 		}
 
@@ -1095,17 +1115,19 @@
 			const perms = permChecks(['READ', 'WRITE']);
 			const drop = h('input', { type: 'text', placeholder: 'domain/user (default)' });
 			const groups = groupsInput([]);
+			const active = activeCheck(true, false);
 			const r = await dialog('Add user', h('div.form',
 				h('div.row', h('span', 'User name'), h('div.inline', local, dom)),
 				h('label.row', h('span', 'Password (at least 8 characters)'), pw),
 				h('label.row', h('span', 'Password again'), pw2),
 				h('div.row', h('span', 'Permissions'), perms),
 				h('label.row', h('span', 'Maildrop (directory under the mail root; empty for the default)'), drop),
-				h('label.row', h('span', 'Groups (each with its domain; mailbox ACLs name a group $name@domain)'), groups)), {
+				h('label.row', h('span', 'Groups (each with its domain; mailbox ACLs name a group $name@domain)'), groups),
+				h('div.row', h('span', 'Active'), active)), {
 				okLabel: 'Add', onOk: async () => {
 					if (pw.value !== pw2.value) throw new Error('The passwords are different');
 					const name = local.value.trim() + (dom.value ? '@' + dom.value : '');
-					return api('POST', '/users', { name, password: pw.value, permissions: perms.values(), maildrop: drop.value || null, groups: groupsValue(groups) });
+					return api('POST', '/users', { name, password: pw.value, permissions: perms.values(), maildrop: drop.value || null, groups: groupsValue(groups), active: active.checked() });
 				}
 			});
 			if (r) { refresh(); toast('User added', 'ok'); }
@@ -1116,18 +1138,25 @@
 			const pw2 = h('input', { type: 'password', autocomplete: 'new-password' });
 			const perms = permChecks(u.permissions);
 			const drop = h('input', { type: 'text', value: u.maildrop });
-			const groups = groupsInput(u.groups);
+			const on = u.enabled !== false;
+			const groups = groupsInput(on ? u.groups : []);
+			// a turned-off user's groups come back when it is turned on; they can be changed then
+			groups.disabled = !on;
+			if (!on) groups.placeholder = 'shown and changed once the user is turned on';
+			const active = activeCheck(on, u.name === state.user);
 			const r = await dialog('Edit ' + u.name, h('div.form',
 				h('label.row', h('span', 'New password (empty: keep the current one)'), pw),
 				h('label.row', h('span', 'New password again'), pw2),
 				h('div.row', h('span', 'Permissions'), perms),
 				h('label.row', h('span', 'Maildrop (empty: the default)'), drop),
 				h('label.row', h('span', 'Groups (each with its domain; mailbox ACLs name a group $name@domain)'), groups),
+				h('div.row', h('span', 'Active'), active),
 				h('p.faint', 'Changing the maildrop doesn\'t move existing mail.')), {
 				okLabel: 'Save', onOk: async () => {
 					if (pw.value !== pw2.value) throw new Error('The passwords are different');
 					const md = drop.value.trim() === u.maildrop ? null : drop.value.trim();
-					return api('PUT', '/users/' + enc(u.name), { password: pw.value || null, permissions: perms.values(), maildrop: md, groups: groupsValue(groups) });
+					return api('PUT', '/users/' + enc(u.name), { password: pw.value || null, permissions: perms.values(), maildrop: md,
+						groups: on ? groupsValue(groups) : null, active: active.checked() });
 				}
 			});
 			if (r) { refresh(); toast('Saved', 'ok'); }
