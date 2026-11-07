@@ -18,6 +18,12 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.StoredCredentialType;
+import us.bringardner.parley.iam.credential.PasswordCredential;
+import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.mail.admin.settings.PropertiesFile;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
@@ -25,12 +31,6 @@ import us.bringardner.parley.mail.admin.suite.ServiceId;
 import us.bringardner.parley.mail.admin.users.AliasStore;
 import us.bringardner.parley.mail.admin.users.UserRecord;
 import us.bringardner.parley.mail.admin.users.UserService;
-import us.bringardner.parley.iam.AuthenticationResult;
-import us.bringardner.parley.iam.ParleyPrincipal;
-import us.bringardner.parley.iam.PasswordCredential;
-import us.bringardner.parley.iam.ProofCredential;
-import us.bringardner.parley.iam.Requester;
-import us.bringardner.parley.iam.StoredCredentialType;
 import us.bringardner.parley.net.server.FileUserRegistry;
 
 /** The files the pages edit: settings, users and aliases, and the log and history files they read. */

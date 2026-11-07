@@ -16,7 +16,6 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
-import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.PermissionManager;
@@ -24,6 +23,7 @@ import us.bringardner.parley.iam.PrincipalChanges;
 import us.bringardner.parley.iam.PrincipalManager;
 import us.bringardner.parley.iam.StoredCredentialType;
 import us.bringardner.parley.iam.UserRegistry;
+import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.net.server.FileUserRegistry;
 
 /**
