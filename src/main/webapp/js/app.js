@@ -1139,10 +1139,8 @@
 			const perms = permChecks(u.permissions);
 			const drop = h('input', { type: 'text', value: u.maildrop });
 			const on = u.enabled !== false;
-			const groups = groupsInput(on ? u.groups : []);
-			// a turned-off user's groups come back when it is turned on; they can be changed then
-			groups.disabled = !on;
-			if (!on) groups.placeholder = 'shown and changed once the user is turned on';
+			// a turned-off user's groups are kept and can be changed; they count again when it is turned on
+			const groups = groupsInput(u.groups);
 			const active = activeCheck(on, u.name === state.user);
 			const r = await dialog('Edit ' + u.name, h('div.form',
 				h('label.row', h('span', 'New password (empty: keep the current one)'), pw),
@@ -1156,7 +1154,7 @@
 					if (pw.value !== pw2.value) throw new Error('The passwords are different');
 					const md = drop.value.trim() === u.maildrop ? null : drop.value.trim();
 					return api('PUT', '/users/' + enc(u.name), { password: pw.value || null, permissions: perms.values(), maildrop: md,
-						groups: on ? groupsValue(groups) : null, active: active.checked() });
+						groups: groupsValue(groups), active: active.checked() });
 				}
 			});
 			if (r) { refresh(); toast('Saved', 'ok'); }
