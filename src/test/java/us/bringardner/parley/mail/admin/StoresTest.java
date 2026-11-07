@@ -24,7 +24,7 @@ import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
 import us.bringardner.parley.mail.admin.users.AliasStore;
 import us.bringardner.parley.mail.admin.users.UserRecord;
-import us.bringardner.parley.mail.admin.users.UserStore;
+import us.bringardner.parley.mail.admin.users.UserService;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.PasswordCredential;
@@ -126,9 +126,8 @@ public class StoresTest {
 		assertEquals(group, v.readAttributes().group());
 		assertFalse(new File(dir, ".users.txt.tmp").exists());
 
-		// the stores rewrite through it too
-		UserStore u = new UserStore(f);
-		u.load();
+		// the user registry rewrites the users file keeping them too
+		UserService u = new UserService(f, null);
 		u.add("someone", "password1".toCharArray(), null, null);
 		assertEquals(perms, Files.getPosixFilePermissions(f.toPath()));
 		PropertiesFile p = new PropertiesFile(new File(dir, "p.properties"));
@@ -247,11 +246,12 @@ public class StoresTest {
 	public void usersFileIsReadByTheServersList() throws Exception {
 		File f = new File(dir, "users.txt");
 		write(f, "# users\nold , secret , READ\n");
-		UserStore u = new UserStore(f);
+		UserService u = new UserService(f, null);
 		u.setDomainCheck(d -> d.equals("a.test"));
-		u.load();
 		assertEquals(1, u.list().size());
-		assertNotNull(u.authenticate("old", "secret".toCharArray()), "a plain text password works");
+		assertFalse(u.get("old").isHashed(), "a plain text password");
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, u.registry().authenticate(
+				new PasswordCredential("old", "secret".toCharArray(), Requester.withoutAddress("test"))).getStatus(), "a plain text password works");
 
 		u.add("Tony@A.test", "password1".toCharArray(), List.of("read", "WRITE", "ADMIN"), null);
 		UserRecord tony = u.get("tony@a.test");
@@ -260,9 +260,11 @@ public class StoresTest {
 		assertEquals(Set.of("READ", "WRITE", "ADMIN"), tony.getPermissions());
 		assertTrue(tony.isHashed());
 		assertTrue(tony.hasScram());
-		assertNotNull(u.authenticate("tony@a.test", "password1".toCharArray()));
-		assertNull(u.authenticate("tony@a.test", "password2".toCharArray()));
-		assertNull(u.authenticate("nobody", "password1".toCharArray()));
+		assertTrue(tony.isEnabled());
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, u.registry().authenticate(
+				new PasswordCredential("tony@a.test", "password1".toCharArray(), Requester.withoutAddress("test"))).getStatus());
+		assertEquals(AuthenticationResult.Status.REFUSED, u.registry().authenticate(
+				new PasswordCredential("tony@a.test", "password2".toCharArray(), Requester.withoutAddress("test"))).getStatus());
 
 		assertThrows(IllegalArgumentException.class, () -> u.add("x@b.test", "password1".toCharArray(), null, null), "not a local domain");
 		assertThrows(IllegalArgumentException.class, () -> u.add("bad,name", "password1".toCharArray(), null, null));

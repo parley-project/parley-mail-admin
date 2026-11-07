@@ -140,6 +140,18 @@ final class Router {
 			return n != null && n.asBoolean(false);
 		}
 
+		/** A boolean field of the body, or null if it is missing (or null). */
+		Boolean bool(String field) throws IOException {
+			JsonNode n = body().get(field);
+			if (n == null || n.isNull()) {
+				return null;
+			}
+			if (!n.isBoolean()) {
+				throw ApiException.badRequest(field + " must be true or false");
+			}
+			return n.booleanValue();
+		}
+
 		/** Add a header to the response (a warning for the page, say). */
 		void header(String name, String value) {
 			response.setHeader(name, value);
