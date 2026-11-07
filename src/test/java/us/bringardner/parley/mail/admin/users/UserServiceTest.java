@@ -19,17 +19,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.iam.AuthenticationResult;
-import us.bringardner.parley.iam.AuthorizationResult;
-import us.bringardner.parley.iam.Credential;
-import us.bringardner.parley.iam.EntityId;
-import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
-import us.bringardner.parley.iam.ProtectedResource;
 import us.bringardner.parley.iam.Requester;
-import us.bringardner.parley.iam.StoredCredential;
-import us.bringardner.parley.iam.StoredCredentialType;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.iam.credential.PasswordCredential;
+import us.bringardner.parley.iam.registry.ForwardingUserRegistry;
 import us.bringardner.parley.net.server.FileUserRegistry;
 
 /** parley-mail-admin's rules for users, kept in the users file through its parley-iam registry. */
@@ -184,37 +178,7 @@ public class UserServiceTest {
 		FileUserRegistry file = new FileUserRegistry();
 		file.initialize(f);
 		// only the reading part of a registry
-		UserRegistry readOnly = new UserRegistry() {
-			@Override
-			public boolean supports(Class<? extends Credential> kind, StoredCredentialType stored) {
-				return file.supports(kind, stored);
-			}
-
-			@Override
-			public AuthenticationResult authenticate(Credential credential) {
-				return file.authenticate(credential);
-			}
-
-			@Override
-			public StoredCredential findStoredCredential(String user, StoredCredentialType type) {
-				return file.findStoredCredential(user, type);
-			}
-
-			@Override
-			public ParleyPrincipal findPrincipal(String name) {
-				return file.findPrincipal(name);
-			}
-
-			@Override
-			public ParleyPrincipal findPrincipal(EntityId id) {
-				return file.findPrincipal(id);
-			}
-
-			@Override
-			public AuthorizationResult checkPermission(Requester requester, ParleyPermission needed, ProtectedResource resource) {
-				return file.checkPermission(requester, needed, resource);
-			}
-		};
+		UserRegistry readOnly = new ForwardingUserRegistry(file);
 		UserService users = new UserService(f, any -> readOnly);
 		assertFalse(users.isEditable());
 		assertEquals(List.of(), users.list(), "it can't list its users");
