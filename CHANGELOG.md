@@ -4,6 +4,18 @@
 
 ### Changed (2026-11-06: users, logins and permissions come from parley-iam)
 
+- **The Users page works through the user registry** (`UserService`, replacing `UserStore`): it reads users with
+  parley-iam's `PrincipalManager.findPrincipals`, `PermissionManager.findGrants` and `UserRegistry.findGroups`, and
+  adding or changing a user is one `PrincipalChanges`, applied once (one write of the users file; nothing is
+  written when a step fails or nothing changed). When the servers run in this process the pages use the registry
+  they share. A registry that can't change users makes the page read-only. `UserStore.authenticate` is gone (the
+  admin logins already used the registry).
+- **Turning a user off**: the Add and Edit dialogs have an Active checkbox (`active` in the JSON); a turned-off
+  user is listed with an "off" badge, can't log in or get mail, and keeps its permissions and groups. Its groups
+  show and can be changed once it is turned on again. Nobody can turn themselves off, and the last administrator
+  who is turned on can't be turned off, deleted or lose ADMIN.
+- **Names typed on the pages are lower-cased before they are looked up**, as they are saved; a name kept in another
+  case (written by hand) is still found as written.
 - **The Users page keeps `group:` lines**, the lines parley-net's `FileUserRegistry` uses for a group with no members
   (`group: support@example.com`), when it rewrites the users file.
 - **The suite's FTP servers use a parley-iam user registry**: `SuiteAcl` and `FtpAcl` (parley-net access control
@@ -18,7 +30,7 @@
 - **Admin logins go through a parley-iam user registry**: `AdminApp.authenticateAdmin(name, password, requester)`
   asks the users file's `FileUserRegistry` to check the password, then whether the user holds `admin`; the login
   page answers 503 (not counted as a failure) when the registry can't answer. `UserRecord.hasPermission` ignores
-  case, as parley-iam's permission names do. `UserStore.authenticate` stays for the file's own checks.
+  case, as parley-iam's permission names do.
 - **parley-iam** is a direct dependency. `SettingsCatalog` names `FileUserRegistry`'s settings (unchanged keys:
   `parley.net.acl.reloadInterval`, `parley.net.acl.hashWait`). The test submission server's
   `authenticationProvider` is `us.bringardner.parley.net.server.FileUserRegistry`.

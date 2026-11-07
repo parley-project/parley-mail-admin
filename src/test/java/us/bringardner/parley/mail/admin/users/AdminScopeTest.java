@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -13,9 +14,7 @@ import org.junit.jupiter.api.Test;
 public class AdminScopeTest {
 
 	private static UserRecord user(String name, String... perms) {
-		UserRecord u = new UserRecord(name, "x");
-		u.setPermissions(new HashSet<>(Arrays.asList(perms)));
-		return u;
+		return new UserRecord(name, new HashSet<>(Arrays.asList(perms)), null, List.of(), true, false, true);
 	}
 
 	@Test

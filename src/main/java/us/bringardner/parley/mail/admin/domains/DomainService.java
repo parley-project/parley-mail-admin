@@ -26,7 +26,7 @@ import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.users.AliasStore;
 import us.bringardner.parley.mail.admin.users.UserRecord;
-import us.bringardner.parley.mail.admin.users.UserStore;
+import us.bringardner.parley.mail.admin.users.UserService;
 import us.bringardner.parley.smtp.dkim.DkimKeys;
 import us.bringardner.parley.smtp.spam.NullSpamFilter;
 import us.bringardner.parley.smtp.spam.Spam;
@@ -61,11 +61,11 @@ public final class DomainService {
 	}
 
 	private final SettingsService settings;
-	private final UserStore users;
+	private final UserService users;
 	private final AliasStore aliases;
 	private final File dkimDir;
 
-	public DomainService(SettingsService settings, UserStore users, AliasStore aliases, File dkimDir) {
+	public DomainService(SettingsService settings, UserService users, AliasStore aliases, File dkimDir) {
 		this.settings = settings;
 		this.users = users;
 		this.aliases = aliases;

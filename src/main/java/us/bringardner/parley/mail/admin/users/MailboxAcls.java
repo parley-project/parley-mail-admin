@@ -43,10 +43,10 @@ public final class MailboxAcls {
 	/** Why nothing can be shown or changed when no mail server runs */
 	public static final String NO_SERVER = "No mail server (IMAP, POP3 or SMTP) is running, and mailbox ACLs are changed through one; start one on the Services page";
 
-	private final UserStore users;
+	private final UserService users;
 	private final Supplier<MailStoreAdminMXBean> bean;
 
-	public MailboxAcls(UserStore users, Supplier<MailStoreAdminMXBean> bean) {
+	public MailboxAcls(UserService users, Supplier<MailStoreAdminMXBean> bean) {
 		this.users = users;
 		this.bean = bean;
 	}
@@ -180,7 +180,7 @@ public final class MailboxAcls {
 			return MailboxAcl.ANYONE;
 		}
 		if (id.charAt(0) == MailboxAcl.GROUP) {
-			String g = UserStore.checkGroups(List.of(id)).get(0);
+			String g = UserService.checkGroups(List.of(id)).get(0);
 			return MailboxAcl.GROUP + g;
 		}
 		UserRecord u = users.get(id);
