@@ -48,8 +48,8 @@ import us.bringardner.parley.net.server.FileUserRegistry;
  * that doesn't exist yet makes the group;</li>
  * <li>the last administrator who is turned on can't be deleted, lose ADMIN, or be turned off.</li>
  * </ol>
- * A turned-off user can't log in and gets no mail; the registry gives none of its groups until it
- * is turned on again, so its groups can't be changed while it is off.
+ * A turned-off user can't log in and gets no mail. Its groups are kept, shown and can be changed
+ * while it is off (the registry's {@code findDirectGroups}); they count again when it is turned on.
  *
  * @since 2.0.0
  */
@@ -252,8 +252,10 @@ public final class UserService {
 		}
 		Object maildrop = p.getAttribute(UserRecord.MAILDROP);
 		boolean enabled = !(r instanceof PrincipalManager) || ((PrincipalManager) r).isEnabled(p);
+		// the groups the user was put in, turned off or not: what the page shows and changes
+		Set<ParleyPrincipal> in = r instanceof PrincipalManager ? ((PrincipalManager) r).findDirectGroups(p) : r.findGroups(p);
 		List<String> groups = new ArrayList<>();
-		for (ParleyPrincipal g : r.findGroups(p)) {
+		for (ParleyPrincipal g : in) {
 			groups.add(g.getName());
 		}
 		boolean plainText = r.findStoredCredential(name, StoredCredentialType.PLAIN_TEXT) != null;
@@ -354,8 +356,7 @@ public final class UserService {
 	 * @param permissions the permissions the user is to hold (granted and revoked to match)
 	 * @param maildrop the maildrop; empty for the default
 	 * @param groups the groups the user is to be in (an empty list takes it out of every group); a
-	 *            group that doesn't exist is made. Refused for a turned-off user, whose groups the
-	 *            registry doesn't give: turn it on first.
+	 *            group that doesn't exist is made. A turned-off user's groups can be changed too.
 	 * @param enabled true to turn the user on, false to turn it off
 	 */
 	public void update(String name, char[] password, Collection<String> permissions, String maildrop,
@@ -381,9 +382,6 @@ public final class UserService {
 					throw new IllegalArgumentException("The last administrator can't be turned off");
 				}
 			}
-			if (grp != null && !u.isEnabled() && !grp.isEmpty()) {
-				throw new IllegalArgumentException(n + " is turned off, and a turned-off user's groups can't be changed: turn it on first");
-			}
 			PrincipalChanges changes = new PrincipalChanges();
 			if (password != null) {
 				changes.setPassword(n, password);
@@ -407,7 +405,7 @@ public final class UserService {
 					changes.setAttribute(n, UserRecord.MAILDROP, value);
 				}
 			}
-			if (grp != null && u.isEnabled()) {
+			if (grp != null) {
 				for (String g : u.getGroups()) {
 					if (!grp.contains(g)) {
 						changes.removeMember(g, n);

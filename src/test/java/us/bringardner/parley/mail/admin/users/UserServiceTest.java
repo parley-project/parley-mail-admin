@@ -112,16 +112,26 @@ public class UserServiceTest {
 		assertNotNull(ann, "a turned-off user is still listed");
 		assertFalse(ann.isEnabled());
 		assertEquals(Set.of("READ", "WRITE"), ann.getPermissions(), "its permissions are kept");
-		assertEquals(List.of(), ann.getGroups(), "the registry gives no groups for a turned-off user");
+		assertEquals(List.of("sales@a.test"), ann.getGroups(), "its groups are kept and shown");
 		assertTrue(read(f).contains("enabled=false"));
 		assertEquals(AuthenticationResult.Status.REFUSED, login(users, "ann@a.test", "annpassword"), "it can't log in");
-		assertThrows(IllegalArgumentException.class, () -> users.update("ann@a.test", null, null, null, List.of("other@a.test"), null),
-				"its groups can't be changed while it's off");
+
+		// its groups can be changed without turning it on, and the servers still see it as gone
+		users.update("ann@a.test", null, null, null, List.of("other@a.test"), null);
+		ann = users.get("ann@a.test");
+		assertFalse(ann.isEnabled(), "still off");
+		assertEquals(List.of("other@a.test"), ann.getGroups());
+		UserRegistry servers = users.registry();
+		assertNull(servers.findPrincipal("ann@a.test"), "the servers don't find it");
+		ParleyPrincipal other = servers.findPrincipal("other@a.test");
+		assertNotNull(other, "the group was made");
+		assertEquals(0, servers.findMembers(other).size(), "a turned-off user isn't listed as a member");
 
 		users.update("ann@a.test", null, null, null, null, true);
 		ann = users.get("ann@a.test");
 		assertTrue(ann.isEnabled());
-		assertEquals(List.of("sales@a.test"), ann.getGroups(), "its groups are back");
+		assertEquals(List.of("other@a.test"), ann.getGroups(), "the groups changed while it was off count now");
+		assertEquals(1, servers.findMembers(servers.findPrincipal("other@a.test")).size());
 		assertEquals(AuthenticationResult.Status.AUTHENTICATED, login(users, "ann@a.test", "annpassword"));
 
 		users.add("carl@a.test", "carlpassword".toCharArray(), List.of("READ"), null, null, false);
