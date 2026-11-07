@@ -25,6 +25,7 @@ import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.PasswordCredential;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StandardPermissions;
+import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.domains.DomainService;
 import us.bringardner.parley.mail.admin.history.HistoryStore;
@@ -37,7 +38,7 @@ import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
 import us.bringardner.parley.mail.admin.users.AliasStore;
-import us.bringardner.parley.mail.admin.users.UserStore;
+import us.bringardner.parley.mail.admin.users.UserService;
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.net.server.FileUserRegistry;
 import us.bringardner.parley.smtp.queue.MailQueueMXBean;
@@ -66,7 +67,7 @@ public final class AdminApp implements AutoCloseable {
 	private final SettingsService settings;
 	private final LogBuffer logs;
 	private final JulCapture jul = new JulCapture();
-	private final UserStore users;
+	private final UserService users;
 	private final AliasStore aliases;
 	private final DomainService domains;
 	private final HistoryStore history;
@@ -105,9 +106,8 @@ public final class AdminApp implements AutoCloseable {
 		settings.setNewQueueDefaults(java.util.Collections.singletonMap("aliases", path(home.defaultAliasesFile())));
 		applyLogLevels();
 
-		// the servers read the users file again themselves when it changes (parley-net's FileUserRegistry)
-		users = new UserStore(new File(settings.get(SettingsCatalog.USERS)));
-		users.load();
+		// the pages use the servers' registry of the users file when they run here, else one of their own
+		users = new UserService(new File(settings.get(SettingsCatalog.USERS)), this::serversRegistry);
 		aliases = new AliasStore(aliasesFile());
 		aliases.load();
 		domains = new DomainService(settings, users, aliases, home.dkimDirectory());
@@ -199,23 +199,34 @@ public final class AdminApp implements AutoCloseable {
 	 * read it at their next check.
 	 */
 	private void usersChanged() {
-		us.bringardner.parley.mail.admin.server.ServerContext context = suite.isLocal() ? suite.localContext() : null;
-		if (context != null) {
-			try {
-				FileUserRegistry registry = us.bringardner.parley.mail.admin.server.SharedUsers.find(context, users.getFile());
-				if (registry != null) {
-					registry.reloadNow(); // else no server has read it yet
-				}
-			} catch (IOException | RuntimeException e) {
-				LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile() + "; they keep the users they had", e);
+		try {
+			UserRegistry registry = serversRegistry(users.getFile().getCanonicalFile());
+			if (registry instanceof FileUserRegistry) {
+				((FileUserRegistry) registry).reloadNow(); // a no-op when the pages just wrote through it
 			}
+		} catch (IOException | RuntimeException e) {
+			LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile() + "; they keep the users they had", e);
 		}
-		FileUserRegistry logins;
-		synchronized (this) {
-			logins = loginRegistry;
+		FileUserRegistry own = users.ownRegistry();
+		if (own != null) {
+			own.reloadNow(); // the pages' own registry, when the change went through the servers'
 		}
-		if (logins != null) {
-			logins.reloadNow(); // a changed password or permission counts at the next login
+	}
+
+	/**
+	 * The registry the servers of this application share for this users file (its canonical path),
+	 * or null when they run elsewhere or none of them has read it yet.
+	 */
+	private UserRegistry serversRegistry(File usersFile) {
+		us.bringardner.parley.mail.admin.server.ServerContext context = suite != null && suite.isLocal() ? suite.localContext() : null;
+		if (context == null) {
+			return null;
+		}
+		try {
+			return us.bringardner.parley.mail.admin.server.SharedUsers.find(context, usersFile);
+		} catch (IOException e) {
+			LOG.log(System.Logger.Level.WARNING, "Can't find the servers' registry of the users file " + usersFile + ": " + e.getMessage());
+			return null;
 		}
 	}
 
@@ -225,32 +236,10 @@ public final class AdminApp implements AutoCloseable {
 	/** The server name the admin pages' logins give the user registry ({@link Requester#getServerName()}) */
 	public static final String LOGIN_SERVER_NAME = "parley-mail-admin";
 
-	/** The registry of the users file the admin pages log in with (guarded by this), made when first needed */
-	private FileUserRegistry loginRegistry;
-
 	/**
-	 * The parley-iam user registry of the users file ({@code parley.mail.users}, parley-net's
-	 * {@link FileUserRegistry}, as the mail servers read it), for the admin pages' logins; null when
-	 * the file doesn't exist yet (no users).
-	 *
-	 * @throws IOException if the file can't be read
-	 */
-	private synchronized FileUserRegistry loginRegistry() throws IOException {
-		File f = users.getFile().getCanonicalFile();
-		if (!f.exists()) {
-			return null;
-		}
-		if (loginRegistry == null || !f.equals(loginRegistry.getSourceFile())) {
-			FileUserRegistry r = new FileUserRegistry();
-			r.initialize(f);
-			loginRegistry = r;
-		}
-		return loginRegistry;
-	}
-
-	/**
-	 * Log in to the admin pages: the users file's registry checks the password, then answers whether
-	 * the user holds the {@code admin} permission. Mail users holding it are the administrators.
+	 * Log in to the admin pages: the users' registry (the one the pages use, {@link UserService#registry()})
+	 * checks the password, then answers whether the user holds the {@code admin} permission. Mail
+	 * users holding it are the administrators; a turned-off user can't log in.
 	 *
 	 * @param requester who is asking (the browser's address, whether the connection is secure)
 	 * @return AUTHENTICATED with the registry's principal when the password is right and the user is
@@ -259,14 +248,11 @@ public final class AdminApp implements AutoCloseable {
 	 *         never a refusal
 	 */
 	public AuthenticationResult authenticateAdmin(String name, char[] password, Requester requester) {
-		FileUserRegistry registry;
+		UserRegistry registry;
 		try {
-			registry = loginRegistry();
+			registry = users.registry();
 		} catch (IOException e) {
 			return AuthenticationResult.unavailable("The users file " + users.getFile() + " can't be read: " + e.getMessage());
-		}
-		if (registry == null) {
-			return AuthenticationResult.refused("no users file");
 		}
 		PasswordCredential credential = new PasswordCredential(name, password == null ? new char[0] : password, requester);
 		AuthenticationResult result;
@@ -295,7 +281,7 @@ public final class AdminApp implements AutoCloseable {
 			if (users.reloadIfChanged()) {
 				LOG.log(System.Logger.Level.INFO, "Read the users file again: it was changed outside this application");
 			}
-		} catch (IOException | RuntimeException e) {
+		} catch (RuntimeException e) {
 			LOG.log(System.Logger.Level.WARNING, "Can't read the users file " + users.getFile(), e);
 		}
 		try {
@@ -561,7 +547,7 @@ public final class AdminApp implements AutoCloseable {
 		return us.bringardner.parley.mail.admin.users.AdminScope.of(user == null ? null : users.get(user), getPrimaryDomain());
 	}
 
-	public UserStore getUsers() {
+	public UserService getUsers() {
 		return users;
 	}
 
