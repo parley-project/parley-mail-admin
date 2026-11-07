@@ -22,8 +22,6 @@ import us.bringardner.parley.ftp.server.FtpRequestProcessor;
 import us.bringardner.parley.iam.AuthenticationResult.Status;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.AuthorizationResult;
-import us.bringardner.parley.iam.Credential;
-import us.bringardner.parley.iam.EntityId;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.ProtectedResource;
@@ -35,6 +33,7 @@ import us.bringardner.parley.iam.credential.PasswordCredential;
 import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.iam.permission.StandardPermissions;
+import us.bringardner.parley.iam.registry.ForwardingUserRegistry;
 import us.bringardner.parley.net.server.DomainListUnavailableException;
 import us.bringardner.parley.net.server.FileUserRegistry;
 import us.bringardner.parley.net.server.IDomainList;
@@ -89,36 +88,15 @@ public class FtpUserRegistryTest {
 	}
 
 	/** A registry whose passwords are right but whose permission checks can't be answered */
-	private static final class PermissionsDown implements UserRegistry {
-		private final UserRegistry users;
+	private static final class PermissionsDown extends ForwardingUserRegistry {
 
 		PermissionsDown(UserRegistry users) {
-			this.users = users;
-		}
-
-		@Override
-		public boolean supports(Class<? extends Credential> kind, StoredCredentialType stored) {
-			return users.supports(kind, stored);
-		}
-
-		@Override
-		public AuthenticationResult authenticate(Credential credential) {
-			return users.authenticate(credential);
+			super(users);
 		}
 
 		@Override
 		public StoredCredential findStoredCredential(String user, StoredCredentialType type) {
 			return null;
-		}
-
-		@Override
-		public ParleyPrincipal findPrincipal(String name) throws us.bringardner.parley.iam.UserRegistryUnavailableException {
-			return users.findPrincipal(name);
-		}
-
-		@Override
-		public ParleyPrincipal findPrincipal(EntityId id) throws us.bringardner.parley.iam.UserRegistryUnavailableException {
-			return users.findPrincipal(id);
 		}
 
 		@Override
