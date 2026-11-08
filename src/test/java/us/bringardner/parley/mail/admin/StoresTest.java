@@ -18,6 +18,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.Requester;
@@ -280,7 +281,7 @@ public class StoresTest {
 
 		// the servers' registry (parley-net's FileUserRegistry) reads the same file
 		FileUserRegistry registry = new FileUserRegistry();
-		registry.initialize(f);
+		registry.initialize(FileSource.of(f));
 		ParleyPrincipal p = registry.findPrincipal("tony@a.test");
 		assertNotNull(p);
 		assertEquals("a.test/tony", p.getAttribute("maildrop"));

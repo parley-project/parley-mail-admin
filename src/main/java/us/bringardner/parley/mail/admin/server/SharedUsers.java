@@ -3,6 +3,7 @@ package us.bringardner.parley.mail.admin.server;
 import java.io.File;
 import java.io.IOException;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.net.server.FileUserRegistry;
 
@@ -28,7 +29,7 @@ public final class SharedUsers {
 	 * made a registry of its own from it when it was made); before it starts.
 	 */
 	public static void share(ServerContext context, AbstractMailServer server) throws IOException {
-		File file = server.getUsersFile();
+		FileSource file = server.getUsersFile();
 		if (file == null) {
 			return;
 		}
@@ -42,7 +43,7 @@ public final class SharedUsers {
 	 * @param configuration the settings the registry is made with (the first server's, which have that
 	 *  reload setting), or null for the system properties
 	 */
-	public static FileUserRegistry list(ServerContext context, File file, String reload, java.util.Properties configuration) throws IOException {
+	public static FileUserRegistry list(ServerContext context, FileSource file, String reload, java.util.Properties configuration) throws IOException {
 		String key = KEY + file.getPath() + (reload == null ? "" : "|" + reload.trim());
 		try {
 			return context.shared(key, FileUserRegistry.class, () -> {
