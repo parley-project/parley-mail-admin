@@ -6,7 +6,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
-import us.bringardner.parley.net.server.ServerMain;
+import us.bringardner.parley.mail.admin.server.LocalConfDir;
 
 /**
  * The directory that holds the admin application's own files: the user and alias files (unless
@@ -48,8 +48,10 @@ public final class AdminHome {
 	/**
 	 * The settings folder: the {@value #SETTINGS_PROPERTY} system property, else the context
 	 * parameter, else ServerMain.confDir() if it exists, else the home.
+	 *
+	 * @throws IOException if CONF isn't on the local file system ({@link LocalConfDir})
 	 */
-	public static File defaultSettingsDirectory(File home, String contextParameter) {
+	public static File defaultSettingsDirectory(File home, String contextParameter) throws IOException {
 		String tmp = System.getProperty(SETTINGS_PROPERTY);
 		if (isBlank(tmp)) {
 			tmp = contextParameter;
@@ -60,7 +62,7 @@ public final class AdminHome {
 			}
 			return new File(tmp);
 		}
-		File conf = ServerMain.confDir();
+		File conf = LocalConfDir.get();
 		return conf != null && conf.isDirectory() ? conf : home;
 	}
 

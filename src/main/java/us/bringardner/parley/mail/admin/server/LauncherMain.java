@@ -61,7 +61,7 @@ public final class LauncherMain {
 	public static void launch(String processName, String[] args, String... ids) throws InterruptedException {
 		ServerLauncher launcher;
 		try {
-			launcher = launcher(processName, args, ServerMain.confDir(), ids);
+			launcher = launcher(processName, args, LocalConfDir.get(), ids);
 			launcher.getSettings().print(processName);
 			launcher.init();
 		} catch (Exception e) {

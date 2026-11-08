@@ -18,6 +18,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.Requester;
@@ -59,7 +60,7 @@ public class UserServiceTest {
 		assertTrue(text.startsWith("# users\n"), text);
 
 		FileUserRegistry registry = new FileUserRegistry();
-		registry.initialize(f);
+		registry.initialize(FileSource.of(f));
 		ParleyPrincipal support = registry.findPrincipal("support@a.test");
 		assertNotNull(support, "the group is still there");
 		assertTrue(support.isGroup());
@@ -174,8 +175,8 @@ public class UserServiceTest {
 	public void theServersRegistryIsUsedWhenThereIsOne() throws Exception {
 		File f = file("tony@a.test , tonypassword , READ\n");
 		FileUserRegistry servers = new FileUserRegistry();
-		servers.initialize(f.getCanonicalFile());
-		UserService users = new UserService(f, file -> file.equals(servers.getSourceFile()) ? servers : null);
+		servers.initialize(FileSource.of(f.getCanonicalFile()));
+		UserService users = new UserService(f, file -> FileSource.of(file).equals(servers.getSourceFile()) ? servers : null);
 		assertSame(servers, users.registry());
 		users.update("tony@a.test", null, List.of("READ", "WRITE"), null);
 		assertTrue(servers.findGrants(servers.findPrincipal("tony@a.test")).size() == 2, "the servers see it at once");
@@ -186,7 +187,7 @@ public class UserServiceTest {
 	public void aRegistryThatCantChangeUsers() throws Exception {
 		File f = file("tony@a.test , tonypassword , READ\n");
 		FileUserRegistry file = new FileUserRegistry();
-		file.initialize(f);
+		file.initialize(FileSource.of(f));
 		// only the reading part of a registry
 		UserRegistry readOnly = new ForwardingUserRegistry(file);
 		UserService users = new UserService(f, any -> readOnly);

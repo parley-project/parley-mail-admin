@@ -16,6 +16,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.PermissionManager;
@@ -121,9 +122,11 @@ public final class UserService {
 			}
 			Files.write(f.toPath(), "#name , password , permissions , parameters\n".getBytes(StandardCharsets.UTF_8));
 		}
-		if (own == null || !f.equals(own.getSourceFile())) {
+		// (this application's files are local: the registry's is the same file as a FileSource)
+		FileSource source = FileSource.of(f);
+		if (own == null || !source.equals(own.getSourceFile())) {
 			FileUserRegistry r = new FileUserRegistry();
-			r.initialize(f);
+			r.initialize(source);
 			own = r;
 		}
 		return own;
