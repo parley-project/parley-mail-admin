@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
+import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
 import us.bringardner.parley.mail.store.MaildropRoot;
@@ -36,7 +37,7 @@ import us.bringardner.parley.mail.store.MaildropRoot;
  * system. Setting one makes its file when there's none (the administrator's job, done here). The
  * host name ({@link SettingsCatalog#QUEUE_HOSTNAME}) is one value for the queue and every SMTP server.
  */
-public final class SettingsService {
+public final class SettingsService extends BaseObject {
 
 	/** The settings every mail server reads (parley-mail's MailServerProvider.SHARED_SETTINGS_FILE). */
 	public static final String SHARED_FILE = "parley-mail.properties";
@@ -610,7 +611,7 @@ public final class SettingsService {
 			try {
 				l.accept(changed);
 			} catch (RuntimeException e) {
-				System.getLogger(SettingsService.class.getName()).log(System.Logger.Level.WARNING, "A settings listener failed", e);
+				logWarn("A settings listener failed", e);
 			}
 		}
 	}

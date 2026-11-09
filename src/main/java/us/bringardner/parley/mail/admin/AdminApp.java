@@ -30,7 +30,6 @@ import us.bringardner.parley.iam.permission.StandardPermissions;
 import us.bringardner.parley.mail.admin.domains.DomainService;
 import us.bringardner.parley.mail.admin.history.HistoryStore;
 import us.bringardner.parley.mail.admin.log.AdminLogger;
-import us.bringardner.parley.mail.admin.log.JulCapture;
 import us.bringardner.parley.mail.admin.log.LogBuffer;
 import us.bringardner.parley.mail.admin.log.LogFiles;
 import us.bringardner.parley.mail.admin.settings.PropertiesFile;
@@ -51,9 +50,8 @@ import us.bringardner.parley.smtp.queue.QueuedMessageInfo;
  * history. Made by the web application when it starts ({@code web.AdminContextListener}), and
  * usable without a servlet container (the tests do).
  */
-public final class AdminApp implements AutoCloseable {
+public final class AdminApp extends BaseObject implements AutoCloseable {
 
-	private static final System.Logger LOG = System.getLogger(AdminApp.class.getName());
 	/** The servers' log file in a settings file (parley-core's; 1.x's logFile) */
 	static final String SERVERS_LOG_FILE = "parley.log.file";
 
@@ -66,7 +64,6 @@ public final class AdminApp implements AutoCloseable {
 	private final ObjectMapper json;
 	private final SettingsService settings;
 	private final LogBuffer logs;
-	private final JulCapture jul = new JulCapture();
 	private final UserService users;
 	private final AliasStore aliases;
 	private final DomainService domains;
@@ -99,13 +96,12 @@ public final class AdminApp implements AutoCloseable {
 
 		logs = new LogBuffer(5000);
 		LogBuffer.install(logs);
-		jul.install();
 
 		settings = new SettingsService(home.getSettingsDirectory(), new SettingsCatalog());
 		settings.load();
 		logs.setCapacity((int) settings.getLong(SettingsCatalog.ADMIN_LOG_BUFFER, 5000));
 		logs.setFile(home.logDirectory().getChild("parley-mail.log"), settings.getLong(SettingsCatalog.ADMIN_LOG_FILE_SIZE, 10L * 1024 * 1024));
-		LOG.log(System.Logger.Level.INFO, "Parley mail admin starting; home " + home.getDirectory().getPath() + ", settings in " + home.getSettingsDirectory().getPath());
+		logInfo("Parley mail admin starting; home " + home.getDirectory().getPath() + ", settings in " + home.getSettingsDirectory().getPath());
 
 		// the pages edit these files, so the servers must read the same ones
 		if (isBlank(settings.get(SettingsCatalog.USERS))) {
@@ -146,10 +142,10 @@ public final class AdminApp implements AutoCloseable {
 	private void shareKeyOfPrimary() {
 		try {
 			if (settings.getQueueFile() != null && domains.shareKeyOf(getPrimaryDomain())) {
-				LOG.log(System.Logger.Level.INFO, "The shared DKIM key is now " + (domains.sharedDomain() == null ? "none" : domains.sharedDomain() + "'s"));
+				logInfo("The shared DKIM key is now " + (domains.sharedDomain() == null ? "none" : domains.sharedDomain() + "'s"));
 			}
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't set the shared DKIM key: " + e.getMessage());
+			logWarn("Can't set the shared DKIM key: " + e.getMessage());
 		}
 	}
 
@@ -172,7 +168,7 @@ public final class AdminApp implements AutoCloseable {
 			try {
 				app.suite.startAll();
 			} catch (IOException | RuntimeException e) {
-				LOG.log(System.Logger.Level.ERROR, "Some services didn't start: " + e.getMessage());
+				app.logError("Some services didn't start: " + e.getMessage());
 			}
 		}
 		return app;
@@ -223,7 +219,7 @@ public final class AdminApp implements AutoCloseable {
 				((FileUserRegistry) registry).reloadNow(); // a no-op when the pages just wrote through it
 			}
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile().getPath() + "; they keep the users they had", e);
+			logWarn("The servers can't read the users file " + users.getFile().getPath() + "; they keep the users they had", e);
 		}
 		FileUserRegistry own = users.ownRegistry();
 		if (own != null) {
@@ -243,7 +239,7 @@ public final class AdminApp implements AutoCloseable {
 		try {
 			return us.bringardner.parley.mail.admin.server.SharedUsers.find(context, usersFile);
 		} catch (IOException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't find the servers' registry of the users file " + usersFile.getPath() + ": " + e.getMessage());
+			logWarn("Can't find the servers' registry of the users file " + usersFile.getPath() + ": " + e.getMessage());
 			return null;
 		}
 	}
@@ -297,17 +293,17 @@ public final class AdminApp implements AutoCloseable {
 	private void checkFiles() {
 		try {
 			if (users.reloadIfChanged()) {
-				LOG.log(System.Logger.Level.INFO, "Read the users file again: it was changed outside this application");
+				logInfo("Read the users file again: it was changed outside this application");
 			}
 		} catch (RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't read the users file " + users.getFile().getPath(), e);
+			logWarn("Can't read the users file " + users.getFile().getPath(), e);
 		}
 		try {
 			if (settings.reloadIfChanged()) {
-				LOG.log(System.Logger.Level.INFO, "Read the settings files again: one was changed outside this application");
+				logInfo("Read the settings files again: one was changed outside this application");
 			}
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't read the settings files in " + settings.getDirectory().getPath(), e);
+			logWarn("Can't read the settings files in " + settings.getDirectory().getPath(), e);
 		}
 	}
 
@@ -341,7 +337,7 @@ public final class AdminApp implements AutoCloseable {
 				}
 			}
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.ERROR, "Can't apply the changed settings " + changed, e);
+			logError("Can't apply the changed settings " + changed, e);
 		}
 	}
 
@@ -366,7 +362,6 @@ public final class AdminApp implements AutoCloseable {
 		for (Map.Entry<LogBuffer.Source, LogBuffer.Level> e : getLogLevels().entrySet()) {
 			LogBuffer.Level l = e.getValue();
 			AdminLogger.setSourceLevel(e.getKey(), l == null ? null : toParley(l));
-			JulCapture.setSourceLevel(e.getKey(), l);
 		}
 	}
 
@@ -478,11 +473,11 @@ public final class AdminApp implements AutoCloseable {
 	}
 
 	/** The log file a setting names (a path on FACTORY, or a filesource: URL), unless it can't be reached */
-	private static void addLog(List<FileSource> ret, FileSourceFactory factory, String value) {
+	private void addLog(List<FileSource> ret, FileSourceFactory factory, String value) {
 		try {
 			ret.add(factory.resolve(value.trim()));
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't reach the log file " + FileSourceFactory.safe(value.trim()) + ": " + e.getMessage());
+			logWarn("Can't reach the log file " + FileSourceFactory.safe(value.trim()) + ": " + e.getMessage());
 		}
 	}
 
@@ -564,9 +559,9 @@ public final class AdminApp implements AutoCloseable {
 	public synchronized void setPrimaryDomain(String domain) {
 		try {
 			settings.set(SettingsCatalog.ADMIN_PRIMARY_DOMAIN, domain); // the shared DKIM key follows (settingsChanged)
-			LOG.log(System.Logger.Level.INFO, "The primary domain is " + domain + ": its administrators manage every domain");
+			logInfo("The primary domain is " + domain + ": its administrators manage every domain");
 		} catch (IOException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't record the primary domain " + domain + ": " + e.getMessage());
+			logWarn("Can't record the primary domain " + domain + ": " + e.getMessage());
 		}
 	}
 
@@ -640,12 +635,11 @@ public final class AdminApp implements AutoCloseable {
 	 */
 	@Override
 	public void close() {
-		LOG.log(System.Logger.Level.INFO, "Parley mail admin stopping");
+		logInfo("Parley mail admin stopping");
 		try {
 			suite.close();
 		} finally {
 			timer.shutdownNow();
-			jul.uninstall();
 			LogBuffer.install(null);
 			logs.close();
 		}

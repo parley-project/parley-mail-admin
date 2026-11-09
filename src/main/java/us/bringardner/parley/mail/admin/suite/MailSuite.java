@@ -29,17 +29,18 @@ import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
 
+import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.FileSourceFactory;
-import us.bringardner.parley.mail.admin.settings.PropertiesFile;
-import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
-import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.server.LaunchSettings;
-import us.bringardner.parley.net.server.ParleyConnection;
 import us.bringardner.parley.mail.admin.server.ParleyLauncherMBean;
 import us.bringardner.parley.mail.admin.server.ParleyServerMBean;
 import us.bringardner.parley.mail.admin.server.ServerContext;
 import us.bringardner.parley.mail.admin.server.ServerLauncher;
+import us.bringardner.parley.mail.admin.settings.PropertiesFile;
+import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
+import us.bringardner.parley.mail.admin.settings.SettingsService;
+import us.bringardner.parley.net.server.ParleyConnection;
 import us.bringardner.parley.smtp.queue.MailQueueMXBean;
 
 /**
@@ -58,9 +59,8 @@ import us.bringardner.parley.smtp.queue.MailQueueMXBean;
  * file and the aliases file the queue names. Each SMTP server opens its queue itself (the bean
  * {@code MailQueue,name=<its id>}); servers given the same queue folder share it.
  */
-public final class MailSuite implements AutoCloseable {
+public final class MailSuite extends BaseObject implements AutoCloseable {
 
-	private static final System.Logger LOG = System.getLogger(MailSuite.class.getName());
 	/** The local launcher's name (its JMX bean is us.bringardner.parley:type=Launcher,name=ParleyMailAdmin). */
 	public static final String LOCAL_NAME = "ParleyMailAdmin";
 	/** How long to wait for a remote launcher to answer when connecting. */
@@ -257,7 +257,7 @@ public final class MailSuite implements AutoCloseable {
 			String line = in.readLine();
 			return line == null ? "" : line.trim();
 		} catch (IOException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't read the JMX password file " + FileSourceFactory.safe(file.trim()) + " ("
+			logWarn("Can't read the JMX password file " + FileSourceFactory.safe(file.trim()) + " ("
 					+ SettingsCatalog.ADMIN_JMX_PASSWORD_FILE + "): " + e.getMessage());
 			return "";
 		}
@@ -295,11 +295,11 @@ public final class MailSuite implements AutoCloseable {
 				targets.add(new Target(null, null, localLauncher().getContext().getMBeanServer(), localLauncher()));
 			} catch (Exception e) {
 				connectError = "The servers can't run in this application: " + message(e);
-				LOG.log(System.Logger.Level.ERROR, connectError, e);
+				logError(connectError, e);
 			}
 		} else {
 			if (local != null) {
-				LOG.log(System.Logger.Level.INFO, "The servers are managed over JMX now (" + String.join(", ", urls) + "); stopping those of this application");
+				logInfo("The servers are managed over JMX now (" + String.join(", ", urls) + "); stopping those of this application");
 				closeLocal();
 			}
 			List<String> errors = new ArrayList<>();
@@ -312,7 +312,7 @@ public final class MailSuite implements AutoCloseable {
 			}
 			if (!errors.isEmpty()) {
 				connectError = String.join("; ", errors);
-				LOG.log(System.Logger.Level.WARNING, connectError);
+				logWarn(connectError);
 			}
 		}
 		targetKey = key;
@@ -344,7 +344,7 @@ public final class MailSuite implements AutoCloseable {
 				throw e;
 			}
 			local = l;
-			LOG.log(System.Logger.Level.INFO, "The servers run in this application, with the settings in " + settings.getDirectory());
+			logInfo("The servers run in this application, with the settings in " + settings.getDirectory());
 		}
 		return local;
 	}
@@ -379,7 +379,7 @@ public final class MailSuite implements AutoCloseable {
 			t.close();
 			throw new IOException("no Parley launcher there (us.bringardner.parley:type=Launcher)");
 		}
-		LOG.log(System.Logger.Level.INFO, "Connected to the launcher at " + url);
+		logInfo("Connected to the launcher at " + url);
 		return t;
 	}
 
@@ -559,7 +559,7 @@ public final class MailSuite implements AutoCloseable {
 				list.remove(id.id());
 			}
 			settings.set(ServiceId.SERVERS, String.join(",", list));
-			LOG.log(System.Logger.Level.INFO, ServiceId.SERVERS + "=" + String.join(",", list));
+			logInfo(ServiceId.SERVERS + "=" + String.join(",", list));
 		}
 		reloadLaunchers();
 		if (on) {
@@ -610,13 +610,13 @@ public final class MailSuite implements AutoCloseable {
 			b.start();
 		} catch (Exception e) {
 			String msg = message(e);
-			LOG.log(System.Logger.Level.ERROR, "Can't start " + id.label + ": " + msg, e);
+			logError("Can't start " + id.label + ": " + msg, e);
 			throw new IOException("Can't start " + id.label + ": " + msg, e);
 		} finally {
 			serverCreated.run();
 		}
 		seen.put(id, new Seen(b.getStarted(), fp));
-		LOG.log(System.Logger.Level.INFO, id.label + " is listening on port " + b.getPort());
+		logInfo(id.label + " is listening on port " + b.getPort());
 	}
 
 	public synchronized void stop(ServiceId id) throws IOException {
@@ -627,7 +627,7 @@ public final class MailSuite implements AutoCloseable {
 			throw new IOException("Can't stop " + id.label + ": " + message(e), e);
 		}
 		seen.remove(id);
-		LOG.log(System.Logger.Level.INFO, id.label + " stopped");
+		logInfo(id.label + " stopped");
 	}
 
 	/** Stop and start a service, with the settings as they are now (it reads them again). */
@@ -642,13 +642,13 @@ public final class MailSuite implements AutoCloseable {
 			b.restart(); // reads the settings files again
 		} catch (Exception e) {
 			String msg = message(e);
-			LOG.log(System.Logger.Level.ERROR, "Can't restart " + id.label + ": " + msg, e);
+			logError("Can't restart " + id.label + ": " + msg, e);
 			throw new IOException("Can't restart " + id.label + ": " + msg, e);
 		} finally {
 			serverCreated.run();
 		}
 		seen.put(id, new Seen(b.getStarted(), fp));
-		LOG.log(System.Logger.Level.INFO, id.label + " restarted");
+		logInfo(id.label + " restarted");
 	}
 
 	/** Start every service that is on and can run (a service with implicit TLS and no key store is skipped). */
@@ -756,7 +756,7 @@ public final class MailSuite implements AutoCloseable {
 				} catch (Exception e) {
 					ok = false;
 					errors.add(id.label + ": " + message(e));
-					LOG.log(System.Logger.Level.ERROR, id.label + " couldn't read the queue's settings again: " + message(e), e);
+					logError(id.label + " couldn't read the queue's settings again: " + message(e), e);
 				}
 			}
 			if (ok) {
@@ -772,7 +772,7 @@ public final class MailSuite implements AutoCloseable {
 			}
 		}
 		for (String u : used) {
-			LOG.log(System.Logger.Level.INFO, u);
+			logInfo(u);
 		}
 		if (!errors.isEmpty()) {
 			throw new IOException(String.join("; ", errors));

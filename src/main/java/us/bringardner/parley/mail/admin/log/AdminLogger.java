@@ -10,7 +10,8 @@ import us.bringardner.parley.core.ParleyLogger;
  * The Parley logger of the mail suite (set with the {@code parley.core.logger} system property
  * before any Parley object logs): a {@link ParleyLogger}, so the usual {@code parley.log.level} and
  * {@code parley.log.file} settings still work, that also gives every entry it writes to the
- * {@link LogBuffer} for the Logs page. The Logs page sets the level of each source's loggers.
+ * {@link LogBuffer} for the Logs page. The Logs page sets the level of each source's loggers; with no
+ * level set anywhere a logger logs at INFO ({@link #DEFAULT_ADMIN_LEVEL}).
  */
 public class AdminLogger extends ParleyLogger {
 
@@ -30,8 +31,35 @@ public class AdminLogger extends ParleyLogger {
 		Level l = LEVELS.get(source);
 		if (l != null) {
 			super.setLevel(l);
+		} else if (!isLevelSet(loggerName)) {
+			super.setLevel(DEFAULT_ADMIN_LEVEL);
 		}
 		LOGGERS.add(this);
+	}
+
+	/**
+	 * The level when neither the Logs page nor a {@code parley.log.level} setting gives one: INFO, so
+	 * the Logs page shows what the suite does (logins, changes, servers starting and stopping), not only
+	 * the warnings that ParleyLogger shows by default.
+	 */
+	public static final Level DEFAULT_ADMIN_LEVEL = Level.INFO;
+
+	/** Whether a {@code parley.log.level} setting covers this logger (looked up as ParleyLogger does). */
+	private boolean isLevelSet(String name) {
+		String n = levelName(name);
+		while (!n.isEmpty()) {
+			if (isSet(PROPERTY_LOG_LEVEL + "." + n)) {
+				return true;
+			}
+			int dot = n.lastIndexOf('.');
+			n = dot < 0 ? "" : n.substring(0, dot);
+		}
+		return isSet(PROPERTY_LOG_LEVEL);
+	}
+
+	private boolean isSet(String property) {
+		String v = getProperty(property);
+		return v != null && !v.trim().isEmpty();
 	}
 
 	/**

@@ -21,8 +21,8 @@ import us.bringardner.parley.files.FileSource;
 /**
  * The log entries of the mail suite: the last few thousand in memory for the Logs page, and all of
  * them in {@code logs/parley-mail.log} under the admin home (rotated by size, 5 old files kept).
- * Entries come from the Parley loggers ({@link AdminLogger}) and from java.util.logging /
- * System.Logger ({@link JulCapture}), which parley-smtp's queue uses.
+ * Entries come from the Parley loggers ({@link AdminLogger}): all Parley logging goes through
+ * parley-core's ILogger.
  */
 public final class LogBuffer {
 
