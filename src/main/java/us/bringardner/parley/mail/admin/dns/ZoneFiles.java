@@ -1,10 +1,9 @@
 package us.bringardner.parley.mail.admin.dns;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -13,6 +12,7 @@ import java.util.function.Consumer;
 import us.bringardner.parley.dns.server.SharedZoneText;
 import us.bringardner.parley.dns.server.SharedZoneText.Record;
 import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.mail.admin.FileRewrite;
 
 /**
  * The zone files the admin writes: the shared zone's ({@code parley.dns.sharedZone}) and a new
@@ -23,6 +23,9 @@ import us.bringardner.parley.files.FileSource;
  * its serial past the file's unless the change set a higher one, sets the TTL of the record's whole
  * set (RFC 2181 5.2), keeps the file it replaces as {@code <file>.previous}, and is refused when the
  * file changed while it was being made (edited by hand meanwhile), so nothing is lost.
+ * <p>
+ * The files are FileSources on the DNS server's file system ({@code DnsAdmin} resolves them as
+ * parley-dns's DnsFiles does).
  */
 final class ZoneFiles {
 
@@ -43,11 +46,11 @@ final class ZoneFiles {
 	}
 
 	/** The shared zone's records as its file has them, the SOA first */
-	static List<Record> sharedRecords(File file) throws IOException {
-		return SharedZoneText.records(read(file), FileSource.of(file.getAbsoluteFile().getParentFile()));
+	static List<Record> sharedRecords(FileSource file) throws IOException {
+		return SharedZoneText.records(read(file), file.getParentFile());
 	}
 
-	static void addShared(File file, String name, String type, long ttl, List<String> values, Runnable reload) throws Exception {
+	static void addShared(FileSource file, String name, String type, long ttl, List<String> values, Runnable reload) throws Exception {
 		String n = sharedName(name);
 		String t = SharedZoneText.editableType(type);
 		if (t.equals("SOA")) {
@@ -76,7 +79,7 @@ final class ZoneFiles {
 		}, reload);
 	}
 
-	static void changeShared(File file, String name, String type, String data, String newName, String newType, long ttl, String newData,
+	static void changeShared(FileSource file, String name, String type, String data, String newName, String newType, long ttl, String newData,
 			Runnable reload) throws Exception {
 		String n = sharedName(name);
 		String nn = sharedName(newName);
@@ -103,7 +106,7 @@ final class ZoneFiles {
 		}, reload);
 	}
 
-	static void deleteShared(File file, String name, String type, String data, Runnable reload) throws Exception {
+	static void deleteShared(FileSource file, String name, String type, String data, Runnable reload) throws Exception {
 		String n = sharedName(name);
 		String t = type == null ? "" : type.trim().toUpperCase(Locale.ROOT);
 		if (t.equals("SOA")) {
@@ -118,7 +121,7 @@ final class ZoneFiles {
 	 * replayed into the new zone).
 	 * @return the file written
 	 */
-	static File createInheriting(File zoneDir, File sharedFile, String domain) throws IOException {
+	static FileSource createInheriting(FileSource zoneDir, FileSource sharedFile, String domain) throws IOException {
 		String name = domain == null ? "" : domain.trim().toLowerCase(Locale.ROOT);
 		while (name.endsWith(".")) {
 			name = name.substring(0, name.length() - 1);
@@ -126,31 +129,37 @@ final class ZoneFiles {
 		if (!DOMAIN.matcher(name).matches()) {
 			throw new IllegalArgumentException("Not a domain name: " + domain);
 		}
-		File file = new File(zoneDir, name + ".txt");
+		FileSource file = zoneDir.getChild(name + ".txt");
 		synchronized (LOCK) {
 			if (file.exists()) {
-				throw new IllegalArgumentException("The zone file " + file + " exists already");
+				throw new IllegalArgumentException("The zone file " + file.getPath() + " exists already");
 			}
-			File journal = new File(file.getPath() + ".jnl");
+			FileSource journal = zoneDir.getChild(file.getName() + ".jnl");
 			if (journal.exists()) {
-				throw new IllegalArgumentException("An old journal of the zone is there: " + journal + "; move it away first");
+				throw new IllegalArgumentException("An old journal of the zone is there: " + journal.getPath() + "; move it away first");
 			}
-			String text = SharedZoneText.inheritingZone(name, read(sharedFile), FileSource.of(zoneDir));
-			File tmp = File.createTempFile("." + name, ".tmp", zoneDir);
+			String text = SharedZoneText.inheritingZone(name, read(sharedFile), zoneDir);
+			FileSource tmp = zoneDir.getFileSourceFactory().createTempFile("." + name, ".tmp", zoneDir);
+			boolean moved = false;
 			try {
-				Files.write(tmp.toPath(), text.getBytes(StandardCharsets.UTF_8));
-				try {
-					// readable by the DNS server whatever this process's umask (as the packaging makes zone files)
-					Files.setPosixFilePermissions(tmp.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rw-rw-r--"));
-				} catch (UnsupportedOperationException e) {
-					// not a POSIX file system
+				try (OutputStream out = tmp.getOutputStream()) {
+					out.write(text.getBytes(StandardCharsets.UTF_8));
 				}
-				// a link appears whole and fails if the file is there by now (a move would replace it)
-				Files.createLink(file.toPath(), tmp.toPath());
-			} catch (java.nio.file.FileAlreadyExistsException e) {
-				throw new IllegalArgumentException("The zone file " + file + " exists already");
+				// readable by the DNS server whatever this process's umask (as the packaging makes zone
+				// files): rw-rw-r--, where the file system has these permissions
+				readableByAll(tmp);
+				// it appears whole, and renameTo never replaces a file that is there by now
+				moved = tmp.renameTo(file);
+				if (!moved) {
+					if (file.exists()) {
+						throw new IllegalArgumentException("The zone file " + file.getPath() + " exists already");
+					}
+					throw new IOException("Can't make the zone file " + file.getPath());
+				}
 			} finally {
-				tmp.delete();
+				if (!moved && tmp.exists()) {
+					tmp.delete();
+				}
 			}
 		}
 		return file;
@@ -197,15 +206,34 @@ final class ZoneFiles {
 		return n.toLowerCase(Locale.ROOT);
 	}
 
-	private static String read(File f) throws IOException {
-		if (!f.isFile()) {
-			throw new IllegalStateException("The shared zone's file " + f + " isn't here (parley-mail-admin writes it where the DNS server"
-					+ " reads it, so it must run on the same machine)");
-		}
-		return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+	/** rw-rw-r--; a permission the file system can't set is left as it is */
+	private static void readableByAll(FileSource f) throws IOException {
+		f.setOwnerReadable(true);
+		f.setOwnerWritable(true);
+		f.setOwnerExecutable(false);
+		f.setGroupReadable(true);
+		f.setGroupWritable(true);
+		f.setGroupExecutable(false);
+		f.setOtherReadable(true);
+		f.setOtherWritable(false);
+		f.setOtherExecutable(false);
 	}
 
-	private static String stamp(File f) {
+	private static String read(FileSource f) throws IOException {
+		if (!f.isFile()) {
+			throw new IllegalStateException("The shared zone's file " + f.getPath() + " isn't here (parley-mail-admin writes it where the DNS server"
+					+ " reads it, so it must use the same file system)");
+		}
+		return new String(bytes(f), StandardCharsets.UTF_8);
+	}
+
+	private static byte[] bytes(FileSource f) throws IOException {
+		try (InputStream in = f.getInputStream()) {
+			return in.readAllBytes();
+		}
+	}
+
+	private static String stamp(FileSource f) throws IOException {
 		return f.exists() ? f.lastModified() + "/" + f.length() : "-";
 	}
 
@@ -214,15 +242,15 @@ final class ZoneFiles {
 	 * the change set a higher one), the text checked as the DNS server checks it, the file replaced
 	 * whole (the one it replaces kept as file.previous), then the server told to read it again.
 	 */
-	private static void editShared(File file, Consumer<List<Record>> change, Runnable reload) throws Exception {
+	private static void editShared(FileSource file, Consumer<List<Record>> change, Runnable reload) throws Exception {
 		synchronized (LOCK) {
 			String stamp = stamp(file);
 			String before = read(file);
 			List<Record> recs;
 			try {
-				recs = new ArrayList<Record>(SharedZoneText.records(before, FileSource.of(file.getAbsoluteFile().getParentFile())));
+				recs = new ArrayList<Record>(SharedZoneText.records(before, file.getParentFile()));
 			} catch (IOException e) {
-				throw new IllegalStateException(e.getMessage() + " (" + file + "; fix the file by hand)", e);
+				throw new IllegalStateException(e.getMessage() + " (" + file.getPath() + "; fix the file by hand)", e);
 			}
 			long old = serial(recs.get(0));
 			change.accept(recs);
@@ -234,7 +262,7 @@ final class ZoneFiles {
 			}
 			String t = SharedZoneText.text(recs, HEADER);
 			try {
-				SharedZoneText.check(t, FileSource.of(file.getAbsoluteFile().getParentFile()));
+				SharedZoneText.check(t, file.getParentFile());
 			} catch (IOException e) {
 				throw new IllegalArgumentException(explain(e.getMessage(), recs), e);
 			}
@@ -268,34 +296,44 @@ final class ZoneFiles {
 		return message;
 	}
 
-	private static void write(File file, String t, String stamp) throws IOException {
-		File f = file.getAbsoluteFile();
-		File dir = f.getParentFile();
-		File tmp = File.createTempFile("." + f.getName(), ".tmp", dir);
+	/**
+	 * Write the file whole: a temporary file next to it (with its permissions and group), checked
+	 * against the stamp, the old file kept as file.previous, then the temporary file renamed over it
+	 * (one step where the file system's getCapabilities().atomicReplace() says so).
+	 */
+	private static void write(FileSource f, String t, String stamp) throws IOException {
+		FileSource dir = f.getParentFile();
+		FileSource tmp = dir.getFileSourceFactory().createTempFile("." + f.getName(), ".tmp", dir);
+		boolean moved = false;
 		try {
-			Files.write(tmp.toPath(), t.getBytes(StandardCharsets.UTF_8));
+			try (OutputStream out = tmp.getOutputStream()) {
+				out.write(t.getBytes(StandardCharsets.UTF_8));
+			}
 			if (f.exists()) {
-				try {
-					Files.setPosixFilePermissions(tmp.toPath(), Files.getPosixFilePermissions(f.toPath()));
-				} catch (UnsupportedOperationException e) {
-					// not a POSIX file system
-				}
+				FileRewrite.copyAttributes(f, tmp);
 			}
 			if (!stamp(f).equals(stamp)) {
-				throw new IllegalStateException("The shared zone's file " + f + " changed meanwhile (edited by hand?); nothing was"
+				throw new IllegalStateException("The shared zone's file " + f.getPath() + " changed meanwhile (edited by hand?); nothing was"
 						+ " written: read it again and redo the change");
 			}
 			if (f.exists()) {
-				Files.copy(f.toPath(), new File(dir, f.getName() + ".previous").toPath(), StandardCopyOption.REPLACE_EXISTING,
-						StandardCopyOption.COPY_ATTRIBUTES);
+				FileSource previous = dir.getChild(f.getName() + ".previous");
+				FileRewrite.write(previous, bytes(f));
+				FileRewrite.copyAttributes(f, previous);
+				previous.setLastModified(f.lastModified());
 			}
-			Files.move(tmp.toPath(), f.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+			moved = tmp.renameTo(f, true);
+			if (!moved) {
+				throw new IOException("Can't replace " + f.getPath() + " with " + tmp.getPath());
+			}
 			if (stamp(f).equals(stamp)) {
 				// the DNS server sees a change by the file's time and length: make it see this one
 				f.setLastModified(f.lastModified() + 1000);
 			}
 		} finally {
-			tmp.delete();
+			if (!moved && tmp.exists()) {
+				tmp.delete();
+			}
 		}
 	}
 }
