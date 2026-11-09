@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -259,6 +260,17 @@ public class StoresTest {
 		assertEquals("/mail/.parley-store.properties", s.getStoreFile().getPath());
 	}
 
+	/** Whether this process can make a file in DIR (as root, it can even when the permissions say it can't) */
+	private static boolean canAddTo(FileSource dir) {
+		FileSource probe = dir.getChild("probe");
+		try {
+			return probe.createNewFile() && probe.delete();
+		} catch (IOException e) {
+			// macOS and Linux say "Permission denied" with an exception, not false
+			return false;
+		}
+	}
+
 	@Test
 	public void aFileInAFolderThisProcessCantAddTo() throws Exception {
 		FileSource locked = file("root");
@@ -268,7 +280,7 @@ public class StoresTest {
 		org.junit.jupiter.api.Assumptions.assumeFalse(FileSourceFactory.isWindows(), "POSIX permissions");
 		TestFiles.setPerms(locked, "r-xr-x---");
 		try {
-			org.junit.jupiter.api.Assumptions.assumeFalse(locked.getChild("probe").createNewFile() && locked.getChild("probe").delete(), "not as root");
+			org.junit.jupiter.api.Assumptions.assumeFalse(canAddTo(locked), "not as root");
 			FileRewrite.write(f, "sharing=host\n".getBytes(StandardCharsets.UTF_8));
 			assertEquals("sharing=host\n", read(f), "written in place");
 		} finally {
