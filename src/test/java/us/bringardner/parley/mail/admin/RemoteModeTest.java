@@ -7,11 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
@@ -30,12 +29,13 @@ import javax.management.remote.JMXServiceURL;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
-import us.bringardner.parley.mail.admin.suite.MailSuite;
-import us.bringardner.parley.mail.admin.suite.ServiceId;
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.server.LaunchSettings;
 import us.bringardner.parley.mail.admin.server.ServerContext;
 import us.bringardner.parley.mail.admin.server.ServerLauncher;
+import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
+import us.bringardner.parley.mail.admin.suite.MailSuite;
+import us.bringardner.parley.mail.admin.suite.ServiceId;
 
 /**
  * The servers run by a launcher "process" (one in this JVM, with its own MBean server behind a JMX
@@ -44,7 +44,12 @@ import us.bringardner.parley.mail.admin.server.ServerLauncher;
 public class RemoteModeTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	private static int freePort() throws IOException {
 		try (ServerSocket s = new ServerSocket(0)) {
@@ -54,31 +59,31 @@ public class RemoteModeTest {
 
 	@Test
 	public void serversRunAsAServiceAreManagedOverJmx() throws Exception {
-		File home = new File(dir, "home");
-		File conf = new File(dir, "conf");
+		FileSource home = dir().getChild("home");
+		FileSource conf = dir().getChild("conf");
 		conf.mkdirs();
 		int registryPort = freePort();
 		String url = "service:jmx:rmi:///jndi/rmi://localhost:" + registryPort + "/jmxrmi";
 		int pop3Port = freePort();
 		int smtpPort = freePort();
-		String root = new File(dir, "mail").getAbsolutePath().replace('\\', '/');
-		new File(dir, "mail/.parley-locks").mkdirs();
-		new File(dir, "mail/.smtp-queue").mkdirs();
+		String root = dir().getChild("mail").getAbsolutePath().replace('\\', '/');
+		dir().getChild("mail").getChild(".parley-locks").mkdirs();
+		dir().getChild("mail").getChild(".smtp-queue").mkdirs();
 		// the store's and the queue's own settings, as parley-servers-setup makes them
-		Files.write(new File(dir, "mail/.parley-store.properties").toPath(), "sharing=host\n".getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(dir, "mail/.smtp-queue/queue.properties").toPath(), ("hostname=mx.a.test\ndomains=a.test\naliases="
-				+ new File(dir, "aliases.txt").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(dir().getChild("mail").getChild(".parley-store.properties"), "sharing=host\n".getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(dir().getChild("mail").getChild(".smtp-queue").getChild("queue.properties"), ("hostname=mx.a.test\ndomains=a.test\naliases="
+				+ dir().getChild("aliases.txt").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
 		// the JMX password in a file, as the parley-servers package keeps it
-		Files.write(new File(dir, "admin.password").toPath(), "s3cret-jmx\n".getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(conf, "parley-mail.properties").toPath(), ("parley.mail.root=" + root + "\n"
-				+ "parley.mail.users=" + new File(dir, "users.txt").getAbsolutePath().replace('\\', '/') + "\n"
+		TestFiles.writeBytes(dir().getChild("admin.password"), "s3cret-jmx\n".getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(conf.getChild("parley-mail.properties"), ("parley.mail.root=" + root + "\n"
+				+ "parley.mail.users=" + dir().getChild("users.txt").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.mail.admin.jmxUrl=" + url + "\n"
 				+ "parley.mail.admin.jmxUser=parleyadmin\n"
-				+ "parley.mail.admin.jmxPasswordFile=" + new File(dir, "admin.password").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(conf, "parley-pop3.properties").toPath(), ("parley.mail.pop3.port=" + pop3Port + "\n").getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(conf, "parley-smtp.properties").toPath(), ("parley.mail.smtp.port=" + smtpPort + "\nparley.mail.smtp.hostname=mx.a.test\n").getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(dir, "users.txt").toPath(), "# users\n".getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(dir, "aliases.txt").toPath(), "# aliases\n".getBytes(StandardCharsets.UTF_8));
+				+ "parley.mail.admin.jmxPasswordFile=" + dir().getChild("admin.password").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(conf.getChild("parley-pop3.properties"), ("parley.mail.pop3.port=" + pop3Port + "\n").getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(conf.getChild("parley-smtp.properties"), ("parley.mail.smtp.port=" + smtpPort + "\nparley.mail.smtp.hostname=mx.a.test\n").getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(dir().getChild("users.txt"), "# users\n".getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(dir().getChild("aliases.txt"), "# aliases\n".getBytes(StandardCharsets.UTF_8));
 
 		// the Parley logger every test of this JVM uses (it's chosen once, when the first server logs): the application's
 		if (System.getProperty(us.bringardner.parley.core.BaseObject.PROPERTY_LOGGER) == null) {
@@ -132,7 +137,7 @@ public class RemoteModeTest {
 			// the queue and its history, over JMX
 			assertNotNull(suite.getQueue());
 			assertEquals(0, suite.getQueue().getMessageCount());
-			assertEquals(new File(root, ".smtp-history").getAbsolutePath(), app.historyDirectory().getAbsolutePath());
+			assertEquals(dir().getChild("mail").getChild(".smtp-history").getAbsolutePath(), app.historyDirectory().getAbsolutePath());
 
 			// started before the application saw it, with the files unchanged since: no restart needed
 			assertFalse(suite.isRestartNeeded(ServiceId.POP3));
@@ -149,7 +154,7 @@ public class RemoteModeTest {
 			assertTrue(suite.isRestartNeeded(ServiceId.SMTP));
 			assertFalse(suite.isRestartNeeded(ServiceId.POP3));
 			assertEquals(List.of(ServiceId.SMTP), suite.restartChanged());
-			assertTrue(Files.readString(new File(dir, "mail/.smtp-queue/queue.properties").toPath()).contains("retry=10,20"));
+			assertTrue(TestFiles.read(dir().getChild("mail").getChild(".smtp-queue").getChild("queue.properties")).contains("retry=10,20"));
 
 			suite.stop(ServiceId.POP3);
 			assertEquals("STOPPED", launcher.getServer("pop3").getState());
@@ -158,10 +163,10 @@ public class RemoteModeTest {
 
 			// a service turned off and on: the launcher reads parley.servers from its file again (as
 			// ServerMain sets it up when the list is in the launcher's settings file)
-			File shared = new File(conf, "parley-mail.properties");
+			FileSource shared = conf.getChild("parley-mail.properties");
 			launcher.setServerList(() -> {
 				Properties p = new Properties();
-				try (java.io.Reader r = Files.newBufferedReader(shared.toPath())) {
+				try (java.io.Reader r = new java.io.InputStreamReader(shared.getInputStream(), StandardCharsets.UTF_8)) {
 					p.load(r);
 				}
 				return List.of(p.getProperty("parley.servers", "").split(","));
@@ -170,11 +175,11 @@ public class RemoteModeTest {
 			suite.setListed(ServiceId.POP3, false);
 			assertEquals("OFF", launcher.getServer("pop3").getState());
 			assertEquals("Not listed in parley.servers", launcher.getServer("pop3").getError());
-			assertTrue(Files.readString(shared.toPath()).contains("parley.servers=smtp\n"));
+			assertTrue(TestFiles.read(shared).contains("parley.servers=smtp\n"));
 			assertEquals(MailSuite.State.OFF, suite.getState(ServiceId.POP3));
 			suite.setListed(ServiceId.POP3, true);
 			assertEquals("RUNNING", launcher.getServer("pop3").getState());
-			assertTrue(Files.readString(shared.toPath()).contains("parley.servers=smtp,pop3\n"));
+			assertTrue(TestFiles.read(shared).contains("parley.servers=smtp,pop3\n"));
 			// a launcher that doesn't run the service yet: the change needs it restarted
 			launcher.setServerList(null);
 			IOException later = assertThrows(IOException.class, () -> suite.setListed(ServiceId.IMAP, true));

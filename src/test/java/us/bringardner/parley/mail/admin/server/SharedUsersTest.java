@@ -7,10 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.management.MBeanServerFactory;
@@ -19,7 +18,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.iam.UserRegistry;
+import us.bringardner.parley.mail.admin.TestFiles;
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.net.server.FileUserRegistry;
 
@@ -43,7 +44,12 @@ public class SharedUsersTest {
 	}
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	private final ServerContext one = new ServerContext(MBeanServerFactory.newMBeanServer());
 	private final ServerContext two = new ServerContext(MBeanServerFactory.newMBeanServer());
@@ -55,9 +61,9 @@ public class SharedUsersTest {
 		System.clearProperty(AbstractMailServer.MAIL_USERS_PROP);
 	}
 
-	private File file(String name, String text) throws IOException {
-		File f = new File(dir, name);
-		Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
+	private FileSource file(String name, String text) throws IOException {
+		FileSource f = dir().getChild(name);
+		TestFiles.writeBytes(f, text.getBytes(StandardCharsets.UTF_8));
 		return f;
 	}
 
@@ -67,7 +73,7 @@ public class SharedUsersTest {
 
 	@Test
 	public void theServersOfOneLauncherShareTheUsers() throws Exception {
-		File users = file("users.txt", "tony,secret,READ|WRITE\n");
+		FileSource users = file("users.txt", "tony,secret,READ|WRITE\n");
 		System.setProperty(AbstractMailServer.MAIL_USERS_PROP, users.getPath());
 		Plain a = made(one, "parley.mail.a");
 		Plain b = made(one, "parley.mail.b");
@@ -85,7 +91,7 @@ public class SharedUsersTest {
 		assertNotSame(registry, byCode.getUserRegistry(), "made by code: a registry of its own");
 
 		// the application changed the file: the shared registry reads it now
-		Files.write(users.toPath(), "tony,secret,READ\njose,other,READ\n".getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(users, "tony,secret,READ\njose,other,READ\n".getBytes(StandardCharsets.UTF_8));
 		users.setLastModified(System.currentTimeMillis() + 5000);
 		SharedUsers.find(one, users).reloadNow();
 		assertNotNull(b.getUserRegistry().findPrincipal("jose"));
@@ -93,7 +99,7 @@ public class SharedUsersTest {
 
 	@Test
 	public void serversWithAnotherReloadSettingGetTheirOwn() throws Exception {
-		File users = file("users.txt", "tony,secret,READ\n");
+		FileSource users = file("users.txt", "tony,secret,READ\n");
 		java.util.Properties fast = new java.util.Properties();
 		fast.setProperty(AbstractMailServer.MAIL_USERS_PROP, users.getPath());
 		fast.setProperty(FileUserRegistry.PROP_RELOAD_INTERVAL, "1s");

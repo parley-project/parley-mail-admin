@@ -1,13 +1,10 @@
 package us.bringardner.parley.mail.admin.settings;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,8 +20,9 @@ import us.bringardner.parley.mail.admin.FileRewrite;
  * deleted. Read and written as UTF-8. Values are parsed by {@link Properties}, so escapes and
  * continuation lines mean what they mean to Java.
  * <p>
- * The file is a local file, or a {@link FileSource} (the mail store's and queue's own settings files,
- * where the mail root is on another file system).
+ * The file is a {@link FileSource}, on whatever file system it is (the settings folder's, or the
+ * mail root's for the mail store's and queue's own settings files), and is written through
+ * {@link FileRewrite}.
  */
 public final class PropertiesFile {
 
@@ -39,54 +37,46 @@ public final class PropertiesFile {
 		}
 	}
 
-	private final File file;
 	private final FileSource source;
 	private final List<Line> lines = new ArrayList<>();
 	private final Map<String, String> values = new LinkedHashMap<>();
 
-	public PropertiesFile(File file) {
-		this.file = file;
-		this.source = null;
-	}
-
-	/** A file on a FileSource: read and written through its streams. */
 	public PropertiesFile(FileSource source) {
-		this.file = null;
 		this.source = source;
 	}
 
-	/** The local file, or null when it is on a FileSource. */
-	public File getFile() {
-		return file;
+	/** The file. */
+	public FileSource getFile() {
+		return source;
 	}
 
 	/** The file's name. */
 	public String getName() {
-		return file != null ? file.getName() : source.getName();
+		return source.getName();
 	}
 
 	/** The file's path, for messages and the pages. */
 	public String getPath() {
-		return file != null ? file.getAbsolutePath().replace('\\', '/') : source.getAbsolutePath();
+		return source.getAbsolutePath().replace('\\', '/');
 	}
 
 	public boolean exists() throws IOException {
-		return file != null ? file.isFile() : source.isFile();
+		return source.isFile();
 	}
 
-	/** When the file last changed (0 if it doesn't exist). */
+	/** When the file last changed (0 if it doesn't exist or can't be asked). */
 	public long lastModified() {
 		try {
-			return file != null ? file.lastModified() : source.exists() ? source.lastModified() : 0;
+			return source.exists() ? source.lastModified() : 0;
 		} catch (IOException e) {
 			return 0;
 		}
 	}
 
-	/** The file's size (0 if it doesn't exist). */
+	/** The file's size (0 if it doesn't exist or can't be asked). */
 	public long length() {
 		try {
-			return file != null ? file.length() : source.exists() ? source.length() : 0;
+			return source.exists() ? source.length() : 0;
 		} catch (IOException e) {
 			return 0;
 		}
@@ -94,9 +84,6 @@ public final class PropertiesFile {
 
 	/** The file's bytes, or null if it doesn't exist. */
 	public byte[] readBytes() throws IOException {
-		if (file != null) {
-			return file.isFile() ? Files.readAllBytes(file.toPath()) : null;
-		}
 		if (!source.isFile()) {
 			return null;
 		}
@@ -197,26 +184,15 @@ public final class PropertiesFile {
 	}
 
 	/**
-	 * Write the file: a local one through a temporary file, keeping its permissions and group
-	 * ({@link FileRewrite}); one on a FileSource through its output stream.
+	 * Write the file through a temporary file, keeping its permissions and group
+	 * ({@link FileRewrite}).
 	 */
 	public synchronized void save() throws IOException {
 		StringBuilder out = new StringBuilder();
 		for (Line l : lines) {
 			out.append(l.text).append('\n');
 		}
-		byte[] bytes = out.toString().getBytes(StandardCharsets.UTF_8);
-		if (file != null) {
-			FileRewrite.write(file, bytes);
-			return;
-		}
-		FileSource dir = source.getParentFile();
-		if (dir != null && !dir.exists() && !dir.mkdirs()) {
-			throw new IOException("Can't make " + dir.getAbsolutePath());
-		}
-		try (OutputStream o = source.getOutputStream()) {
-			o.write(bytes);
-		}
+		FileRewrite.write(source, out.toString().getBytes(StandardCharsets.UTF_8));
 	}
 
 	/** Escape a key or value as Properties.store does (but UTF-8 characters are kept). */

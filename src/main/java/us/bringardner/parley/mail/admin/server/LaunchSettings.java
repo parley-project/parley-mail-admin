@@ -1,7 +1,7 @@
 package us.bringardner.parley.mail.admin.server;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -11,17 +11,22 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
+import us.bringardner.parley.files.FileSource;
+
 /**
  * The settings of a {@link ServerLauncher}: settings files read in order (a later file wins),
  * the JVM's own system properties ({@code java -Dname=value}), which win over the files, and the
  * command line, which wins over both.
  * <p>
  * Each server gets a configuration of its own ({@link #configuration(String)}): the launcher's
- * files, then that server's files ({@link #addFile(String, File, boolean)}), then the JVM's and the
+ * files, then that server's files ({@link #addFile(String, FileSource, boolean)}), then the JVM's and the
  * command line's settings. Two servers can then have different values for the same name, and no
  * server sees another server's files. The system properties aren't changed, except for a server
  * whose provider still reads them ({@link #applyToSystem()}). {@link #apply()} reads the files
  * again (after a file changed).
+ * <p>
+ * The files are FileSources: the settings folder's are on the default file system, as
+ * {@code ServerMain.confDir()} is.
  *
  * @since 2.0.0
  */
@@ -32,12 +37,12 @@ public final class LaunchSettings {
 	private final Properties jvmValues = new Properties();
 	private final Properties commandLine;
 	/** The launcher's files, read for every server */
-	private final List<File> files = new ArrayList<>();
+	private final List<FileSource> files = new ArrayList<>();
 	/** Each server's own files, by its id */
-	private final Map<String, List<File>> serverFiles = new LinkedHashMap<>();
-	private final Set<File> required = new HashSet<>();
+	private final Map<String, List<FileSource>> serverFiles = new LinkedHashMap<>();
+	private final Set<FileSource> required = new HashSet<>();
 	/** Each file's settings, as {@link #apply()} last read them (a missing file has none) */
-	private final Map<File, Properties> read = new LinkedHashMap<>();
+	private final Map<FileSource, Properties> read = new LinkedHashMap<>();
 	/** The settings {@link #applyToSystem()} set, and their values */
 	private final Map<String, String> fromFiles = new LinkedHashMap<>();
 
@@ -90,8 +95,8 @@ public final class LaunchSettings {
 	 * @param mustExist true for a file someone named (an error if it isn't there); false for a
 	 *                  default file, which is skipped when it isn't there
 	 */
-	public synchronized void addFile(File f, boolean mustExist) {
-		File a = f.getAbsoluteFile();
+	public synchronized void addFile(FileSource f, boolean mustExist) {
+		FileSource a = f.getAbsoluteFile();
 		if (!files.contains(a)) {
 			files.add(a);
 		}
@@ -107,9 +112,9 @@ public final class LaunchSettings {
 	 * @param serverId  the server's id (its provider's)
 	 * @param mustExist true for a file someone named; false for a default file, skipped when missing
 	 */
-	public synchronized void addFile(String serverId, File f, boolean mustExist) {
-		File a = f.getAbsoluteFile();
-		List<File> list = serverFiles.computeIfAbsent(serverId, k -> new ArrayList<>());
+	public synchronized void addFile(String serverId, FileSource f, boolean mustExist) {
+		FileSource a = f.getAbsoluteFile();
+		List<FileSource> list = serverFiles.computeIfAbsent(serverId, k -> new ArrayList<>());
 		if (!list.contains(a)) {
 			list.add(a);
 		}
@@ -119,10 +124,10 @@ public final class LaunchSettings {
 	}
 
 	/** Every file, the launcher's then each server's, in order, whether they exist or not */
-	public synchronized List<File> getFiles() {
-		List<File> ret = new ArrayList<>(files);
-		for (List<File> l : serverFiles.values()) {
-			for (File f : l) {
+	public synchronized List<FileSource> getFiles() {
+		List<FileSource> ret = new ArrayList<>(files);
+		for (List<FileSource> l : serverFiles.values()) {
+			for (FileSource f : l) {
 				if (!ret.contains(f)) {
 					ret.add(f);
 				}
@@ -132,11 +137,11 @@ public final class LaunchSettings {
 	}
 
 	/** The files one server reads, in order: the launcher's, then its own */
-	public synchronized List<File> getFiles(String serverId) {
-		List<File> ret = new ArrayList<>(files);
-		List<File> own = serverFiles.get(serverId);
+	public synchronized List<FileSource> getFiles(String serverId) {
+		List<FileSource> ret = new ArrayList<>(files);
+		List<FileSource> own = serverFiles.get(serverId);
 		if (own != null) {
-			for (File f : own) {
+			for (FileSource f : own) {
 				if (!ret.contains(f)) {
 					ret.add(f);
 				}
@@ -152,7 +157,7 @@ public final class LaunchSettings {
 	 */
 	public synchronized Properties configuration(String serverId) {
 		Properties ret = new Properties();
-		for (File f : getFiles(serverId)) {
+		for (FileSource f : getFiles(serverId)) {
 			Properties p = read.get(f);
 			if (p != null) {
 				for (String name : p.stringPropertyNames()) {
@@ -175,11 +180,11 @@ public final class LaunchSettings {
 	 * @throws IOException if a named file can't be read
 	 */
 	public synchronized void apply() throws IOException {
-		Map<File, Properties> now = new LinkedHashMap<>();
-		for (File f : getFiles()) {
+		Map<FileSource, Properties> now = new LinkedHashMap<>();
+		for (FileSource f : getFiles()) {
 			if (!f.isFile()) {
 				if (required.contains(f)) {
-					throw new IOException("Can't read the settings file " + f);
+					throw new IOException("Can't read the settings file " + f.getPath());
 				}
 				continue;
 			}
@@ -200,7 +205,7 @@ public final class LaunchSettings {
 	public synchronized void applyToSystem() throws IOException {
 		apply();
 		Map<String, String> merged = new LinkedHashMap<>();
-		for (File f : getFiles()) {
+		for (FileSource f : getFiles()) {
 			Properties p = read.get(f);
 			if (p != null) {
 				for (String name : p.stringPropertyNames()) {
@@ -231,7 +236,7 @@ public final class LaunchSettings {
 	 */
 	public synchronized Map<String, Set<String>> sources() {
 		Map<String, Set<String>> ret = new LinkedHashMap<>();
-		for (File f : getFiles()) {
+		for (FileSource f : getFiles()) {
 			Properties p = read.get(f);
 			if (p != null) {
 				ret.put(f.getPath(), new java.util.TreeSet<>(p.stringPropertyNames()));
@@ -248,16 +253,23 @@ public final class LaunchSettings {
 		for (String name : commandLine.stringPropertyNames()) {
 			System.out.println("\t" + name + "=" + printable(name, commandLine.getProperty(name)));
 		}
-		for (File f : getFiles()) {
-			if (f.isFile()) {
-				System.out.println("Loaded properties from " + f);
+		for (FileSource f : getFiles()) {
+			try {
+				if (f.isFile()) {
+					System.out.println("Loaded properties from " + f.getPath());
+				}
+			} catch (IOException e) {
+				System.out.println("Can't reach " + f.getPath() + ": " + e.getMessage());
 			}
 		}
 	}
 
 	/** A settings file: UTF-8, or ISO-8859-1 (what Properties.load reads) when it isn't valid UTF-8. */
-	static Properties load(File f) throws java.io.IOException {
-		byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
+	static Properties load(FileSource f) throws java.io.IOException {
+		byte[] bytes;
+		try (InputStream in = f.getInputStream()) {
+			bytes = in.readAllBytes();
+		}
 		String text;
 		try {
 			text = java.nio.charset.StandardCharsets.UTF_8.newDecoder()

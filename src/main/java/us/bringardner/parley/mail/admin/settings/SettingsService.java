@@ -1,6 +1,5 @@
 package us.bringardner.parley.mail.admin.settings;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,7 +41,7 @@ public final class SettingsService {
 	/** The settings every mail server reads (parley-mail's MailServerProvider.SHARED_SETTINGS_FILE). */
 	public static final String SHARED_FILE = "parley-mail.properties";
 
-	private final File directory;
+	private final FileSource directory;
 	private final SettingsCatalog catalog;
 	/** parley-mail.properties, then the protocols' files in ServiceId.Protocol order */
 	private final List<PropertiesFile> files = new ArrayList<>();
@@ -59,12 +58,17 @@ public final class SettingsService {
 	/** Settings a new queue file gets besides those set (the aliases file the Aliases page edits) */
 	private volatile Map<String, String> newQueueDefaults = Collections.emptyMap();
 
-	public SettingsService(File directory, SettingsCatalog catalog) {
+	/**
+	 * @param directory the settings folder, on the file system the servers read it on (the default
+	 *            factory's, as ServerMain.confDir())
+	 * @throws IOException if the folder's file system can't be asked for its files
+	 */
+	public SettingsService(FileSource directory, SettingsCatalog catalog) throws IOException {
 		this.directory = directory;
 		this.catalog = catalog;
-		files.add(new PropertiesFile(new File(directory, SHARED_FILE)));
+		files.add(new PropertiesFile(directory.getChild(SHARED_FILE)));
 		for (ServiceId.Protocol p : ServiceId.Protocol.values()) {
-			files.add(new PropertiesFile(new File(directory, p.settingsFile)));
+			files.add(new PropertiesFile(directory.getChild(p.settingsFile)));
 		}
 		for (String k : System.getProperties().stringPropertyNames()) {
 			if (k.startsWith("parley.")) {
@@ -78,7 +82,7 @@ public final class SettingsService {
 	}
 
 	/** The settings folder. */
-	public File getDirectory() {
+	public FileSource getDirectory() {
 		return directory;
 	}
 
@@ -186,25 +190,15 @@ public final class SettingsService {
 			} else {
 				try {
 					String[] segs = queueSegments(queue);
-					if (isLocalMailRoot()) {
-						File r = new File(root);
-						storeFile = new PropertiesFile(new File(r, us.bringardner.parley.mail.store.MailLocks.STORE_SETTINGS_FILE));
-						File q = r;
-						for (String seg : segs) {
-							q = new File(q, seg);
-						}
-						queueFile = new PropertiesFile(new File(q, us.bringardner.parley.smtp.queue.MailQueue.SETTINGS_FILE));
-					} else {
-						// another file system: opened as the servers open it (MaildropRoot), with the
-						// parley.mail.fileSource.* connection settings, or a filesource: URL
-						FileSource r = getMailRoot();
-						storeFile = new PropertiesFile(r.getChild(us.bringardner.parley.mail.store.MailLocks.STORE_SETTINGS_FILE));
-						FileSource q = r;
-						for (String seg : segs) {
-							q = q.getChild(seg);
-						}
-						queueFile = new PropertiesFile(q.getChild(us.bringardner.parley.smtp.queue.MailQueue.SETTINGS_FILE));
+					// opened as the servers open it (MaildropRoot): a path on the default file system, or
+					// on the one parley.mail.fileSource names with its connection settings, or a filesource: URL
+					FileSource r = getMailRoot();
+					storeFile = new PropertiesFile(r.getChild(us.bringardner.parley.mail.store.MailLocks.STORE_SETTINGS_FILE));
+					FileSource q = r;
+					for (String seg : segs) {
+						q = q.getChild(seg);
 					}
+					queueFile = new PropertiesFile(q.getChild(us.bringardner.parley.smtp.queue.MailQueue.SETTINGS_FILE));
 				} catch (IOException | RuntimeException e) {
 					storeFile = null;
 					queueFile = null;
@@ -260,8 +254,8 @@ public final class SettingsService {
 	}
 
 	/**
-	 * True if the mail root is a folder on this machine's disk: a path, with no
-	 * {@value SettingsCatalog#FILE_SOURCE}.
+	 * True if the mail root is a path on the default file system (this machine's disk, unless
+	 * parley.files.defaultFactory names another): a path, with no {@value SettingsCatalog#FILE_SOURCE}.
 	 */
 	public boolean isLocalMailRoot() {
 		String root = trim(getEffective(SettingsCatalog.ROOT));
@@ -294,6 +288,28 @@ public final class SettingsService {
 			mailRootFrom = from;
 		}
 		return mailRoot;
+	}
+
+	/**
+	 * The file a path in the SMTP queue's settings names (its aliases file), where the SMTP servers
+	 * read it: on the mail root's file system, as parley-smtp's SmtpServer opens it, or the file
+	 * system a {@code filesource:} URL names. While the mail root can't be opened (it isn't set, or
+	 * can't be reached now), on the default file system, which is the servers' then too.
+	 *
+	 * @throws IOException if the file system can't be reached
+	 */
+	public FileSource onQueueFileSystem(String path) throws IOException {
+		String v = path.trim();
+		if (us.bringardner.parley.files.FileSourceFactory.isUrl(v)) {
+			return FileSource.of(v);
+		}
+		us.bringardner.parley.files.FileSourceFactory factory;
+		try {
+			factory = getMailRoot().getFileSourceFactory();
+		} catch (IOException e) {
+			factory = us.bringardner.parley.files.FileSourceFactory.getDefaultFactory();
+		}
+		return factory.resolve(v);
 	}
 
 	/** The queue folder's names under the mail root, as parley-smtp's SmtpServer takes them */

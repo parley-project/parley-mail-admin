@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -20,7 +19,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
@@ -35,6 +33,9 @@ import org.junit.jupiter.api.TestMethodOrder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
+
 /**
  * The whole application in an embedded Tomcat, as a browser uses it: the first administrator,
  * domains, users, the services, mail through SMTP into POP3, the queue's history, the logs and
@@ -44,7 +45,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class WebAppTest {
 
 	private static DevServer server;
-	private static File home;
+	/** The admin's home, on the local file system (the application's default) */
+	private static FileSource home;
 	private static String base;
 	private static final HttpClient http = HttpClient.newBuilder().cookieHandler(new CookieManager()).build();
 	private static final ObjectMapper json = new ObjectMapper();
@@ -65,7 +67,7 @@ public class WebAppTest {
 	}
 
 	private static String queueProperties() throws IOException {
-		return new String(Files.readAllBytes(new File(home, "mail/.smtp-queue/queue.properties").toPath()), StandardCharsets.UTF_8);
+		return new String(TestFiles.bytes(home.getChild("mail").getChild(".smtp-queue").getChild("queue.properties")), StandardCharsets.UTF_8);
 	}
 
 	private static int freePort() throws IOException {
@@ -76,19 +78,21 @@ public class WebAppTest {
 
 	@BeforeAll
 	public static void start() throws Exception {
-		home = Files.createTempDirectory(new File(System.getProperty("java.io.tmpdir")).toPath(), "mail-admin-home").toFile();
+		// as the web application's listener does, before the first FileSource is made
+		AdminApp.installLogger();
+		home = FileSourceFactory.fileProxyFactory.createTempDirectory("mail-admin-home");
 		smtpPort = freePort();
 		submissionPort = freePort();
 		pop3Port = freePort();
 		imapPort = freePort();
 		ftpPort = freePort();
-		String root = new File(home, "mail").getAbsolutePath().replace('\\', '/');
+		String root = home.getChild("mail").getAbsolutePath().replace('\\', '/');
 		// the store's and the queue's own settings, as parley-servers-setup makes them (the queue names
 		// no aliases file: the application's own is used, and named when the queue's settings change)
-		new File(home, "mail/.smtp-queue").mkdirs();
-		Files.write(new File(home, "mail/.parley-store.properties").toPath(), "sharing=host\n".getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(home, "mail/.smtp-queue/queue.properties").toPath(), "# the queue\nhostname=mx.a.test\ndomains=a.test\n".getBytes(StandardCharsets.UTF_8));
-		Files.write(new File(home, "parley-mail.properties").toPath(), ("# test settings\n"
+		home.getChild("mail").getChild(".smtp-queue").mkdirs();
+		TestFiles.writeBytes(home.getChild("mail").getChild(".parley-store.properties"), "sharing=host\n".getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(home.getChild("mail").getChild(".smtp-queue").getChild("queue.properties"), "# the queue\nhostname=mx.a.test\ndomains=a.test\n".getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(home.getChild("parley-mail.properties"), ("# test settings\n"
 				+ "parley.mail.root=" + root + "\n"
 				+ "parley.mail.smtp.hostname=mx.a.test\n"
 				+ "parley.mail.submission.hostname=mx.a.test\n"
@@ -108,7 +112,7 @@ public class WebAppTest {
 		// ran mail servers first (in a real Tomcat, Tomcat's is installed first and parley-files uses
 		// java.protocol.handler.pkgs instead); this application doesn't need Tomcat's (war: URLs)
 		org.apache.catalina.webresources.TomcatURLStreamHandlerFactory.disable();
-		server = new DevServer(0, "/admin", DevServer.webappDirectory(), new File(home, "tomcat"));
+		server = new DevServer(0, "/admin", DevServer.webappDirectory(), home.getChild("tomcat"));
 		server.start();
 		base = "http://localhost:" + server.getPort() + "/admin/";
 	}
@@ -216,7 +220,7 @@ public class WebAppTest {
 			assertTrue(conns.get(0).get("user").isNull(), "not logged in");
 		}
 		assertEquals(home.getCanonicalPath(), st.get("settingsDirectory").asText());
-		assertEquals(new File(home, "mail/.smtp-history").getAbsolutePath(), st.get("historyDirectory").asText(), "from the SMTP queue's bean");
+		assertEquals(home.getChild("mail").getChild(".smtp-history").getAbsolutePath(), st.get("historyDirectory").asText(), "from the SMTP queue's bean");
 		// the servers are parley-net's, with their JMX beans
 		javax.management.MBeanServer mbs = java.lang.management.ManagementFactory.getPlatformMBeanServer();
 		assertEquals("RUNNING", mbs.getAttribute(new javax.management.ObjectName("us.bringardner.parley:type=Server,name=pop3"), "State"));
@@ -226,12 +230,12 @@ public class WebAppTest {
 		JsonNode imap = service(ok("POST", "/services/imap/off", null), "imap");
 		assertFalse(imap.get("enabled").asBoolean(), imap.toString());
 		assertEquals("OFF", imap.get("state").asText(), imap.toString());
-		assertTrue(Files.readString(new File(home, "parley-mail.properties").toPath()).contains("parley.servers=smtp,submission,pop3,ftp\n"));
+		assertTrue(TestFiles.read(home.getChild("parley-mail.properties")).contains("parley.servers=smtp,submission,pop3,ftp\n"));
 		assertEquals(409, call("POST", "/services/imap/start", null).statusCode(), "off: it can't be started");
 		imap = service(ok("POST", "/services/imap/on", null), "imap");
 		assertTrue(imap.get("enabled").asBoolean());
 		assertEquals("RUNNING", imap.get("state").asText(), imap.toString());
-		assertTrue(Files.readString(new File(home, "parley-mail.properties").toPath()).contains("parley.servers=smtp,submission,imap,pop3,ftp\n"),
+		assertTrue(TestFiles.read(home.getChild("parley-mail.properties")).contains("parley.servers=smtp,submission,imap,pop3,ftp\n"),
 				"back in the services' order");
 		// on, but with no key store it can't run
 		assertTrue(call("POST", "/services/pop3s/on", null).statusCode() >= 400);
@@ -242,7 +246,7 @@ public class WebAppTest {
 		assertEquals(995, pop3s.get("port").asInt(), "its standard port");
 		pop3s = service(ok("POST", "/services/pop3s/off", null), "pop3s");
 		assertFalse(pop3s.get("enabled").asBoolean());
-		assertTrue(Files.readString(new File(home, "parley-mail.properties").toPath()).contains("parley.servers=smtp,submission,imap,pop3,ftp\n"));
+		assertTrue(TestFiles.read(home.getChild("parley-mail.properties")).contains("parley.servers=smtp,submission,imap,pop3,ftp\n"));
 		for (JsonNode svc : ok("GET", "/services", null)) {
 			assertFalse(svc.get("restartNeeded").asBoolean(), "changing parley.servers needs no restart: " + svc);
 		}
@@ -353,13 +357,13 @@ public class WebAppTest {
 		ok("POST", "/domains/b.test/spam", Map.of("filter", "default"));
 		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.smtp.spam.provider", "none")));
 		// A4.1: the key file gets the permissions any new file of the process gets (the servers may be another user of its group)
-		File key = new File(home, "dkim/b.test-sel1.pem");
+		FileSource key = home.getChild("dkim").getChild("b.test-sel1.pem");
 		assertTrue(key.isFile());
-		if (Files.getFileAttributeView(key.toPath(), java.nio.file.attribute.PosixFileAttributeView.class) != null) {
-			File fresh = new File(home, "dkim/fresh.txt");
-			Files.write(fresh.toPath(), new byte[0]);
-			assertEquals(Files.getPosixFilePermissions(fresh.toPath()), Files.getPosixFilePermissions(key.toPath()));
-			Files.delete(fresh.toPath());
+		if (!FileSourceFactory.isWindows()) {
+			FileSource fresh = home.getChild("dkim").getChild("fresh.txt");
+			TestFiles.writeBytes(fresh, new byte[0]);
+			assertEquals(TestFiles.perms(fresh), TestFiles.perms(key));
+			fresh.delete();
 		}
 
 		ok("POST", "/users", Map.of("name", "tony@b.test", "password", "tonypass1", "permissions", java.util.List.of("READ", "WRITE")));
@@ -444,7 +448,7 @@ public class WebAppTest {
 			}
 		}
 		assertEquals(1, rows);
-		assertTrue(new File(home, "mail/b.test/tony").isDirectory());
+		assertTrue(home.getChild("mail").getChild("b.test").getChild("tony").isDirectory());
 
 		assertEquals(1, pop3Count("tony@b.test", "tonypass1"));
 		JsonNode usage = ok("GET", "/users/" + URLEncoder.encode("tony@b.test", StandardCharsets.UTF_8) + "/usage", null);
@@ -472,7 +476,7 @@ public class WebAppTest {
 		}
 		assertNull(d.get("dkim"), "no key yet: the primary domain has none");
 		ok("POST", "/domains/a.test/dkim", Map.of("selector", "prim", "type", "rsa"));
-		String queue = new String(Files.readAllBytes(new File(home, "mail/.smtp-queue/queue.properties").toPath()), StandardCharsets.UTF_8);
+		String queue = new String(TestFiles.bytes(home.getChild("mail").getChild(".smtp-queue").getChild("queue.properties")), StandardCharsets.UTF_8);
 		assertTrue(queue.contains("dkim.shared=a.test"), queue);
 		for (JsonNode x : ok("GET", "/domains", null)) {
 			String name = x.get("domain").asText();
@@ -581,7 +585,7 @@ public class WebAppTest {
 		HttpResponse<String> tail = call("GET", "/logs/files/read?path=" + URLEncoder.encode(path, StandardCharsets.UTF_8), null);
 		assertEquals(200, tail.statusCode());
 		assertTrue(tail.body().contains("INFO"), tail.body());
-		assertEquals(404, call("GET", "/logs/files/read?path=" + URLEncoder.encode(new File(home, "users.txt").getPath(), StandardCharsets.UTF_8), null).statusCode(),
+		assertEquals(404, call("GET", "/logs/files/read?path=" + URLEncoder.encode(home.getChild("users.txt").getPath(), StandardCharsets.UTF_8), null).statusCode(),
 				"no other files");
 	}
 
@@ -604,7 +608,7 @@ public class WebAppTest {
 		assertNotNull(queue);
 		assertEquals("store", store.get("asset").asText());
 		assertTrue(s.get("assets").get("store").get("exists").asBoolean());
-		assertEquals(new File(home, "mail/.smtp-queue/queue.properties").getAbsolutePath().replace('\\', '/'), s.get("assets").get("queue").get("path").asText());
+		assertEquals(home.getChild("mail").getChild(".smtp-queue").getChild("queue.properties").getAbsolutePath().replace('\\', '/'), s.get("assets").get("queue").get("path").asText());
 		assertEquals(java.util.List.of("smtp", "submission", "submissions"), smtp.get("servers").findValuesAsText("id"));
 		boolean submissionTls = false;
 		for (JsonNode x : smtp.get("settings")) {
@@ -618,12 +622,12 @@ public class WebAppTest {
 			}
 		}
 		// queueActions put the queue's settings in its own file
-		String q = Files.readString(new File(home, "mail/.smtp-queue/queue.properties").toPath());
+		String q = TestFiles.read(home.getChild("mail").getChild(".smtp-queue").getChild("queue.properties"));
 		assertTrue(q.contains("retry=10h"), q);
 		assertTrue(q.startsWith("# the queue\n"), "the file's comments are kept");
 		for (String f : new String[] { "parley-mail.properties", "parley-smtp.properties" }) {
-			File file = new File(home, f);
-			assertFalse(file.exists() && Files.readString(file.toPath()).contains("retry"), f);
+			FileSource file = home.getChild(f);
+			assertFalse(file.exists() && TestFiles.read(file).contains("retry"), f);
 		}
 		// the Domains page and the Aliases page changed it too
 		assertTrue(q.contains("domains=a.test,b.test"), q);
@@ -634,8 +638,8 @@ public class WebAppTest {
 		JsonNode r = ok("PUT", "/settings", Map.of("changes", Map.of("queue.hostname", "mx2.a.test")));
 		assertTrue(r.get("restartNeeded").toString().contains("submission"), r.toString());
 		assertFalse(r.get("restartNeeded").toString().contains("imap"), r.toString());
-		assertTrue(Files.readString(new File(home, "mail/.smtp-queue/queue.properties").toPath()).contains("hostname=mx2.a.test"));
-		String smtpFile = Files.readString(new File(home, "parley-smtp.properties").toPath());
+		assertTrue(TestFiles.read(home.getChild("mail").getChild(".smtp-queue").getChild("queue.properties")).contains("hostname=mx2.a.test"));
+		String smtpFile = TestFiles.read(home.getChild("parley-smtp.properties"));
 		assertTrue(smtpFile.contains("parley.mail.submissions.hostname=mx2.a.test"), smtpFile);
 		assertEquals("mx2.a.test", ok("GET", "/status", null).get("hostname").asText());
 		ok("POST", "/services/all/restart-changed", null);
@@ -970,7 +974,7 @@ public class WebAppTest {
 				assertEquals("[\"sales@b.test\"]", u.get("groups").toString());
 			}
 		}
-		assertTrue(Files.readString(new File(home, "users.txt").toPath()).contains("groups=sales@b.test"), "FileBasedAcl's format");
+		assertTrue(TestFiles.read(home.getChild("users.txt")).contains("groups=sales@b.test"), "FileBasedAcl's format");
 		assertEquals(400, call("PUT", path("carol@b.test"), Map.of("groups", List.of("sales"))).statusCode(), "a group needs its domain");
 
 		// tony's mailboxes: no ACL yet, the owner has every right
@@ -1028,7 +1032,7 @@ public class WebAppTest {
 		inbox = entries(ok("GET", path("tony@b.test") + "/mailboxes", null), "INBOX");
 		assertEquals(1, inbox.get("entries").size(), inbox.toString());
 		assertEquals("$sales@b.test", inbox.get("entries").get(0).get("identifier").asText());
-		assertFalse(Files.readString(new File(home, "mail/.imap-shares").toPath()).contains("bob@b.test"));
+		assertFalse(TestFiles.read(home.getChild("mail").getChild(".imap-shares")).contains("bob@b.test"));
 
 		// the owner's own rights can be narrowed, never below l and a, and reset
 		ok("POST", path("tony@b.test") + "/mailboxes/acl", Map.of("mailbox", "INBOX", "identifier", "tony@b.test", "rights", ""));

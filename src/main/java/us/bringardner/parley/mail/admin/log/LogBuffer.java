@@ -1,7 +1,5 @@
 package us.bringardner.parley.mail.admin.log;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
@@ -17,6 +15,8 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
+
+import us.bringardner.parley.files.FileSource;
 
 /**
  * The log entries of the mail suite: the last few thousand in memory for the Logs page, and all of
@@ -121,7 +121,7 @@ public final class LogBuffer {
 	private final AtomicLong seq = new AtomicLong();
 	private final Deque<Entry> entries = new ArrayDeque<>();
 	private volatile int capacity;
-	private File file;
+	private FileSource file;
 	private long fileSize;
 	private long maxFileSize;
 	private OutputStream out;
@@ -149,21 +149,24 @@ public final class LogBuffer {
 	}
 
 	/** Also write the entries to this file, starting a new one when it reaches maxSize bytes. */
-	public synchronized void setFile(File file, long maxSize) throws IOException {
+	public synchronized void setFile(FileSource file, long maxSize) throws IOException {
 		closeFile();
 		this.file = file;
 		this.maxFileSize = Math.max(64 * 1024, maxSize);
 		openFile();
 	}
 
-	public synchronized File getFile() {
+	public synchronized FileSource getFile() {
 		return file;
 	}
 
 	private void openFile() throws IOException {
-		file.getAbsoluteFile().getParentFile().mkdirs();
-		out = new FileOutputStream(file, true);
-		fileSize = file.length();
+		FileSource dir = file.getParentFile();
+		if (dir != null && !dir.isDirectory()) {
+			dir.mkdirs();
+		}
+		out = file.getOutputStream(true);
+		fileSize = file.exists() ? file.length() : 0;
 	}
 
 	private synchronized void closeFile() {
@@ -225,17 +228,22 @@ public final class LogBuffer {
 	private void rotate() throws IOException {
 		closeFile();
 		for (int i = OLD_FILES - 1; i >= 1; i--) {
-			File from = new File(file.getPath() + "." + i);
+			FileSource from = rotated(i);
 			if (from.exists()) {
-				File to = new File(file.getPath() + "." + (i + 1));
+				FileSource to = rotated(i + 1);
 				to.delete();
 				from.renameTo(to);
 			}
 		}
-		File first = new File(file.getPath() + ".1");
+		FileSource first = rotated(1);
 		first.delete();
 		file.renameTo(first);
 		openFile();
+	}
+
+	/** The rotated copy number I: the file's name followed by .I, next to it */
+	private FileSource rotated(int i) throws IOException {
+		return file.getParentFile().getChild(file.getName() + "." + i);
 	}
 
 	/**

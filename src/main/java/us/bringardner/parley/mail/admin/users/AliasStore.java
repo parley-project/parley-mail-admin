@@ -1,9 +1,8 @@
 package us.bringardner.parley.mail.admin.users;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -12,12 +11,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.FileRewrite;
 
 /**
  * The aliases file of parley-smtp ({@code parley.mail.smtp.aliases}): lines like
  * {@code sales@example.com: tony@example.com, jose@example.org}. Comments and order are kept. The
- * SMTP services read the file when they start, so a change needs them restarted.
+ * SMTP services read the file when they start, so a change needs them restarted. The file is on
+ * the file system the SMTP servers read it on (the mail root's: {@code SettingsService.onQueueFileSystem}).
  */
 public final class AliasStore {
 
@@ -36,18 +37,18 @@ public final class AliasStore {
 		}
 	}
 
-	private volatile File file;
+	private volatile FileSource file;
 	private final List<Line> lines = new ArrayList<>();
 
-	public AliasStore(File file) {
+	public AliasStore(FileSource file) {
 		this.file = file;
 	}
 
-	public File getFile() {
+	public FileSource getFile() {
 		return file;
 	}
 
-	public synchronized void setFile(File file) throws IOException {
+	public synchronized void setFile(FileSource file) throws IOException {
 		this.file = file;
 		load();
 	}
@@ -57,7 +58,10 @@ public final class AliasStore {
 		if (!file.exists()) {
 			return;
 		}
-		String text = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+		String text;
+		try (InputStream in = file.getInputStream()) {
+			text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+		}
 		for (String l : text.split("\r?\n", -1)) {
 			String content = l;
 			int hash = content.indexOf('#');

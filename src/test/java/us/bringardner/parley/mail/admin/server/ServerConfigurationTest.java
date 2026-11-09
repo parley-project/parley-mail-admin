@@ -1,15 +1,16 @@
 package us.bringardner.parley.mail.admin.server;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.mail.admin.TestFiles;
 import us.bringardner.parley.net.server.ServerMain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -87,7 +88,12 @@ public class ServerConfigurationTest {
 	}
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	ServerLauncher launcher;
 
@@ -100,11 +106,11 @@ public class ServerConfigurationTest {
 	}
 
 	private void write(String name, String text) throws IOException {
-		Files.write(new File(dir, name).toPath(), text.getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(dir().getChild(name), text.getBytes(StandardCharsets.UTF_8));
 	}
 
 	private void launcher(String... args) throws Exception {
-		launcher = LauncherMain.launcher("CfgProcess", args, dir, "cfga", "cfgb");
+		launcher = LauncherMain.launcher("CfgProcess", args, dir(), "cfga", "cfgb");
 		launcher.init();
 	}
 
@@ -175,7 +181,7 @@ public class ServerConfigurationTest {
 		launcher.restart("cfga");
 		assertEquals("/two", made.get("cfga").getProperty("parley.cfg.root"));
 		assertEquals("/two", launcher.getConfiguration("cfga").getProperty("parley.cfg.root"));
-		assertTrue(Arrays.asList(launcher.getSettingsFiles()).contains(new File(dir, "parley-cfgb.properties").getAbsolutePath()));
+		assertTrue(Arrays.asList(launcher.getSettingsFiles()).contains(dir().getChild("parley-cfgb.properties").getAbsolutePath()));
 	}
 
 	@Test
@@ -208,7 +214,7 @@ public class ServerConfigurationTest {
 	@Test
 	public void parleyServersIsReadAgainOnAReload() throws Exception {
 		write(LauncherMain.LAUNCHER_FILE, "parley.servers=cfga\n");
-		launcher = LauncherMain.launcher("CfgProcess", new String[0], dir);
+		launcher = LauncherMain.launcher("CfgProcess", new String[0], dir());
 		launcher.init();
 		launcher.startAll();
 		assertEquals(Arrays.asList("cfga"), Arrays.asList(launcher.getServers()));
@@ -238,7 +244,7 @@ public class ServerConfigurationTest {
 	@Test
 	public void aListGivenOnTheCommandLineIsKept() throws Exception {
 		write(LauncherMain.LAUNCHER_FILE, "parley.servers=cfga,cfgb\n");
-		launcher = LauncherMain.launcher("CfgProcess", new String[] { "-Dparley.servers=cfga" }, dir);
+		launcher = LauncherMain.launcher("CfgProcess", new String[] { "-Dparley.servers=cfga" }, dir());
 		launcher.init();
 		launcher.reloadSettings();
 		assertEquals(Arrays.asList("cfga"), Arrays.asList(launcher.getServers()));

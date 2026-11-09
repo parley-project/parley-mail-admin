@@ -1,12 +1,15 @@
 package us.bringardner.parley.mail.admin;
 
-import java.io.File;
+import java.io.IOException;
 
 import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.core.StandardContext;
 import org.apache.catalina.startup.Tomcat;
 import org.apache.tomcat.util.scan.StandardJarScanner;
+
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 
 /**
  * Runs the web application in an embedded Tomcat, straight from the project: Run As (or Debug As)
@@ -16,14 +19,15 @@ import org.apache.tomcat.util.scan.StandardJarScanner;
  * System properties: {@code port} (8080), {@code contextPath} (/parley-mail-admin) and
  * {@code parley.mail.admin.home} (~/.parley/mail-admin). The pages (src/main/webapp) are served
  * from the project, so a change to them shows on the next reload; the classes come from the
- * launch's class path.
+ * launch's class path. Tomcat's folders are on the local disk (FileProxies): Tomcat reads them
+ * itself, by their paths.
  */
 public final class DevServer {
 
 	private final Tomcat tomcat = new Tomcat();
 	private final Context context;
 
-	public DevServer(int port, String contextPath, File webapp, File baseDir) {
+	public DevServer(int port, String contextPath, FileSource webapp, FileSource baseDir) {
 		tomcat.setBaseDir(baseDir.getAbsolutePath());
 		tomcat.setPort(port);
 		tomcat.getConnector(); // make the HTTP connector
@@ -55,8 +59,8 @@ public final class DevServer {
 	}
 
 	/** The project's src/main/webapp (the working directory is the project in Eclipse and Maven). */
-	public static File webappDirectory() {
-		File f = new File("src/main/webapp");
+	public static FileSource webappDirectory() throws IOException {
+		FileSource f = FileSourceFactory.fileProxyFactory.createFileSource("src/main/webapp");
 		if (!f.isDirectory()) {
 			throw new IllegalStateException("Run DevServer with the parley-mail-admin project as the working directory (can't find " + f.getAbsolutePath() + ")");
 		}
@@ -66,7 +70,7 @@ public final class DevServer {
 	public static void main(String[] args) throws Exception {
 		int port = Integer.getInteger("port", 8080);
 		String path = System.getProperty("contextPath", "/parley-mail-admin");
-		File base = new File(System.getProperty("java.io.tmpdir"), "parley-mail-admin-tomcat");
+		FileSource base = FileSourceFactory.fileProxyFactory.getTempDirectory().getChild("parley-mail-admin-tomcat");
 		DevServer server = new DevServer(port, path, webappDirectory(), base);
 		server.start();
 		System.out.println("Parley Mail Admin: http://localhost:" + server.getPort() + path + "/");

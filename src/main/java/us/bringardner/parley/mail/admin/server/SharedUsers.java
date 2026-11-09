@@ -1,6 +1,5 @@
 package us.bringardner.parley.mail.admin.server;
 
-import java.io.File;
 import java.io.IOException;
 
 import us.bringardner.parley.files.FileSource;
@@ -63,7 +62,7 @@ public final class SharedUsers {
 	 * The registry of this file the context's servers share, or null if none of them uses it (yet): for
 	 * an application that changed the file and wants them to read it now ({@code reloadNow()}).
 	 */
-	public static FileUserRegistry find(ServerContext context, File file) throws IOException {
+	public static FileUserRegistry find(ServerContext context, FileSource file) throws IOException {
 		String path = file.getCanonicalFile().getPath();
 		Object o = context.get(KEY + path);
 		if (o == null) {

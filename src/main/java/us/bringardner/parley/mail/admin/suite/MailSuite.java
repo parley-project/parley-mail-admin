@@ -1,10 +1,8 @@
 package us.bringardner.parley.mail.admin.suite;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -31,6 +29,8 @@ import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.mail.admin.settings.PropertiesFile;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
@@ -252,13 +252,13 @@ public final class MailSuite implements AutoCloseable {
 		if (file == null) {
 			return "";
 		}
-		try {
-			for (String line : Files.readAllLines(new File(file).toPath(), StandardCharsets.UTF_8)) {
-				return line.trim();
-			}
-			return "";
+		try (java.io.BufferedReader in = new java.io.BufferedReader(
+				new java.io.InputStreamReader(FileSource.of(file.trim()).getInputStream(), StandardCharsets.UTF_8))) {
+			String line = in.readLine();
+			return line == null ? "" : line.trim();
 		} catch (IOException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't read the JMX password file " + file + " (" + SettingsCatalog.ADMIN_JMX_PASSWORD_FILE + "): " + e.getMessage());
+			LOG.log(System.Logger.Level.WARNING, "Can't read the JMX password file " + FileSourceFactory.safe(file.trim()) + " ("
+					+ SettingsCatalog.ADMIN_JMX_PASSWORD_FILE + "): " + e.getMessage());
 			return "";
 		}
 	}
@@ -436,13 +436,13 @@ public final class MailSuite implements AutoCloseable {
 				m.put("settingsFiles", files);
 				List<String> other = new ArrayList<>();
 				for (String f : files) {
-					File p = new File(f).getAbsoluteFile().getParentFile();
-					if (p != null && !p.equals(settings.getDirectory().getAbsoluteFile())) {
+					FileSource p = FileSource.of(f).getParentFile();
+					if (p != null && !p.equals(settings.getDirectory())) {
 						other.add(f);
 					}
 				}
 				if (!other.isEmpty()) {
-					m.put("warning", "It reads settings files outside " + settings.getDirectory() + ", which this application doesn't edit: " + other);
+					m.put("warning", "It reads settings files outside " + settings.getDirectory().getPath() + ", which this application doesn't edit: " + other);
 				}
 			} catch (Exception e) {
 				broken(t, e);
@@ -1245,8 +1245,12 @@ public final class MailSuite implements AutoCloseable {
 		for (PropertiesFile f : assetFiles(id)) {
 			t = Math.max(t, f.lastModified());
 		}
-		File aliases = aliasesFile(id);
-		return aliases == null ? t : Math.max(t, aliases.lastModified());
+		try {
+			FileSource aliases = aliasesFile(id);
+			return aliases == null || !aliases.exists() ? t : Math.max(t, aliases.lastModified());
+		} catch (IOException e) {
+			return t;
+		}
 	}
 
 	/** The store's and, for an SMTP server, the queue's own settings files (those there are) */
@@ -1261,13 +1265,13 @@ public final class MailSuite implements AutoCloseable {
 		return ret;
 	}
 
-	/** The aliases file an SMTP server's queue names, or null */
-	private File aliasesFile(ServiceId id) {
+	/** The aliases file an SMTP server's queue names (where the server reads it), or null */
+	private FileSource aliasesFile(ServiceId id) throws IOException {
 		if (id.protocol != ServiceId.Protocol.SMTP || !queueOf(id).equals(queueOf(ServiceId.SMTP))) {
 			return null;
 		}
 		String a = settings.get(SettingsCatalog.QUEUE_ALIASES);
-		return a == null || a.trim().isEmpty() ? null : new File(a.trim());
+		return a == null || a.trim().isEmpty() ? null : settings.onQueueFileSystem(a);
 	}
 
 	/** The queue's settings its reload reads again (with the aliases file's contents) */
@@ -1316,13 +1320,15 @@ public final class MailSuite implements AutoCloseable {
 				md.update((byte) 0);
 				md2.update(again.toString().getBytes(StandardCharsets.UTF_8));
 			}
-			File aliases = aliasesFile(id);
-			if (aliases != null && aliases.isFile()) {
-				try {
-					md2.update(Files.readAllBytes(aliases.toPath()));
-				} catch (IOException e) {
-					md2.update((byte) 1);
+			try {
+				FileSource aliases = aliasesFile(id);
+				if (aliases != null && aliases.isFile()) {
+					try (java.io.InputStream in = aliases.getInputStream()) {
+						md2.update(in.readAllBytes());
+					}
 				}
+			} catch (IOException e) {
+				md2.update((byte) 1);
 			}
 			return java.util.Base64.getEncoder().encodeToString(md.digest()) + "|" + java.util.Base64.getEncoder().encodeToString(md2.digest());
 		} catch (NoSuchAlgorithmException e) {

@@ -7,11 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
@@ -34,11 +33,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.dns.server.DnsServer;
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.dns.DnsAdmin;
-import us.bringardner.parley.mail.admin.suite.MailSuite;
 import us.bringardner.parley.mail.admin.server.LaunchSettings;
 import us.bringardner.parley.mail.admin.server.ServerContext;
 import us.bringardner.parley.mail.admin.server.ServerLauncher;
+import us.bringardner.parley.mail.admin.suite.MailSuite;
 
 /**
  * The admin and a Parley DNS server run by a launcher "process" (in this JVM, behind a JMX RMI
@@ -49,7 +49,12 @@ import us.bringardner.parley.mail.admin.server.ServerLauncher;
 public class DnsAdminTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	private static int freePort() throws IOException {
 		try (ServerSocket s = new ServerSocket(0)) {
@@ -57,9 +62,9 @@ public class DnsAdminTest {
 		}
 	}
 
-	private static void write(File f, String text) throws IOException {
+	private static void write(FileSource f, String text) throws IOException {
 		f.getParentFile().mkdirs();
-		Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(f, text.getBytes(StandardCharsets.UTF_8));
 	}
 
 	private static Map<String, String> rec(String type, String name, String value) {
@@ -105,39 +110,39 @@ public class DnsAdminTest {
 	@Test
 	@SuppressWarnings("unchecked")
 	public void dnsServerIsManagedGenericallyAndItsZonesFromTheDnsPage() throws Exception {
-		File home = new File(dir, "home");
-		File conf = new File(dir, "conf");
-		File dnsDir = new File(dir, "dns");
+		FileSource home = dir().getChild("home");
+		FileSource conf = dir().getChild("conf");
+		FileSource dnsDir = dir().getChild("dns");
 		int registryPort = freePort();
 		String url = "service:jmx:rmi:///jndi/rmi://127.0.0.1:" + registryPort + "/jmxrmi";
-		String root = new File(dir, "mail").getAbsolutePath().replace('\\', '/');
-		new File(dir, "mail/.parley-locks").mkdirs();
-		write(new File(dir, "mail/.parley-store.properties"), "sharing=host\n");
-		write(new File(dir, "mail/.smtp-queue/queue.properties"), "hostname=mx.a.test\ndomains=a.test,b.test\n");
-		write(new File(dir, "admin.password"), "s3cret-jmx\n");
+		String root = dir().getChild("mail").getAbsolutePath().replace('\\', '/');
+		dir().getChild("mail").getChild(".parley-locks").mkdirs();
+		write(dir().getChild("mail").getChild(".parley-store.properties"), "sharing=host\n");
+		write(dir().getChild("mail").getChild(".smtp-queue").getChild("queue.properties"), "hostname=mx.a.test\ndomains=a.test,b.test\n");
+		write(dir().getChild("admin.password"), "s3cret-jmx\n");
 		// the DNS server: the primary domain's zone, a key the admin may update with
 		String secret = Base64.getEncoder().encodeToString("0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.US_ASCII));
-		write(new File(dnsDir, "admin.key"), "parley-admin hmac-sha256 " + secret + "\n");
-		write(new File(dnsDir, "zones/a.test.txt"), "$TTL 3600\n@ IN SOA ns1.a.test. hostmaster.a.test. ( 7 3600 1800 1209600 300 )\n"
+		write(dnsDir.getChild("admin.key"), "parley-admin hmac-sha256 " + secret + "\n");
+		write(dnsDir.getChild("zones").getChild("a.test.txt"), "$TTL 3600\n@ IN SOA ns1.a.test. hostmaster.a.test. ( 7 3600 1800 1209600 300 )\n"
 				+ "  NS ns1.a.test.\n  MX 10 mx.a.test.\n  TXT \"site-verification=abc\"\n  TXT \"v=spf1 mx -all\"\n"
 				+ "ns1 A 192.0.2.53\nmx A 192.0.2.25\nwww A 192.0.2.80\n");
 		// the shared zone the other domains inherit: the same records, written for any domain
-		write(new File(dnsDir, "shared.zone"), "$TTL 3600\n@ IN SOA ns1.a.test. hostmaster.a.test. ( 7 3600 1800 1209600 300 )\n"
+		write(dnsDir.getChild("shared.zone"), "$TTL 3600\n@ IN SOA ns1.a.test. hostmaster.a.test. ( 7 3600 1800 1209600 300 )\n"
 				+ "  NS ns1.a.test.\n  MX 10 mx.a.test.\n  TXT \"site-verification=abc\"\n  TXT \"v=spf1 mx -all\"\n"
 				+ "www A 192.0.2.80\n");
-		write(new File(conf, "parley-dns.properties"), "parley.dns.dnsDir=" + dnsDir.getAbsolutePath().replace('\\', '/') + "\n"
-				+ "parley.dns.sharedZone=" + new File(dnsDir, "shared.zone").getAbsolutePath().replace('\\', '/') + "\n"
-				+ "parley.dns.zoneDir=" + new File(dnsDir, "zones").getAbsolutePath().replace('\\', '/') + "\n"
+		write(conf.getChild("parley-dns.properties"), "parley.dns.dnsDir=" + dnsDir.getAbsolutePath().replace('\\', '/') + "\n"
+				+ "parley.dns.sharedZone=" + dnsDir.getChild("shared.zone").getAbsolutePath().replace('\\', '/') + "\n"
+				+ "parley.dns.zoneDir=" + dnsDir.getChild("zones").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.dns.masterZone=a.test\nparley.dns.bindAddress=127.0.0.1\nparley.dns.port=" + freePort() + "\n"
 				+ "parley.dns.recursionAvailable=false\n"
 				+ "parley.dns.tsigKeyFile=admin.key\nparley.dns.updateKeys=parley-admin\n");
-		write(new File(conf, "parley-mail.properties"), "parley.mail.root=" + root + "\n"
-				+ "parley.mail.users=" + new File(dir, "users.txt").getAbsolutePath().replace('\\', '/') + "\n"
+		write(conf.getChild("parley-mail.properties"), "parley.mail.root=" + root + "\n"
+				+ "parley.mail.users=" + dir().getChild("users.txt").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.mail.admin.jmxUrl=" + url + "\nparley.mail.admin.jmxUser=parleyadmin\n"
-				+ "parley.mail.admin.jmxPasswordFile=" + new File(dir, "admin.password").getAbsolutePath().replace('\\', '/') + "\n"
+				+ "parley.mail.admin.jmxPasswordFile=" + dir().getChild("admin.password").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.mail.admin.primaryDomain=a.test\n"
-				+ "parley.mail.admin.dnsKeyFile=" + new File(dnsDir, "admin.key").getAbsolutePath().replace('\\', '/') + "\n");
-		write(new File(dir, "users.txt"), "# users\n");
+				+ "parley.mail.admin.dnsKeyFile=" + dnsDir.getChild("admin.key").getAbsolutePath().replace('\\', '/') + "\n");
+		write(dir().getChild("users.txt"), "# users\n");
 
 		if (System.getProperty(us.bringardner.parley.core.BaseObject.PROPERTY_LOGGER) == null) {
 			System.setProperty(us.bringardner.parley.core.BaseObject.PROPERTY_LOGGER, us.bringardner.parley.mail.admin.log.AdminLogger.class.getName());
@@ -286,7 +291,7 @@ public class DnsAdminTest {
 			dns.deleteSharedRecord("ftp", "AAAA", "2001:db8::21");
 			z = dns.zone("b.test", "a.test", want);
 			assertEquals(List.of(), records(z, "ftp.b.test", "AAAA"));
-			assertTrue(new File(dnsDir, "shared.zone.previous").exists());
+			assertTrue(dnsDir.getChild("shared.zone.previous").exists());
 
 			// stop it from the Servers list: its page has nothing to show; start it again
 			suite.serverAction("dns", "stop");
@@ -299,7 +304,7 @@ public class DnsAdminTest {
 			assertEquals(List.of("192.0.2.80 (inherited)"), records(z, "www.b.test", "A"), "the journal kept the changes");
 
 			// without a usable key the page says why
-			app.getSettings().set("parley.mail.admin.dnsKeyFile", new File(dir, "nothing.key").getAbsolutePath());
+			app.getSettings().set("parley.mail.admin.dnsKeyFile", dir().getChild("nothing.key").getAbsolutePath());
 			assertNotNull(dns.status().get("keyProblem"));
 			assertThrows(IllegalStateException.class, () -> dns.setRecords("b.test", "www", "A", 300, List.of("192.0.2.1")));
 		} finally {
