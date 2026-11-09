@@ -435,9 +435,10 @@ public final class MailSuite extends BaseObject implements AutoCloseable {
 				Collections.addAll(files, l.getSettingsFiles());
 				m.put("settingsFiles", files);
 				List<String> other = new ArrayList<>();
+				FileSource dir = canonical(settings.getDirectory());
 				for (String f : files) {
 					FileSource p = FileSource.of(f).getParentFile();
-					if (p != null && !p.equals(settings.getDirectory())) {
+					if (p != null && !canonical(p).equals(dir)) {
 						other.add(f);
 					}
 				}
@@ -451,6 +452,18 @@ public final class MailSuite extends BaseObject implements AutoCloseable {
 			ret.add(m);
 		}
 		return ret;
+	}
+
+	/**
+	 * F as its canonical path, so the same folder named through a link (macOS's /var is /private/var)
+	 * is the same; F as it is if that can't be worked out
+	 */
+	private static FileSource canonical(FileSource f) {
+		try {
+			return f.getCanonicalFile();
+		} catch (IOException e) {
+			return f.getAbsoluteFile();
+		}
 	}
 
 	private void broken(Target t, Exception e) {
