@@ -26,6 +26,7 @@ import us.bringardner.parley.dns.server.DnsRecordType;
 import us.bringardner.parley.dns.server.DnsServerMXBean;
 import us.bringardner.parley.dns.server.DnsZoneInfo;
 import us.bringardner.parley.dns.server.Zone;
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
@@ -663,7 +664,7 @@ public final class DnsAdmin {
 		}
 		Tsig.KeyRing ring;
 		try {
-			ring = Tsig.KeyRing.load(new File(file.trim()));
+			ring = Tsig.KeyRing.load(FileSource.of(new File(file.trim())));
 		} catch (IOException | RuntimeException e) {
 			throw new IllegalStateException("Can't read the TSIG key file " + file + ": " + e.getMessage());
 		}

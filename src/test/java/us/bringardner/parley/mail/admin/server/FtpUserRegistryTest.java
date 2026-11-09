@@ -18,6 +18,7 @@ import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.ftp.server.FtpRequestProcessor;
 import us.bringardner.parley.iam.AuthenticationResult.Status;
 import us.bringardner.parley.iam.AuthenticationResult;
@@ -114,7 +115,7 @@ public class FtpUserRegistryTest {
 				+ "eve@c.test , secret5 , ADMIN\n"
 				+ "../x@a.test , secret6 , ADMIN\n").getBytes(StandardCharsets.UTF_8));
 		FileUserRegistry r = new FileUserRegistry();
-		r.initialize(f);
+		r.initialize(FileSource.of(f));
 		return r;
 	}
 

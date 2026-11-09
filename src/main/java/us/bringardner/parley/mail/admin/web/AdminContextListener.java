@@ -25,8 +25,8 @@ public class AdminContextListener implements ServletContextListener {
 		// in code rather than web.xml's <cookie-config><attribute>, which Eclipse WTP's descriptor model can't read
 		ctx.getSessionCookieConfig().setAttribute("SameSite", "Strict");
 		File home = AdminHome.defaultDirectory(ctx.getInitParameter(AdminHome.HOME_PROPERTY));
-		File settings = AdminHome.defaultSettingsDirectory(home, ctx.getInitParameter(AdminHome.SETTINGS_PROPERTY));
 		try {
+			File settings = AdminHome.defaultSettingsDirectory(home, ctx.getInitParameter(AdminHome.SETTINGS_PROPERTY));
 			AdminApp app = AdminApp.start(home, settings);
 			ctx.setAttribute(APP, app);
 			ctx.log("Parley mail admin started; home " + app.getHome().getDirectory() + ", settings in " + app.getHome().getSettingsDirectory());
