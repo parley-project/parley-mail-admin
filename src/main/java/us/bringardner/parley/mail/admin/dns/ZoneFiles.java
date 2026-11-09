@@ -12,6 +12,7 @@ import java.util.function.Consumer;
 
 import us.bringardner.parley.dns.server.SharedZoneText;
 import us.bringardner.parley.dns.server.SharedZoneText.Record;
+import us.bringardner.parley.files.FileSource;
 
 /**
  * The zone files the admin writes: the shared zone's ({@code parley.dns.sharedZone}) and a new
@@ -43,7 +44,7 @@ final class ZoneFiles {
 
 	/** The shared zone's records as its file has them, the SOA first */
 	static List<Record> sharedRecords(File file) throws IOException {
-		return SharedZoneText.records(read(file), file.getAbsoluteFile().getParentFile());
+		return SharedZoneText.records(read(file), FileSource.of(file.getAbsoluteFile().getParentFile()));
 	}
 
 	static void addShared(File file, String name, String type, long ttl, List<String> values, Runnable reload) throws Exception {
@@ -134,7 +135,7 @@ final class ZoneFiles {
 			if (journal.exists()) {
 				throw new IllegalArgumentException("An old journal of the zone is there: " + journal + "; move it away first");
 			}
-			String text = SharedZoneText.inheritingZone(name, read(sharedFile), zoneDir);
+			String text = SharedZoneText.inheritingZone(name, read(sharedFile), FileSource.of(zoneDir));
 			File tmp = File.createTempFile("." + name, ".tmp", zoneDir);
 			try {
 				Files.write(tmp.toPath(), text.getBytes(StandardCharsets.UTF_8));
@@ -219,7 +220,7 @@ final class ZoneFiles {
 			String before = read(file);
 			List<Record> recs;
 			try {
-				recs = new ArrayList<Record>(SharedZoneText.records(before, file.getAbsoluteFile().getParentFile()));
+				recs = new ArrayList<Record>(SharedZoneText.records(before, FileSource.of(file.getAbsoluteFile().getParentFile())));
 			} catch (IOException e) {
 				throw new IllegalStateException(e.getMessage() + " (" + file + "; fix the file by hand)", e);
 			}
@@ -233,7 +234,7 @@ final class ZoneFiles {
 			}
 			String t = SharedZoneText.text(recs, HEADER);
 			try {
-				SharedZoneText.check(t, file.getAbsoluteFile().getParentFile());
+				SharedZoneText.check(t, FileSource.of(file.getAbsoluteFile().getParentFile()));
 			} catch (IOException e) {
 				throw new IllegalArgumentException(explain(e.getMessage(), recs), e);
 			}

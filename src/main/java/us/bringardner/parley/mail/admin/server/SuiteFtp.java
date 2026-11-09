@@ -1,6 +1,5 @@
 package us.bringardner.parley.mail.admin.server;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.Properties;
 
@@ -57,7 +56,7 @@ final class SuiteFtp {
 		FileSource mailRoot = MaildropRoot.open(root, source, connection, AbstractMailServer.MAIL_FILE_SOURCE_PROP);
 		String queue = c.getProperty("parley.mail.smtp.queue", "").trim();
 		StoreDomains domains = new StoreDomains(MaildropRoot.child(mailRoot, queue.isEmpty() ? ".smtp-queue" : queue));
-		FileUserRegistry list = users == null || users.trim().isEmpty() ? null : SharedUsers.list(context, new File(users.trim()).getCanonicalFile(), c.getProperty(FileUserRegistry.PROP_RELOAD_INTERVAL), c);
+		FileUserRegistry list = users == null || users.trim().isEmpty() ? null : SharedUsers.list(context, FileSource.of(users.trim()).getCanonicalFile(), c.getProperty(FileUserRegistry.PROP_RELOAD_INTERVAL), c);
 		FtpUserRegistry registry = new FtpUserRegistry(list, domains, c, prefix);
 
 		FileSource folder;
