@@ -1,8 +1,6 @@
 package us.bringardner.parley.mail.admin.log;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
@@ -14,10 +12,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.IRandomAccessStream;
+
 /**
  * The log files the Logs page shows: this application's own, the servers' (the {@code parley.log.file}
  * setting of parley-core's logger in the settings files, with its rotated copies {@code .1},
  * {@code .2} ...) and any others the settings name. Only these files can be read through the page.
+ * Each is a FileSource on the file system its writer uses.
  */
 public final class LogFiles {
 
@@ -26,27 +28,31 @@ public final class LogFiles {
 	/** Rotated copies looked for. */
 	static final int MAX_ROTATED = 20;
 
-	private final Supplier<List<File>> sources;
+	private final Supplier<List<FileSource>> sources;
 
 	/** @param sources the log files as the settings name them now (rotated copies are found here) */
-	public LogFiles(Supplier<List<File>> sources) {
+	public LogFiles(Supplier<List<FileSource>> sources) {
 		this.sources = sources;
 	}
 
-	/** The files there are, each named file followed by its rotated copies. */
-	public List<File> list() {
-		Set<File> ret = new LinkedHashSet<>();
-		for (File f : sources.get()) {
-			File a = f.getAbsoluteFile();
-			if (a.isFile()) {
-				ret.add(a);
-			}
-			for (int i = 1; i <= MAX_ROTATED; i++) {
-				File r = new File(a.getPath() + "." + i);
-				if (!r.isFile()) {
-					break;
+	/** The files there are, each named file followed by its rotated copies (none of a file that can't be asked). */
+	public List<FileSource> list() {
+		Set<FileSource> ret = new LinkedHashSet<>();
+		for (FileSource a : sources.get()) {
+			try {
+				if (a.isFile()) {
+					ret.add(a);
 				}
-				ret.add(r);
+				FileSource dir = a.getParentFile();
+				for (int i = 1; dir != null && i <= MAX_ROTATED; i++) {
+					FileSource r = dir.getChild(a.getName() + "." + i);
+					if (!r.isFile()) {
+						break;
+					}
+					ret.add(r);
+				}
+			} catch (IOException e) {
+				// it can't be reached now: not listed
 			}
 		}
 		return new ArrayList<>(ret);
@@ -55,25 +61,29 @@ public final class LogFiles {
 	/** The files, for the page: path, name, size and when they last changed. */
 	public List<Map<String, Object>> describe() {
 		List<Map<String, Object>> ret = new ArrayList<>();
-		for (File f : list()) {
+		for (FileSource f : list()) {
 			Map<String, Object> m = new LinkedHashMap<>();
 			m.put("path", f.getPath());
 			m.put("name", f.getName());
-			m.put("size", f.length());
-			m.put("modified", f.lastModified());
+			try {
+				m.put("size", f.length());
+				m.put("modified", f.lastModified());
+			} catch (IOException e) {
+				m.put("size", 0L);
+				m.put("modified", 0L);
+			}
 			ret.add(m);
 		}
 		return ret;
 	}
 
 	/** One of {@link #list()}'s files, or null if the path isn't one of them. */
-	public File find(String path) {
+	public FileSource find(String path) {
 		if (path == null) {
 			return null;
 		}
-		File want = new File(path).getAbsoluteFile();
-		for (File f : list()) {
-			if (f.equals(want)) {
+		for (FileSource f : list()) {
+			if (f.getPath().equals(path)) {
 				return f;
 			}
 		}
@@ -84,9 +94,9 @@ public final class LogFiles {
 	 * The end of a file: at most maxBytes (up to {@link #MAX_READ}), from the start of a line,
 	 * read as UTF-8.
 	 */
-	public static String tail(File f, int maxBytes) throws IOException {
+	public static String tail(FileSource f, int maxBytes) throws IOException {
 		int max = Math.max(1, Math.min(maxBytes, MAX_READ));
-		try (RandomAccessFile r = new RandomAccessFile(f, "r")) {
+		try (IRandomAccessStream r = f.getRandomAccessStream("r")) {
 			long len = r.length();
 			long start = Math.max(0, len - max);
 			byte[] b = new byte[(int) (len - start)];

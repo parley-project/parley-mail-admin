@@ -1,10 +1,9 @@
 package us.bringardner.parley.mail.admin.users;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -64,29 +63,30 @@ public final class UserService {
 	/** Why the users can't be changed when the registry can't change them */
 	public static final String READ_ONLY = "The user registry in use can't add, change or delete users, so the Users page is read-only";
 
-	private volatile File file;
-	private final Function<File, UserRegistry> shared;
+	private volatile FileSource file;
+	private final Function<FileSource, UserRegistry> shared;
 	private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
 	private volatile Predicate<String> domainCheck = d -> true;
 	/** This service's own registry of the users file (guarded by this), made when first needed */
 	private FileUserRegistry own;
 
 	/**
-	 * @param file the users file
+	 * @param file the users file, on the file system the servers read it on (a
+	 *            {@code parley.mail.users} value resolved with {@link FileSource#of(String)}, as they do)
 	 * @param shared gives the registry the running servers share for a users file (its canonical
 	 *            path), or null when none has read it; null for none ever
 	 */
-	public UserService(File file, Function<File, UserRegistry> shared) {
+	public UserService(FileSource file, Function<FileSource, UserRegistry> shared) {
 		this.file = file;
 		this.shared = shared;
 	}
 
-	public File getFile() {
+	public FileSource getFile() {
 		return file;
 	}
 
 	/** Use another users file (the setting changed). */
-	public void setFile(File file) {
+	public void setFile(FileSource file) {
 		this.file = file;
 	}
 
@@ -109,21 +109,21 @@ public final class UserService {
 	 * @throws IOException if the users file can't be made or read
 	 */
 	public UserRegistry registry() throws IOException {
-		File f = file.getCanonicalFile();
+		FileSource f = file.getCanonicalFile();
 		UserRegistry s = shared == null ? null : shared.apply(f);
 		return s != null ? s : own(f);
 	}
 
-	private synchronized FileUserRegistry own(File f) throws IOException {
-		if (!f.exists()) {
-			File dir = f.getParentFile();
-			if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
-				throw new IOException("Can't make the folder of the users file " + f);
+	private synchronized FileUserRegistry own(FileSource source) throws IOException {
+		if (!source.exists()) {
+			FileSource dir = source.getParentFile();
+			if (dir != null && !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
+				throw new IOException("Can't make the folder of the users file " + source.getPath());
 			}
-			Files.write(f.toPath(), "#name , password , permissions , parameters\n".getBytes(StandardCharsets.UTF_8));
+			try (OutputStream out = source.getOutputStream()) {
+				out.write("#name , password , permissions , parameters\n".getBytes(StandardCharsets.UTF_8));
+			}
 		}
-		// (this application's files are local: the registry's is the same file as a FileSource)
-		FileSource source = FileSource.of(f);
 		if (own == null || !source.equals(own.getSourceFile())) {
 			FileUserRegistry r = new FileUserRegistry();
 			r.initialize(source);

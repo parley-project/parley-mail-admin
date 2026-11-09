@@ -5,9 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.dns.server.SharedZoneText;
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.mail.admin.TestFiles;
 
 /** The zone files the admin writes (the DNS server only reads them): the shared zone's edits and a new inheriting zone (To-Do 15.5) */
 public class ZoneFilesTest {
@@ -26,15 +26,16 @@ public class ZoneFilesTest {
 			+ "_dmarc\tIN\tTXT\t\"v=DMARC1; p=quarantine\"\n";
 
 	@TempDir
-	File dir;
-	File f;
+	Path tempDir;
+	FileSource dir;
+	FileSource f;
 	final AtomicInteger reloads = new AtomicInteger();
 	final Runnable reload = reloads::incrementAndGet;
 
 	@BeforeEach
 	public void setup() throws Exception {
-		f = new File(dir, "shared.zone");
-		Files.writeString(f.toPath(), SHARED);
+		dir = TestFiles.local(tempDir);
+		f = TestFiles.write(dir.getChild("shared.zone"), SHARED);
 	}
 
 	private List<String> shared() throws Exception {
@@ -51,9 +52,9 @@ public class ZoneFilesTest {
 		ZoneFiles.addShared(f, "FTP", "a", 600, List.of("10.0.0.21", " 10.0.0.22 ", ""), reload);
 		assertTrue(shared().contains("ftp A 600 10.0.0.21") && shared().contains("ftp A 600 10.0.0.22"), shared().toString());
 		assertTrue(shared().get(0).contains(" postmaster 11 "), shared().get(0));
-		assertTrue(new File(dir, "shared.zone.previous").exists());
+		assertTrue(dir.getChild("shared.zone.previous").exists());
 		assertEquals(1, reloads.get());
-		assertTrue(Files.readString(f.toPath(), StandardCharsets.UTF_8).startsWith(ZoneFiles.HEADER));
+		assertTrue(TestFiles.read(f).startsWith(ZoneFiles.HEADER));
 		// adding one it has changes nothing but the TTL of the set
 		ZoneFiles.addShared(f, "ftp", "A", 1200, List.of("10.0.0.21"), reload);
 		assertTrue(shared().contains("ftp A 1200 10.0.0.22"), shared().toString());
@@ -73,7 +74,7 @@ public class ZoneFilesTest {
 		assertFalse(shared().toString().contains("files"), shared().toString());
 
 		// refused, and the file left as it was
-		String before = Files.readString(f.toPath());
+		String before = TestFiles.read(f);
 		int r = reloads.get();
 		assertThrows(IllegalArgumentException.class, () -> ZoneFiles.addShared(f, "x", "MX", 300, List.of("ten mail"), reload), "not MX data");
 		assertThrows(IllegalArgumentException.class, () -> ZoneFiles.addShared(f, "x.example.", "A", 300, List.of("10.0.0.1"), reload), "absolute");
@@ -84,30 +85,30 @@ public class ZoneFilesTest {
 		assertThrows(IllegalArgumentException.class, () -> ZoneFiles.deleteShared(f, "@", "SOA", now.substring(now.indexOf("SOA ") + 8), reload));
 		assertThrows(IllegalArgumentException.class, () -> ZoneFiles.changeShared(f, "www", "A", "10.0.0.80", "@", "SOA", 300, "a b 1 1 1 1 1", reload));
 		assertThrows(IllegalStateException.class, () -> ZoneFiles.deleteShared(f, "nothere", "A", "10.0.0.1", reload), "not there");
-		assertEquals(before, Files.readString(f.toPath()));
+		assertEquals(before, TestFiles.read(f));
 		assertEquals(r, reloads.get(), "the server isn't told of a refused change");
 	}
 
 	@Test
-	public void aFileThatIsntHereIsSaidSo() {
-		File missing = new File(dir, "nowhere.zone");
+	public void aFileThatIsntHereIsSaidSo() throws Exception {
+		FileSource missing = dir.getChild("nowhere.zone");
 		IllegalStateException e = assertThrows(IllegalStateException.class, () -> ZoneFiles.addShared(missing, "x", "A", 300, List.of("10.0.0.1"), reload));
-		assertTrue(e.getMessage().contains("same machine"), e.getMessage());
+		assertTrue(e.getMessage().contains("same file system"), e.getMessage());
 	}
 
 	@Test
 	public void aNewInheritingZone() throws Exception {
-		File z = ZoneFiles.createInheriting(dir, f, "New.Example.");
-		assertEquals(new File(dir, "new.example.txt"), z);
-		String text = Files.readString(z.toPath());
+		FileSource z = ZoneFiles.createInheriting(dir, f, "New.Example.");
+		assertEquals(dir.getChild("new.example.txt"), z);
+		String text = TestFiles.read(z);
 		assertTrue(text.contains("$INHERIT\n"), text);
 		assertTrue(text.contains("ns1.new.example."), text);
 
 		assertThrows(IllegalArgumentException.class, () -> ZoneFiles.createInheriting(dir, f, "new.example"), "there already");
 		// an old journal of the name would be replayed into the new zone: refused
-		Files.writeString(new File(dir, "old.example.txt.jnl").toPath(), "base 1\n");
+		TestFiles.write(dir.getChild("old.example.txt.jnl"), "base 1\n");
 		assertThrows(IllegalArgumentException.class, () -> ZoneFiles.createInheriting(dir, f, "old.example"));
-		assertFalse(new File(dir, "old.example.txt").exists());
+		assertFalse(dir.getChild("old.example.txt").exists());
 		assertThrows(IllegalArgumentException.class, () -> ZoneFiles.createInheriting(dir, f, "../evil"));
 		assertThrows(IllegalArgumentException.class, () -> ZoneFiles.createInheriting(dir, f, "bad_name.example"));
 	}

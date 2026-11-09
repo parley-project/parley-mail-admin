@@ -1,11 +1,10 @@
 package us.bringardner.parley.mail.admin.web;
 
-import java.io.File;
-
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import us.bringardner.parley.mail.admin.AdminApp;
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.AdminHome;
 
 /**
@@ -24,14 +23,18 @@ public class AdminContextListener implements ServletContextListener {
 		ServletContext ctx = event.getServletContext();
 		// in code rather than web.xml's <cookie-config><attribute>, which Eclipse WTP's descriptor model can't read
 		ctx.getSessionCookieConfig().setAttribute("SameSite", "Strict");
-		File home = AdminHome.defaultDirectory(ctx.getInitParameter(AdminHome.HOME_PROPERTY));
+		// before the first FileSource is made: the Parley loggers write to the Logs page too
+		AdminApp.installLogger();
+		FileSource home = null;
 		try {
-			File settings = AdminHome.defaultSettingsDirectory(home, ctx.getInitParameter(AdminHome.SETTINGS_PROPERTY));
+			home = AdminHome.defaultDirectory(ctx.getInitParameter(AdminHome.HOME_PROPERTY));
+			FileSource settings = AdminHome.defaultSettingsDirectory(home, ctx.getInitParameter(AdminHome.SETTINGS_PROPERTY));
 			AdminApp app = AdminApp.start(home, settings);
 			ctx.setAttribute(APP, app);
-			ctx.log("Parley mail admin started; home " + app.getHome().getDirectory() + ", settings in " + app.getHome().getSettingsDirectory());
+			ctx.log("Parley mail admin started; home " + app.getHome().getDirectory().getPath() + ", settings in "
+					+ app.getHome().getSettingsDirectory().getPath());
 		} catch (Exception e) {
-			ctx.log("Parley mail admin can't start (home " + home + ")", e);
+			ctx.log("Parley mail admin can't start (home " + (home == null ? "?" : home.getPath()) + ")", e);
 			throw new IllegalStateException("Parley mail admin can't start: " + e.getMessage(), e);
 		}
 	}

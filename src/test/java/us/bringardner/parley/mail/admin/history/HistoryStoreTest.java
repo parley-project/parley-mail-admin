@@ -2,8 +2,6 @@ package us.bringardner.parley.mail.admin.history;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -24,7 +22,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.files.FileSource;
-import us.bringardner.parley.files.FileSourceFactory;
+import us.bringardner.parley.mail.admin.TestFiles;
 import us.bringardner.parley.mail.admin.log.AdminLogger;
 import us.bringardner.parley.smtp.queue.QueueHistory;
 
@@ -53,18 +51,17 @@ public class HistoryStoreTest {
 
 	@BeforeEach
 	public void setup() throws IOException {
-		FileSource dir = FileSourceFactory.getDefaultFactory().createFileSource(tmp.toString());
+		FileSource dir = TestFiles.local(tmp);
 		store = new HistoryStore(() -> dir, new ObjectMapper());
 	}
 
 	/** Appends an event to the day file the servers would write it to (this machine's calendar). */
 	private void event(Instant time, String type, String id, String more) throws IOException {
 		LocalDate day = LocalDate.ofInstant(time, ZoneId.systemDefault());
-		File f = new File(tmp.toFile(), QueueHistory.PREFIX + day + QueueHistory.SUFFIX);
-		try (FileWriter w = new FileWriter(f, true)) {
-			w.write("{\"time\":" + time.toEpochMilli() + ",\"type\":\"" + type + "\",\"id\":\"" + id
-					+ "\",\"from\":\"postmaster@b.test\"" + more + "}\n");
-		}
+		FileSource f = TestFiles.local(tmp).getChild(QueueHistory.PREFIX + day + QueueHistory.SUFFIX);
+		// (the servers write it as UTF-8)
+		TestFiles.append(f, "{\"time\":" + time.toEpochMilli() + ",\"type\":\"" + type + "\",\"id\":\"" + id
+				+ "\",\"from\":\"postmaster@b.test\"" + more + "}\n");
 	}
 
 	private void deliveredMessage(String id, Instant t) throws IOException {

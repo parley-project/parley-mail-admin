@@ -10,10 +10,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -29,17 +29,22 @@ import us.bringardner.parley.mail.store.MailLocks;
 public class TestStoreSetup {
 
 	@TempDir
-	Path dir;
+	Path tempDir;
+	/** The @TempDir, on the local file system */
+	FileSource dir;
+
+	@BeforeEach
+	public void localDir() throws IOException {
+		dir = TestFiles.local(tempDir);
+	}
 
 	@AfterEach
 	public void close() {
 		RecordingFileSourceFactory.last = null;
 	}
 
-	private Path file(String name, String text) throws IOException {
-		Path p = dir.resolve(name);
-		Files.writeString(p, text, StandardCharsets.UTF_8);
-		return p;
+	private FileSource file(String name, String text) throws IOException {
+		return TestFiles.write(dir.getChild(name), text);
 	}
 
 	private String run(String... args) throws IOException {
@@ -54,17 +59,17 @@ public class TestStoreSetup {
 		}
 	}
 
-	private Path[] templates() throws IOException {
-		return new Path[] { file("store.tmpl", "# the store\nsharing=cluster\n"),
+	private FileSource[] templates() throws IOException {
+		return new FileSource[] { file("store.tmpl", "# the store\nsharing=cluster\n"),
 				file("queue.tmpl", "# the queue\nhostname=\ndomains=\n#smartHost=x\n") };
 	}
 
 	@Test
 	public void itWritesIntoTheFileSystemTheSettingsName() throws Exception {
-		Path[] t = templates();
-		Path settings = file("parley-mail.properties", "parley.mail.root=/mail\nparley.mail.fileSource=recording\n"
+		FileSource[] t = templates();
+		FileSource settings = file("parley-mail.properties", "parley.mail.root=/mail\nparley.mail.fileSource=recording\n"
 				+ "parley.mail.fileSource.host=db1.example.test\nparley.mail.fileSource.password=@file:/etc/parley/db.secret\n");
-		String out = run("--settings", settings.toString(), "--store-template", t[0].toString(), "--queue-template", t[1].toString(),
+		String out = run("--settings", settings.getPath(), "--store-template", t[0].getPath(), "--queue-template", t[1].getPath(),
 				"--fill", "hostname=mx1.example.test", "--fill", "domains=", "--require", "hostname", "--require", "domains");
 
 		RecordingFileSourceFactory f = RecordingFileSourceFactory.last;
@@ -82,50 +87,50 @@ public class TestStoreSetup {
 
 	@Test
 	public void itChangesNothingThatIsThere() throws Exception {
-		Path[] t = templates();
-		Path store = dir.resolve("mail");
-		Path settings = file("parley-mail.properties", "parley.mail.root=" + store + "\nparley.mail.fileSource=fileproxy\n");
-		run("--settings", settings.toString(), "--store-template", t[0].toString(), "--queue-template", t[1].toString(),
+		FileSource[] t = templates();
+		FileSource store = dir.getChild("mail");
+		FileSource settings = file("parley-mail.properties", "parley.mail.root=" + store.getPath() + "\nparley.mail.fileSource=fileproxy\n");
+		run("--settings", settings.getPath(), "--store-template", t[0].getPath(), "--queue-template", t[1].getPath(),
 				"--fill", "hostname=a.example.test", "--fill", "domains=example.test");
-		Files.writeString(store.resolve(".parley-store.properties"), "sharing=host\n");
+		TestFiles.write(store.getChild(".parley-store.properties"), "sharing=host\n");
 
-		Path other = file("other.tmpl", "sharing=off\n");
-		String out = run("--settings", settings.toString(), "--store-template", other.toString(), "--queue-template", other.toString(),
+		FileSource other = file("other.tmpl", "sharing=off\n");
+		String out = run("--settings", settings.getPath(), "--store-template", other.getPath(), "--queue-template", other.getPath(),
 				"--fill", "hostname=b.example.test", "--fill", "domains=other.test", "--require", "hostname");
 		assertEquals("", out, "nothing to do");
-		assertEquals("sharing=host\n", Files.readString(store.resolve(".parley-store.properties")));
-		String q = Files.readString(store.resolve(".smtp-queue/queue.properties"));
+		assertEquals("sharing=host\n", read(store.getChild(".parley-store.properties")));
+		String q = read(store.getChild(".smtp-queue").getChild("queue.properties"));
 		assertTrue(q.contains("hostname=a.example.test\n") && q.contains("domains=example.test\n"), q);
 	}
 
 	@Test
 	public void aQueueElsewhereUnderTheRoot() throws Exception {
-		Path[] t = templates();
-		Path store = dir.resolve("mail");
-		Path settings = file("parley-mail.properties", "parley.mail.root=" + store + "\nparley.mail.fileSource=fileproxy\n");
-		run("--settings", settings.toString(), "--queue", "queues/relay", "--queue-template", t[1].toString());
-		assertTrue(Files.isRegularFile(store.resolve("queues/relay/queue.properties")));
-		assertThrows(IOException.class, () -> run("--settings", settings.toString(), "--queue", "../out", "--queue-template", t[1].toString()));
+		FileSource[] t = templates();
+		FileSource store = dir.getChild("mail");
+		FileSource settings = file("parley-mail.properties", "parley.mail.root=" + store.getPath() + "\nparley.mail.fileSource=fileproxy\n");
+		run("--settings", settings.getPath(), "--queue", "queues/relay", "--queue-template", t[1].getPath());
+		assertTrue(store.getChild("queues").getChild("relay").getChild("queue.properties").isFile());
+		assertThrows(IOException.class, () -> run("--settings", settings.getPath(), "--queue", "../out", "--queue-template", t[1].getPath()));
 	}
 
 	@Test
 	public void aLaterSettingsFileWins() throws Exception {
-		Path[] t = templates();
-		Path first = file("a.properties", "parley.mail.root=/nowhere\nparley.mail.fileSource=nosuch\n");
-		Path second = file("b.properties", "parley.mail.root=filesource:/mail?sourcetype=recording&host=db2.example.test\n");
-		run("--settings", first.toString(), "--settings", second.toString(), "--store-template", t[0].toString());
+		FileSource[] t = templates();
+		FileSource first = file("a.properties", "parley.mail.root=/nowhere\nparley.mail.fileSource=nosuch\n");
+		FileSource second = file("b.properties", "parley.mail.root=filesource:/mail?sourcetype=recording&host=db2.example.test\n");
+		run("--settings", first.getPath(), "--settings", second.getPath(), "--store-template", t[0].getPath());
 		assertTrue(RecordingFileSourceFactory.last.createFileSource("/mail").getChild(MailLocks.STORE_SETTINGS_FILE).isFile());
 	}
 
 	@Test
 	public void aStoreThatCantBeOpenedSaysWhyWithoutTheUrlsSettings() throws Exception {
-		Path settings = file("parley-mail.properties", "parley.mail.root=filesource:/mail?sourcetype=nosuch&password=hunter2\n");
-		IOException e = assertThrows(IOException.class, () -> run("--settings", settings.toString()));
+		FileSource settings = file("parley-mail.properties", "parley.mail.root=filesource:/mail?sourcetype=nosuch&password=hunter2\n");
+		IOException e = assertThrows(IOException.class, () -> run("--settings", settings.getPath()));
 		assertTrue(e.getMessage().startsWith("Can't open the mail store filesource:/mail?..."), e.getMessage());
 		assertFalse(e.getMessage().contains("hunter2"), e.getMessage());
 
-		Path unknown = file("u.properties", "parley.mail.root=/mail\nparley.mail.fileSource=nosuch\n");
-		e = assertThrows(IOException.class, () -> run("--settings", unknown.toString()));
+		FileSource unknown = file("u.properties", "parley.mail.root=/mail\nparley.mail.fileSource=nosuch\n");
+		e = assertThrows(IOException.class, () -> run("--settings", unknown.getPath()));
 		assertTrue(e.getMessage().contains("There is no file system nosuch (parley.mail.fileSource)"), e.getMessage());
 	}
 }

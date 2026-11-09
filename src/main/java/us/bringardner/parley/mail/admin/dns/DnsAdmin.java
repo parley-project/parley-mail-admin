@@ -1,6 +1,5 @@
 package us.bringardner.parley.mail.admin.dns;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -26,7 +25,10 @@ import us.bringardner.parley.dns.server.DnsRecordType;
 import us.bringardner.parley.dns.server.DnsServerMXBean;
 import us.bringardner.parley.dns.server.DnsZoneInfo;
 import us.bringardner.parley.dns.server.Zone;
+import us.bringardner.parley.dns.server.DnsFiles;
+import us.bringardner.parley.dns.server.DnsServer;
 import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
@@ -39,6 +41,10 @@ import us.bringardner.parley.mail.admin.suite.MailSuite;
  * so they are journaled and the secondaries told, as for any update. The DNS server writes no zone
  * file: the shared zone's file and a new domain's zone file are written here ({@link ZoneFiles}),
  * where the server reads them, and the server is told to read them again.
+ * <p>
+ * Those files, and the TSIG key file, are on the DNS server's file system, found as parley-dns's
+ * {@link DnsFiles} finds it: {@value DnsServer#PROP_FILE_SOURCE} and its connection settings, as
+ * this application sees them (its settings files and -D), else the default file system.
  */
 public final class DnsAdmin {
 
@@ -49,9 +55,45 @@ public final class DnsAdmin {
 	private final MailSuite suite;
 	private final SettingsService settings;
 
+	/** The DNS server's file system as last made, and the settings it was made from */
+	private FileSourceFactory dnsFactory;
+	private String dnsFactoryFrom;
+
 	public DnsAdmin(MailSuite suite, SettingsService settings) {
 		this.suite = suite;
 		this.settings = settings;
+	}
+
+	/**
+	 * The DNS server's file system ({@link DnsFiles#factory(java.util.Properties)}) from the
+	 * {@value DnsServer#PROP_FILE_SOURCE} settings this application sees; made again when they change.
+	 */
+	private synchronized FileSourceFactory dnsFiles() throws IOException {
+		java.util.Properties p = new java.util.Properties();
+		Set<String> keys = new java.util.TreeSet<>(settings.getAll().keySet());
+		keys.addAll(System.getProperties().stringPropertyNames());
+		for (String k : keys) {
+			if (k.equals(DnsServer.PROP_FILE_SOURCE) || k.startsWith(DnsServer.PROP_FILE_SOURCE + ".")) {
+				String v = settings.getEffective(k);
+				if (v == null) {
+					v = System.getProperty(k);
+				}
+				if (v != null) {
+					p.setProperty(k, v);
+				}
+			}
+		}
+		String from = new java.util.TreeMap<>(p).toString();
+		if (dnsFactory == null || !from.equals(dnsFactoryFrom)) {
+			dnsFactory = DnsFiles.factory(p);
+			dnsFactoryFrom = from;
+		}
+		return dnsFactory;
+	}
+
+	/** A file the DNS server names (its absolute path, or a filesource: URL), on its file system */
+	private FileSource dnsFile(String path) throws IOException {
+		return dnsFiles().resolve(path);
 	}
 
 	/** The DNS server's bean, or null when no launcher reached runs a DNS server */
@@ -187,12 +229,12 @@ public final class DnsAdmin {
 	}
 
 	/** The shared zone's file, where the DNS server reads it */
-	private static File sharedFile(DnsServerMXBean b) {
+	private FileSource sharedFile(DnsServerMXBean b) throws IOException {
 		String f = sharedZoneFile(b);
 		if (f == null) {
 			throw new IllegalStateException("The DNS server has no shared zone (parley.dns.sharedZone is not set)");
 		}
-		return new File(f);
+		return dnsFile(f);
 	}
 
 	/** Tell the DNS server to read the zone files again, so a change is served at once */
@@ -377,7 +419,7 @@ public final class DnsAdmin {
 		if (dir == null) {
 			throw new IllegalStateException("The DNS server has no zone directory");
 		}
-		File file = ZoneFiles.createInheriting(new File(dir), sharedFile(b), d);
+		FileSource file = ZoneFiles.createInheriting(dnsFile(dir), sharedFile(b), d);
 		try {
 			b.reload();
 		} catch (Exception e) {
@@ -391,7 +433,7 @@ public final class DnsAdmin {
 		if (!served) {
 			file.delete();
 			b.reload();
-			throw new IllegalStateException("Made " + file + " but the zone didn't load (removed again); see the DNS server's errors");
+			throw new IllegalStateException("Made " + file.getPath() + " but the zone didn't load (removed again); see the DNS server's errors");
 		}
 	}
 
@@ -664,9 +706,9 @@ public final class DnsAdmin {
 		}
 		Tsig.KeyRing ring;
 		try {
-			ring = Tsig.KeyRing.load(FileSource.of(new File(file.trim())));
+			ring = Tsig.KeyRing.load(dnsFile(file.trim()));
 		} catch (IOException | RuntimeException e) {
-			throw new IllegalStateException("Can't read the TSIG key file " + file + ": " + e.getMessage());
+			throw new IllegalStateException("Can't read the TSIG key file " + FileSourceFactory.safe(file.trim()) + ": " + e.getMessage());
 		}
 		for (String name : b.getUpdateKeyNames()) {
 			Tsig.Key k = ring.get(name);
@@ -674,7 +716,7 @@ public final class DnsAdmin {
 				return k;
 			}
 		}
-		throw new IllegalStateException("None of the keys in " + file + " may send updates to the DNS server (its parley.dns.updateKeys: "
+		throw new IllegalStateException("None of the keys in " + FileSourceFactory.safe(file.trim()) + " may send updates to the DNS server (its parley.dns.updateKeys: "
 				+ String.join(", ", b.getUpdateKeyNames()) + ")");
 	}
 

@@ -1,19 +1,19 @@
 package us.bringardner.parley.mail.admin.server;
 
+import us.bringardner.parley.mail.admin.TestFiles;
 import us.bringardner.parley.smtp.server.SmtpServer;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -30,7 +30,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.files.FileSource;
-import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.smtp.dkim.DkimKeys;
 import us.bringardner.parley.smtp.queue.MailQueue;
 import us.bringardner.parley.smtp.queue.MailQueueMXBean;
@@ -46,7 +45,12 @@ public class TestQueueReload {
 			"parley.mail.users", "parley.mail.root", "parley.mail.smtp.hostname" };
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	private final Map<String, String> saved = new HashMap<>();
 	private ServerLauncher launcher;
@@ -78,12 +82,8 @@ public class TestQueueReload {
 		}
 	}
 
-	private void write(File f, String... lines) throws Exception {
-		Files.write(f.toPath(), (String.join("\n", lines).replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
-	}
-
-	private static FileSource fs(File f) throws IOException {
-		return FileSourceFactory.getDefaultFactory().createFileSource(f.getPath());
+	private void write(FileSource f, String... lines) throws Exception {
+		TestFiles.writeBytes(f, (String.join("\n", lines).replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
 	}
 
 	private static String reply(BufferedReader in) throws IOException {
@@ -111,8 +111,8 @@ public class TestQueueReload {
 		}
 	}
 
-	private void queueSettings(File queueDir, String domains, String... more) throws Exception {
-		Properties q = MailQueue.readSettings(fs(queueDir));
+	private void queueSettings(FileSource queueDir, String domains, String... more) throws Exception {
+		Properties q = MailQueue.readSettings(queueDir);
 		q.setProperty("domains", domains);
 		for (int i = 0; i + 1 < more.length; i += 2) {
 			if (more[i + 1] == null) {
@@ -121,34 +121,34 @@ public class TestQueueReload {
 				q.setProperty(more[i], more[i + 1]);
 			}
 		}
-		MailQueue.writeSettings(fs(queueDir), q);
+		MailQueue.writeSettings(queueDir, q);
 	}
 
 	@Test
 	public void aNewDomainItsAliasesAndKeyAreUsedWithoutARestart() throws Exception {
 		int port = freePort();
-		File mail = new File(dir, "mail");
-		MailStoreSetup.setUp(fs(mail), "mx.localhost", "localhost");
-		File users = new File(dir, "users.txt");
+		FileSource mail = dir().getChild("mail");
+		MailStoreSetup.setUp(mail, "mx.localhost", "localhost");
+		FileSource users = dir().getChild("users.txt");
 		write(users, "tony , secret , READ|WRITE");
-		write(new File(dir, "parley-mail.properties"), "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + users.getPath());
-		write(new File(dir, "parley-smtp.properties"), "parley.mail.smtp.port=" + port, "parley.mail.submission.port=0",
+		write(dir().getChild("parley-mail.properties"), "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + users.getPath());
+		write(dir().getChild("parley-smtp.properties"), "parley.mail.smtp.port=" + port, "parley.mail.submission.port=0",
 				"parley.mail.smtp.hostname=mx.localhost");
 		MBeanServer mbs = MBeanServerFactory.newMBeanServer();
-		launcher = new ServerLauncher("SmtpReload", new LaunchSettings(new Properties()), Arrays.asList("smtp"), dir, new ServerContext(mbs));
+		launcher = new ServerLauncher("SmtpReload", new LaunchSettings(new Properties()), Arrays.asList("smtp"), dir(), new ServerContext(mbs));
 		launcher.init();
 		launcher.startAll();
-		File queueDir = new File(mail, SmtpServer.QUEUE_DIRECTORY);
+		FileSource queueDir = mail.getChild(SmtpServer.QUEUE_DIRECTORY);
 		MailQueueMXBean bean = JMX.newMXBeanProxy(mbs, new ObjectName("us.bringardner.parley:type=MailQueue,name=smtp"), MailQueueMXBean.class);
 
 		assertTrue(rcpt(port, "tony@localhost").startsWith("250"));
 		assertTrue(rcpt(port, "boss@new.example").startsWith("5"), "not a local domain yet");
 
 		// the administrator adds the domain, an alias and a DKIM key
-		File aliases = new File(dir, "aliases");
+		FileSource aliases = dir().getChild("aliases");
 		write(aliases, "# aliases", "boss@new.example: tony");
-		File key = new File(dir, "new.example.pem");
-		Files.write(key.toPath(), DkimKeys.toPem(DkimKeys.generate("rsa").getPrivate()).getBytes(StandardCharsets.US_ASCII));
+		FileSource key = dir().getChild("new.example.pem");
+		TestFiles.writeBytes(key, DkimKeys.toPem(DkimKeys.generate("rsa").getPrivate()).getBytes(StandardCharsets.US_ASCII));
 		queueSettings(queueDir, "localhost, new.example", "aliases", aliases.getPath(), "dkim.keys", "new.example:s1:" + key.getPath());
 		assertTrue(rcpt(port, "boss@new.example").startsWith("5"), "not before the reload");
 
@@ -158,11 +158,11 @@ public class TestQueueReload {
 		assertTrue(rcpt(port, "tony@localhost").startsWith("250"), "the other domain still");
 
 		// settings that can't be read: an error, and nothing changes
-		queueSettings(queueDir, "localhost", "aliases", new File(dir, "missing").getPath());
+		queueSettings(queueDir, "localhost", "aliases", dir().getChild("missing").getPath());
 		IOException e = assertThrows(IOException.class, () -> bean.reload());
 		assertTrue(e.getMessage().contains("aliases"), e.getMessage());
 		assertTrue(rcpt(port, "boss@new.example").startsWith("250"), "the domain read before is still used");
-		queueSettings(queueDir, "localhost", "aliases", aliases.getPath(), "dkim.keys", "new.example:s1:" + new File(dir, "nokey.pem").getPath());
+		queueSettings(queueDir, "localhost", "aliases", aliases.getPath(), "dkim.keys", "new.example:s1:" + dir().getChild("nokey.pem").getPath());
 		e = assertThrows(IOException.class, () -> bean.reload());
 		assertTrue(e.getMessage().contains("DKIM"), e.getMessage());
 		assertTrue(rcpt(port, "boss@new.example").startsWith("250"), "the aliases read before are still used");

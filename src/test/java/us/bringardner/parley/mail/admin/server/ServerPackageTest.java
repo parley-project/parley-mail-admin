@@ -3,13 +3,14 @@ package us.bringardner.parley.mail.admin.server;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.mail.admin.TestFiles;
 
 /**
  * The server side of the application (this package, parley-mail-admin-VERSION-server.jar) runs in
@@ -24,14 +25,18 @@ public class ServerPackageTest {
 
 	@Test
 	public void usesNoWebClasses() throws Exception {
-		File folder = new File(ServerLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-		File pkg = new File(folder, SERVER);
-		File[] classes = pkg.listFiles((d, n) -> n.endsWith(".class"));
-		assertTrue(classes != null && classes.length > 10, "the package's classes in " + pkg);
+		// the classes' folder (a file: URI: on the local disk)
+		FileSource folder = FileSource.of(ServerLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+		FileSource pkg = folder;
+		for (String seg : SERVER.split("/")) {
+			pkg = pkg.getChild(seg);
+		}
+		FileSource[] classes = pkg.listFiles(f -> f.getName().endsWith(".class"));
+		assertTrue(classes != null && classes.length > 10, "the package's classes in " + pkg.getPath());
 		List<String> found = new ArrayList<>();
-		for (File c : classes) {
+		for (FileSource c : classes) {
 			// the class file's names (its constant pool) are ISO-8859-1 readable for ASCII names
-			String text = new String(Files.readAllBytes(c.toPath()), StandardCharsets.ISO_8859_1);
+			String text = new String(TestFiles.bytes(c), StandardCharsets.ISO_8859_1);
 			for (String f : FORBIDDEN) {
 				if (text.contains(f)) {
 					found.add(c.getName() + " uses " + f);
