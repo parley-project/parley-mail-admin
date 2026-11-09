@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.attribute.GroupPrincipal;
 
+import us.bringardner.parley.core.BaseObject;
+import us.bringardner.parley.core.ILogger;
 import us.bringardner.parley.files.FileSource;
 
 /**
@@ -19,7 +21,11 @@ import us.bringardner.parley.files.FileSource;
  */
 public final class FileRewrite {
 
-	private static final System.Logger LOG = System.getLogger(FileRewrite.class.getName());
+	/** The logger, looked up each time: parley-core picks the logger type at the first lookup,
+	 *  and clearLoggerCache() would leave a kept one behind */
+	private static ILogger log() {
+		return BaseObject.findLogger(FileRewrite.class.getName());
+	}
 
 	private FileRewrite() {
 	}
@@ -85,18 +91,18 @@ public final class FileRewrite {
 					& copy.setOtherWritable(original.canOtherWrite())
 					& copy.setOtherExecutable(original.canOtherExecute());
 			if (!all) {
-				LOG.log(System.Logger.Level.WARNING, "Can't give " + original.getPath() + " all of its permissions again");
+				log().warn("Can't give " + original.getPath() + " all of its permissions again");
 			}
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't give " + original.getPath() + " its permissions again: " + e.getMessage());
+			log().warn("Can't give " + original.getPath() + " its permissions again: " + e.getMessage());
 		}
 		try {
 			GroupPrincipal group = original.getGroup();
 			if (group != null && !group.equals(copy.getGroup()) && !copy.setGroup(group)) {
-				LOG.log(System.Logger.Level.WARNING, "Can't give " + original.getPath() + " its group " + group.getName() + " again");
+				log().warn("Can't give " + original.getPath() + " its group " + group.getName() + " again");
 			}
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't give " + original.getPath() + " its group again: " + e.getMessage());
+			log().warn("Can't give " + original.getPath() + " its group again: " + e.getMessage());
 		}
 	}
 }
