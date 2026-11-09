@@ -7,18 +7,21 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.Requester;
@@ -34,23 +37,40 @@ import us.bringardner.parley.mail.admin.users.UserRecord;
 import us.bringardner.parley.mail.admin.users.UserService;
 import us.bringardner.parley.net.server.FileUserRegistry;
 
-/** The files the pages edit: settings, users and aliases, and the log and history files they read. */
+/**
+ * The files the pages edit: settings, users and aliases, and the log and history files they read.
+ * Those that are on the file system the settings name run on the local disk and on a memory file
+ * system too, so nothing assumes the local disk.
+ */
 public class StoresTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
+	/** The @TempDir, on the local file system */
+	FileSource dir;
 
-	private static String read(File f) throws Exception {
-		return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+	@BeforeEach
+	public void localDir() throws Exception {
+		dir = TestFiles.local(tempDir);
 	}
 
-	private static void write(File f, String text) throws Exception {
-		Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
+	private static String read(FileSource f) throws Exception {
+		return TestFiles.read(f);
 	}
 
-	@Test
-	public void propertiesFileKeepsCommentsAndOrder() throws Exception {
-		File f = new File(dir, "a.properties");
+	private static void write(FileSource f, String text) throws Exception {
+		TestFiles.write(f, text);
+	}
+
+	/** The file NAME in the @TempDir */
+	private FileSource file(String name) throws Exception {
+		return dir.getChild(name);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void propertiesFileKeepsCommentsAndOrder(String type) throws Exception {
+		FileSource f = TestFiles.folder(type, tempDir).getChild("a.properties");
 		write(f, "# top\n\na=1\n# about b\nb = two \\\n  lines\nc:3\n");
 		PropertiesFile p = new PropertiesFile(f);
 		p.load();
@@ -70,10 +90,12 @@ public class StoresTest {
 		assertEquals(Arrays.asList("b", "c", "d", "e"), List.copyOf(again.getValues().keySet()));
 	}
 
-	@Test
-	public void settingsAreCheckedAndKeptInTheServersFiles() throws Exception {
-		write(new File(dir, "parley-mail.properties"), "# shared\nparley.mail.root=/mail\nparley.mail.smtp.port=2525\n");
-		write(new File(dir, "parley-pop3.properties"), "parley.mail.root=/pop3-only\n");
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void settingsAreCheckedAndKeptInTheServersFiles(String type) throws Exception {
+		FileSource dir = TestFiles.folder(type, tempDir);
+		write(dir.getChild("parley-mail.properties"), "# shared\nparley.mail.root=/mail\nparley.mail.smtp.port=2525\n");
+		write(dir.getChild("parley-pop3.properties"), "parley.mail.root=/pop3-only\n");
 		SettingsService s = new SettingsService(dir, new SettingsCatalog());
 		s.load();
 		assertNull(System.getProperty("parley.mail.smtp.port"), "the servers read the files: no system properties");
@@ -90,23 +112,23 @@ public class StoresTest {
 		// a new setting goes to its protocol's file; others to the shared one
 		Set<String> changed = s.update(Map.of("parley.mail.submission.maxConnections", "10", "parley.mail.imaps.port", "993", "parley.mail.lockDomain", "m"));
 		assertEquals(3, changed.size());
-		assertTrue(read(new File(dir, "parley-smtp.properties")).contains("parley.mail.submission.maxConnections=10"));
-		assertTrue(read(new File(dir, "parley-imap.properties")).contains("parley.mail.imaps.port=993"));
-		assertTrue(read(new File(dir, "parley-mail.properties")).endsWith("parley.mail.lockDomain=m\n"));
+		assertTrue(read(dir.getChild("parley-smtp.properties")).contains("parley.mail.submission.maxConnections=10"));
+		assertTrue(read(dir.getChild("parley-imap.properties")).contains("parley.mail.imaps.port=993"));
+		assertTrue(read(dir.getChild("parley-mail.properties")).endsWith("parley.mail.lockDomain=m\n"));
 		assertEquals(Set.of("parley.mail.smtp.port"), s.set("parley.mail.smtp.port", "2526"));
-		assertTrue(read(new File(dir, "parley-mail.properties")).startsWith("# shared\nparley.mail.root=/mail\nparley.mail.smtp.port=2526\n"));
+		assertTrue(read(dir.getChild("parley-mail.properties")).startsWith("# shared\nparley.mail.root=/mail\nparley.mail.smtp.port=2526\n"));
 		assertEquals(Set.of(), s.set("parley.mail.smtp.port", "2526"), "no change");
 
 		// removed from every file
 		s.set("parley.mail.root", null);
 		assertNull(s.get("parley.mail.root"));
-		assertFalse(read(new File(dir, "parley-pop3.properties")).contains("parley.mail.root"));
+		assertFalse(read(dir.getChild("parley-pop3.properties")).contains("parley.mail.root"));
 
 		// changed outside: read again, and the listeners hear of it
 		java.util.List<Set<String>> heard = new java.util.ArrayList<>();
 		s.addListener(heard::add);
 		assertFalse(s.reloadIfChanged());
-		write(new File(dir, "parley-pop3.properties"), "parley.mail.pop3.port=1110\n# a longer file\n");
+		write(dir.getChild("parley-pop3.properties"), "parley.mail.pop3.port=1110\n# a longer file\n");
 		assertTrue(s.reloadIfChanged());
 		assertEquals("1110", s.get("parley.mail.pop3.port"));
 		assertEquals(List.of(Set.of("parley.mail.pop3.port")), heard);
@@ -114,30 +136,41 @@ public class StoresTest {
 
 	@Test
 	public void rewrittenFilesKeepTheirPermissions() throws Exception {
-		File f = new File(dir, "users.txt");
+		FileSource f = file("users.txt");
 		write(f, "a , b , READ\n");
-		java.nio.file.attribute.PosixFileAttributeView v = Files.getFileAttributeView(f.toPath(), java.nio.file.attribute.PosixFileAttributeView.class);
-		org.junit.jupiter.api.Assumptions.assumeTrue(v != null, "POSIX permissions");
-		Set<java.nio.file.attribute.PosixFilePermission> perms = java.nio.file.attribute.PosixFilePermissions.fromString("rw-r-----");
-		Files.setPosixFilePermissions(f.toPath(), perms);
-		java.nio.file.attribute.GroupPrincipal group = v.readAttributes().group();
+		org.junit.jupiter.api.Assumptions.assumeFalse(FileSourceFactory.isWindows(), "POSIX permissions");
+		String perms = "rw-r-----";
+		assertTrue(TestFiles.setPerms(f, perms));
+		java.nio.file.attribute.GroupPrincipal group = f.getGroup();
 		FileRewrite.write(f, "c , d , READ\n".getBytes(StandardCharsets.UTF_8));
 		assertEquals("c , d , READ\n", read(f));
-		assertEquals(perms, Files.getPosixFilePermissions(f.toPath()));
-		assertEquals(group, v.readAttributes().group());
-		assertFalse(new File(dir, ".users.txt.tmp").exists());
+		assertEquals(perms, TestFiles.perms(f));
+		assertEquals(group, f.getGroup());
+		assertEquals(List.of("users.txt"), Arrays.asList(dir.list()), "no temporary file is left");
 
 		// the user registry rewrites the users file keeping them too
 		UserService u = new UserService(f, null);
 		u.add("someone", "password1".toCharArray(), null, null);
-		assertEquals(perms, Files.getPosixFilePermissions(f.toPath()));
-		PropertiesFile p = new PropertiesFile(new File(dir, "p.properties"));
+		assertEquals(perms, TestFiles.perms(f));
+		PropertiesFile p = new PropertiesFile(file("p.properties"));
 		p.set("a", "b");
 		p.save();
-		Files.setPosixFilePermissions(p.getFile().toPath(), perms);
+		assertTrue(TestFiles.setPerms(p.getFile(), perms));
 		p.set("a", "c");
 		p.save();
-		assertEquals(perms, Files.getPosixFilePermissions(p.getFile().toPath()));
+		assertEquals(perms, TestFiles.perms(p.getFile()));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void fileRewriteReplacesTheFile(String type) throws Exception {
+		FileSource d = TestFiles.folder(type, tempDir);
+		FileSource f = d.getChild("sub").getChild("f.txt");
+		FileRewrite.write(f, "one\n".getBytes(StandardCharsets.UTF_8));
+		assertEquals("one\n", read(f), "made, with its folder");
+		FileRewrite.write(f, "two\n".getBytes(StandardCharsets.UTF_8));
+		assertEquals("two\n", read(f));
+		assertEquals(List.of("f.txt"), Arrays.asList(f.getParentFile().list()), "no temporary file is left");
 	}
 
 	@Test
@@ -168,13 +201,13 @@ public class StoresTest {
 
 	@Test
 	public void theStoresAndTheQueuesOwnSettings() throws Exception {
-		File root = new File(dir, "mail");
-		write(new File(dir, "parley-mail.properties"), "parley.mail.root=" + root.getAbsolutePath().replace('\\', '/') + "\n");
+		FileSource root = file("mail");
+		write(file("parley-mail.properties"), "parley.mail.root=" + root.getAbsolutePath().replace('\\', '/') + "\n");
 		SettingsService s = new SettingsService(dir, new SettingsCatalog());
 		s.setNewQueueDefaults(Map.of("aliases", "/etc/parley/aliases.txt"));
 		s.load();
-		File store = new File(root, ".parley-store.properties");
-		File queue = new File(root, ".smtp-queue/queue.properties");
+		FileSource store = root.getChild(".parley-store.properties");
+		FileSource queue = root.getChild(".smtp-queue").getChild("queue.properties");
 		assertEquals(store.getAbsolutePath().replace('\\', '/'), s.getStoreFile().getPath());
 		assertEquals(queue.getAbsolutePath().replace('\\', '/'), s.getQueueFile().getPath());
 		assertFalse(s.getStoreFile().exists(), "not made until something is set");
@@ -188,11 +221,11 @@ public class StoresTest {
 		assertEquals("mx.a.test", q.getProperty("hostname"));
 		assertEquals("a.test,b.test", q.getProperty("domains"));
 		assertEquals("/etc/parley/aliases.txt", q.getProperty("aliases"), "a new queue names the aliases file");
-		String smtp = read(new File(dir, "parley-smtp.properties"));
+		String smtp = read(file("parley-smtp.properties"));
 		for (String k : SettingsCatalog.SMTP_HOSTNAMES) {
 			assertTrue(smtp.contains(k + "=mx.a.test"), smtp);
 		}
-		assertFalse(read(new File(dir, "parley-mail.properties")).contains("hostname"));
+		assertFalse(read(file("parley-mail.properties")).contains("hostname"));
 		assertEquals("a.test,b.test", s.get("queue.domains"));
 		assertEquals("host", s.getAll().get("store.sharing"));
 		assertThrows(IllegalArgumentException.class, () -> s.set("store.sharing", "sometimes"));
@@ -204,7 +237,7 @@ public class StoresTest {
 
 		// another queue folder: the files follow
 		s.set(SettingsCatalog.SMTP_QUEUE, "queues/main");
-		assertEquals(new File(root, "queues/main/queue.properties").getAbsolutePath().replace('\\', '/'), s.getQueueFile().getPath());
+		assertEquals(root.getChild("queues").getChild("main").getChild("queue.properties").getAbsolutePath().replace('\\', '/'), s.getQueueFile().getPath());
 		assertNull(s.get("queue.domains"));
 		s.set(SettingsCatalog.SMTP_QUEUE, "../outside");
 		assertNull(s.getQueueFile(), "under the mail root only");
@@ -214,11 +247,11 @@ public class StoresTest {
 
 	@Test
 	public void theStoresSettingsOnAnotherFileSystem() throws Exception {
-		write(new File(dir, "parley-mail.properties"), "parley.mail.root=/mail\nparley.mail.fileSource=memory\n");
+		write(file("parley-mail.properties"), "parley.mail.root=/mail\nparley.mail.fileSource=memory\n");
 		SettingsService s = new SettingsService(dir, new SettingsCatalog());
 		s.load();
 		assertNull(s.getAssetError());
-		assertNull(s.getStoreFile().getFile(), "a FileSource, not a local file");
+		assertEquals("memory", s.getStoreFile().getFile().getFileSourceFactory().getTypeId(), "on the store's file system");
 		s.set("store.sharing", "cluster");
 		assertTrue(s.getStoreFile().exists());
 		s.getStoreFile().load();
@@ -228,24 +261,25 @@ public class StoresTest {
 
 	@Test
 	public void aFileInAFolderThisProcessCantAddTo() throws Exception {
-		File locked = new File(dir, "root");
+		FileSource locked = file("root");
 		locked.mkdirs();
-		File f = new File(locked, ".parley-store.properties");
+		FileSource f = locked.getChild(".parley-store.properties");
 		write(f, "sharing=off\n");
-		org.junit.jupiter.api.Assumptions.assumeTrue(Files.getFileAttributeView(f.toPath(), java.nio.file.attribute.PosixFileAttributeView.class) != null, "POSIX permissions");
-		Files.setPosixFilePermissions(locked.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("r-xr-x---"));
+		org.junit.jupiter.api.Assumptions.assumeFalse(FileSourceFactory.isWindows(), "POSIX permissions");
+		TestFiles.setPerms(locked, "r-xr-x---");
 		try {
-			org.junit.jupiter.api.Assumptions.assumeFalse(new File(locked, "probe").createNewFile() && new File(locked, "probe").delete(), "not as root");
+			org.junit.jupiter.api.Assumptions.assumeFalse(locked.getChild("probe").createNewFile() && locked.getChild("probe").delete(), "not as root");
 			FileRewrite.write(f, "sharing=host\n".getBytes(StandardCharsets.UTF_8));
 			assertEquals("sharing=host\n", read(f), "written in place");
 		} finally {
-			Files.setPosixFilePermissions(locked.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+			TestFiles.setPerms(locked, "rwx------");
 		}
 	}
 
-	@Test
-	public void usersFileIsReadByTheServersList() throws Exception {
-		File f = new File(dir, "users.txt");
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void usersFileIsReadByTheServersList(String type) throws Exception {
+		FileSource f = TestFiles.folder(type, tempDir).getChild("users.txt");
 		write(f, "# users\nold , secret , READ\n");
 		UserService u = new UserService(f, null);
 		u.setDomainCheck(d -> d.equals("a.test"));
@@ -281,7 +315,7 @@ public class StoresTest {
 
 		// the servers' registry (parley-net's FileUserRegistry) reads the same file
 		FileUserRegistry registry = new FileUserRegistry();
-		registry.initialize(FileSource.of(f));
+		registry.initialize(f);
 		ParleyPrincipal p = registry.findPrincipal("tony@a.test");
 		assertNotNull(p);
 		assertEquals("a.test/tony", p.getAttribute("maildrop"));
@@ -302,9 +336,10 @@ public class StoresTest {
 		assertTrue(read(f).startsWith("# users\n"), "comments are kept");
 	}
 
-	@Test
-	public void aliases() throws Exception {
-		File f = new File(dir, "aliases.txt");
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void aliases(String type) throws Exception {
+		FileSource f = TestFiles.folder(type, tempDir).getChild("aliases.txt");
 		write(f, "# aliases\npostmaster: tony\nsales: a\nsales: b # two lines\n");
 		AliasStore a = new AliasStore(f);
 		a.load();
@@ -321,18 +356,19 @@ public class StoresTest {
 
 	@Test
 	public void logFilesAreReadFromTheEnd() throws Exception {
-		File log = new File(dir, "servers.log");
+		FileSource log = file("servers.log");
 		StringBuilder b = new StringBuilder();
 		for (int i = 0; i < 1000; i++) {
 			b.append("line ").append(i).append('\n');
 		}
 		write(log, b.toString());
-		write(new File(dir, "servers.log.1"), "older\n");
-		write(new File(dir, "secret.txt"), "not a log\n");
-		us.bringardner.parley.mail.admin.log.LogFiles files = new us.bringardner.parley.mail.admin.log.LogFiles(() -> List.of(log, new File(dir, "missing.log")));
-		assertEquals(List.of(log.getAbsoluteFile(), new File(dir, "servers.log.1").getAbsoluteFile()), files.list(), "the file and its rotated copy");
+		write(file("servers.log.1"), "older\n");
+		write(file("secret.txt"), "not a log\n");
+		FileSource missing = file("missing.log");
+		us.bringardner.parley.mail.admin.log.LogFiles files = new us.bringardner.parley.mail.admin.log.LogFiles(() -> List.of(log, missing));
+		assertEquals(List.of(log, file("servers.log.1")), files.list(), "the file and its rotated copy");
 		assertNotNull(files.find(log.getPath()));
-		assertNull(files.find(new File(dir, "secret.txt").getPath()), "only the log files");
+		assertNull(files.find(file("secret.txt").getPath()), "only the log files");
 		assertNull(files.find(dir.getPath() + "/../" + dir.getName() + "/secret.txt"));
 		String tail = us.bringardner.parley.mail.admin.log.LogFiles.tail(log, 30);
 		assertTrue(tail.startsWith("line 99"), "from the start of a line: " + tail);
@@ -341,16 +377,15 @@ public class StoresTest {
 
 	@Test
 	public void historyIsReadFromTheServersFiles() throws Exception {
-		File h = new File(dir, ".smtp-history");
+		FileSource h = file(".smtp-history");
 		h.mkdirs();
 		java.time.LocalDate today = java.time.LocalDate.now();
 		long now = System.currentTimeMillis();
-		write(new File(h, "smtp-" + today + ".jsonl"), "{\"time\":" + (now - 2) + ",\"type\":\"QUEUED\",\"id\":\"m1\",\"from\":\"a@x\",\"recipients\":[\"b@y\"]}\n"
+		write(h.getChild("smtp-" + today + ".jsonl"), "{\"time\":" + (now - 2) + ",\"type\":\"QUEUED\",\"id\":\"m1\",\"from\":\"a@x\",\"recipients\":[\"b@y\"]}\n"
 				+ "{\"time\":" + (now - 1) + ",\"type\":\"DELIVERED\",\"id\":\"m1\",\"from\":\"a@x\",\"recipient\":\"b@y\",\"result\":\"ok\"}\n"
 				+ "{\"time\":" + now + ",\"type\"\n");
-		write(new File(h, "smtp-" + today.minusDays(1) + ".jsonl"), "{\"time\":1,\"type\":\"QUEUED\",\"id\":\"m0\"}\n");
-		us.bringardner.parley.files.FileSource hs = us.bringardner.parley.files.FileSourceFactory.getDefaultFactory().createFileSource(h.getPath());
-		us.bringardner.parley.mail.admin.history.HistoryStore store = new us.bringardner.parley.mail.admin.history.HistoryStore(() -> hs,
+		write(h.getChild("smtp-" + today.minusDays(1) + ".jsonl"), "{\"time\":1,\"type\":\"QUEUED\",\"id\":\"m0\"}\n");
+		us.bringardner.parley.mail.admin.history.HistoryStore store = new us.bringardner.parley.mail.admin.history.HistoryStore(() -> h,
 				new com.fasterxml.jackson.databind.ObjectMapper());
 		List<Map<String, Object>> rows = store.query(today, today, null, null, 100);
 		assertEquals(2, rows.size(), "a line being written is skipped");

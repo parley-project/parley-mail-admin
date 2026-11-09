@@ -4,13 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -20,6 +19,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.mail.admin.TestFiles;
 
 
 /**
@@ -35,7 +37,12 @@ public class TestImapProviders {
 			"parley.mail.imap.keyStoreName", "parley.mail.imaps.keyStoreName", "parley.mail.tls.keyStore" };
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	private final Map<String, String> saved = new HashMap<>();
 	private ServerLauncher launcher;
@@ -69,7 +76,7 @@ public class TestImapProviders {
 
 	private void write(String name, String... lines) throws Exception {
 		// (a .properties file reads \ as an escape: the paths in it have / on Windows)
-		Files.write(new File(dir, name).toPath(), (String.join("\n", lines).replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(dir().getChild(name), (String.join("\n", lines).replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
 	}
 
 	@Test
@@ -80,14 +87,14 @@ public class TestImapProviders {
 	@Test
 	public void runsWithTheSuiteSettings() throws Exception {
 		int port = freePort();
-		File mail = new File(dir, "mail");
-		us.bringardner.parley.mail.store.MailLocks.writeStoreSettings(us.bringardner.parley.files.FileSourceFactory.getDefaultFactory().createFileSource(mail.getPath()),
+		FileSource mail = dir().getChild("mail");
+		us.bringardner.parley.mail.store.MailLocks.writeStoreSettings(mail,
 				us.bringardner.parley.net.lock.Sharing.OFF); // made by an administrator
 		write("users.txt", "tony , secret , READ|WRITE");
-		write("parley-mail.properties", "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + new File(dir, "users.txt").getPath(),
+		write("parley-mail.properties", "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + dir().getChild("users.txt").getPath(),
 				"parley.mail.imap.port=1");
 		write("parley-imap.properties", "parley.mail.imap.port=" + port); // wins over the shared file
-		launcher = new ServerLauncher("ImapTest", new LaunchSettings(new Properties()), Arrays.asList("imap", "imaps"), dir, new ServerContext());
+		launcher = new ServerLauncher("ImapTest", new LaunchSettings(new Properties()), Arrays.asList("imap", "imaps"), dir(), new ServerContext());
 		launcher.init();
 		assertEquals(ServerLauncher.State.OFF, launcher.getState("imaps"), "no key store: skipped");
 		assertTrue(launcher.getServer("imaps").getError().contains("key store"), launcher.getServer("imaps").getError());

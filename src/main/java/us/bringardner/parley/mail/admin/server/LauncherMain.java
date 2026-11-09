@@ -1,10 +1,10 @@
 package us.bringardner.parley.mail.admin.server;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.net.server.ServerMain;
 
 /**
@@ -61,7 +61,7 @@ public final class LauncherMain {
 	public static void launch(String processName, String[] args, String... ids) throws InterruptedException {
 		ServerLauncher launcher;
 		try {
-			launcher = launcher(processName, args, LocalConfDir.get(), ids);
+			launcher = launcher(processName, args, ServerMain.confDir(), ids);
 			launcher.getSettings().print(processName);
 			launcher.init();
 		} catch (Exception e) {
@@ -113,17 +113,18 @@ public final class LauncherMain {
 	 * A launcher for these servers, or (no ids) those parley.servers lists, with its settings
 	 * files; not started.
 	 */
-	static ServerLauncher launcher(String processName, String[] args, File confDir, String... ids) throws IOException {
+	static ServerLauncher launcher(String processName, String[] args, FileSource confDir, String... ids) throws IOException {
 		LaunchSettings settings = new LaunchSettings(LaunchSettings.parse(args));
 		List<String> list = new ArrayList<String>();
 		for (String id : ids) {
 			list.add(id);
 		}
 		// the launcher's file, when parley.servers comes from it: read again with each reload
-		File listFile = null;
+		FileSource listFile = null;
 		if (list.isEmpty()) {
 			String named = settings.early(LAUNCHER_CONFIG_PROPERTY);
-			File file = named != null ? new File(named) : confDir == null ? null : new File(confDir, LAUNCHER_FILE);
+			// a path on the default file system, or a filesource: URL
+			FileSource file = named != null ? FileSource.of(named) : confDir == null ? null : confDir.getChild(LAUNCHER_FILE);
 			String servers = settings.early(ServerLauncher.SERVERS_PROPERTY);
 			if (file != null) {
 				settings.addFile(file, named != null);
@@ -131,7 +132,7 @@ public final class LauncherMain {
 					servers = LaunchSettings.load(file).getProperty(ServerLauncher.SERVERS_PROPERTY);
 					listFile = file;
 				} else if (named != null && !file.isFile()) {
-					throw new IOException("Can't read the settings file " + file);
+					throw new IOException("Can't read the settings file " + file.getPath());
 				}
 			}
 			list.addAll(ids(servers));
@@ -142,10 +143,10 @@ public final class LauncherMain {
 		}
 		ServerLauncher ret = new ServerLauncher(processName, settings, list, confDir, new ServerContext());
 		if (listFile != null) {
-			File f = listFile;
+			FileSource f = listFile;
 			ret.setServerList(() -> {
 				if (!f.isFile()) {
-					throw new IOException("Can't read the settings file " + f);
+					throw new IOException("Can't read the settings file " + f.getPath());
 				}
 				return ids(LaunchSettings.load(f).getProperty(ServerLauncher.SERVERS_PROPERTY));
 			});

@@ -2,15 +2,16 @@ package us.bringardner.parley.mail.admin.server;
 
 import us.bringardner.parley.dns.server.DnsServer;
 import us.bringardner.parley.dns.server.DnsServerMXBean;
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
+import us.bringardner.parley.mail.admin.TestFiles;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
-import java.io.FileWriter;
+import java.io.IOException;
 import java.net.ServerSocket;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Properties;
 
@@ -30,7 +31,7 @@ import org.junit.jupiter.api.Test;
  */
 public class TestDnsProvider {
 
-	private File dir;
+	private FileSource dir;
 	private Properties saved;
 	private ServerLauncher launcher;
 	private MBeanServer mbs;
@@ -44,39 +45,33 @@ public class TestDnsProvider {
 	@BeforeEach
 	public void setup() throws Exception {
 		saved = (Properties)System.getProperties().clone();
-		dir = Files.createTempDirectory("dnsprovider").toFile();
-		File zones = new File(dir, "zones");
+		dir = FileSourceFactory.fileProxyFactory.createTempDirectory("dnsprovider");
+		FileSource zones = dir.getChild("zones");
 		zones.mkdir();
-		try(FileWriter w = new FileWriter(new File(zones, "primary.test.txt"))) {
-			w.write(TestZones.primary(10, ""));
-		}
-		try(FileWriter w = new FileWriter(new File(zones, "child.test.txt"))) {
-			w.write(TestZones.child(5, ""));
-		}
-		try(FileWriter w = new FileWriter(new File(dir, "parley-dns.properties"))) {
-			w.write("parley.dns.dnsDir="+dir.getAbsolutePath()+"\n"
-					+"parley.dns.zoneDir="+zones.getAbsolutePath()+"\n"
-					+"parley.dns.masterZone=primary.test\n"
-					+"parley.dns.bindAddress=127.0.0.1\n"
-					+"parley.dns.port="+freePort()+"\n"
-					+"parley.dns.recursionAvailable=false\n");
-		}
+		TestFiles.write(zones.getChild("primary.test.txt"), TestZones.primary(10, ""));
+		TestFiles.write(zones.getChild("child.test.txt"), TestZones.child(5, ""));
+		TestFiles.write(dir.getChild("parley-dns.properties"), "parley.dns.dnsDir="+dir.getAbsolutePath()+"\n"
+				+"parley.dns.zoneDir="+zones.getAbsolutePath()+"\n"
+				+"parley.dns.masterZone=primary.test\n"
+				+"parley.dns.bindAddress=127.0.0.1\n"
+				+"parley.dns.port="+freePort()+"\n"
+				+"parley.dns.recursionAvailable=false\n");
 		mbs = MBeanServerFactory.newMBeanServer();
 		launcher = new ServerLauncher("DnsTest", new LaunchSettings(new Properties()), List.of("dns"), dir, new ServerContext(mbs));
 	}
 
 	@AfterEach
-	public void cleanup() {
+	public void cleanup() throws IOException {
 		launcher.close();
 		DnsServer.setShutdown(false);
 		System.setProperties(saved);
 		deleteAll(dir);
 	}
 
-	private static void deleteAll(File f) {
-		File[] l = f.listFiles();
+	private static void deleteAll(FileSource f) throws IOException {
+		FileSource[] l = f.listFiles();
 		if( l != null ) {
-			for(File c : l) {
+			for(FileSource c : l) {
 				deleteAll(c);
 			}
 		}

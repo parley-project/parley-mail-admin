@@ -42,11 +42,11 @@ final class Router {
 
 	/** A file to download. */
 	static final class Download {
-		final java.io.File file;
+		final us.bringardner.parley.files.FileSource file;
 		final String name;
 		final String contentType;
 
-		Download(java.io.File file, String name, String contentType) {
+		Download(us.bringardner.parley.files.FileSource file, String name, String contentType) {
 			this.file = file;
 			this.name = name;
 			this.contentType = contentType;

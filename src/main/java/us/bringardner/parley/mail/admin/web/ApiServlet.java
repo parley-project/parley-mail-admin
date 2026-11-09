@@ -1,13 +1,11 @@
 package us.bringardner.parley.mail.admin.web;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -263,7 +261,7 @@ public class ApiServlet extends HttpServlet {
 			res.setContentType(d.contentType);
 			res.setHeader("Content-Disposition", "attachment; filename=\"" + d.name + "\"");
 			res.setContentLengthLong(d.file.length());
-			try (InputStream in = Files.newInputStream(d.file.toPath()); OutputStream out = res.getOutputStream()) {
+			try (InputStream in = d.file.getInputStream(); OutputStream out = res.getOutputStream()) {
 				in.transferTo(out);
 			}
 			return;
@@ -534,7 +532,7 @@ public class ApiServlet extends HttpServlet {
 			return null;
 		});
 		r.get("/logs/download", q -> {
-			File f = app.getLogs().getFile();
+			us.bringardner.parley.files.FileSource f = app.getLogs().getFile();
 			if (f == null || !f.isFile()) {
 				throw ApiException.notFound("The log file");
 			}
@@ -543,7 +541,7 @@ public class ApiServlet extends HttpServlet {
 		r.get("/logs/files", q -> app.getLogFiles().describe());
 		r.get("/logs/files/read", q -> new Router.Text(LogFiles.tail(logFile(q), (int) q.queryLong("bytes", 256 * 1024))));
 		r.get("/logs/files/download", q -> {
-			File f = logFile(q);
+			us.bringardner.parley.files.FileSource f = logFile(q);
 			return new Router.Download(f, f.getName().replaceAll("[^A-Za-z0-9._-]", "_"), "text/plain; charset=UTF-8");
 		});
 
@@ -832,8 +830,8 @@ public class ApiServlet extends HttpServlet {
 		return m;
 	}
 
-	private File logFile(Router.Request q) {
-		File f = app.getLogFiles().find(q.query("path", null));
+	private us.bringardner.parley.files.FileSource logFile(Router.Request q) {
+		us.bringardner.parley.files.FileSource f = app.getLogFiles().find(q.query("path", null));
 		if (f == null) {
 			throw ApiException.notFound("The log file " + q.query("path", ""));
 		}

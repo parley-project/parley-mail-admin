@@ -1,10 +1,9 @@
 package us.bringardner.parley.mail.admin.domains;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.IDN;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -21,6 +20,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.mail.admin.FileRewrite;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
@@ -63,9 +64,13 @@ public final class DomainService {
 	private final SettingsService settings;
 	private final UserService users;
 	private final AliasStore aliases;
-	private final File dkimDir;
+	private final FileSource dkimDir;
 
-	public DomainService(SettingsService settings, UserService users, AliasStore aliases, File dkimDir) {
+	/**
+	 * @param dkimDir where new DKIM keys go: a folder on the local disk, since parley-smtp's DKIM
+	 *            signer reads the key files with java.io.File
+	 */
+	public DomainService(SettingsService settings, UserService users, AliasStore aliases, FileSource dkimDir) {
 		this.settings = settings;
 		this.users = users;
 		this.aliases = aliases;
@@ -276,7 +281,7 @@ public final class DomainService {
 		} catch (GeneralSecurityException e) {
 			throw new IOException("Can't make a " + t + " key: " + e.getMessage(), e);
 		}
-		File key = new File(dkimDir, d + "-" + sel + ".pem");
+		FileSource key = dkimDir.getChild(d + "-" + sel + ".pem");
 		// the folder's and the process's usual permissions (the SMTP servers, maybe another user in the
 		// same group, read the key); a key file made again keeps its permissions and group
 		FileRewrite.write(key, DkimKeys.toPem(pair.getPrivate()).getBytes(StandardCharsets.US_ASCII));
@@ -289,8 +294,30 @@ public final class DomainService {
 		return e;
 	}
 
-	private static File dnsFile(File key) {
-		return new File(key.getPath() + ".txt");
+	private static FileSource dnsFile(FileSource key) throws IOException {
+		return key.getParentFile().getChild(key.getName() + ".txt");
+	}
+
+	/**
+	 * A key file dkim.keys names: on the local disk, where parley-smtp's DKIM signer reads it
+	 * (java.io.File)
+	 */
+	private static FileSource keyFile(String path) throws IOException {
+		return FileSourceFactory.fileProxyFactory.createFileSource(path);
+	}
+
+	private static boolean keyFileExists(String path) {
+		try {
+			return keyFile(path).isFile();
+		} catch (IOException e) {
+			return false;
+		}
+	}
+
+	private static String read(FileSource f, java.nio.charset.Charset charset) throws IOException {
+		try (InputStream in = f.getInputStream()) {
+			return new String(in.readAllBytes(), charset);
+		}
 	}
 
 	/**
@@ -326,14 +353,15 @@ public final class DomainService {
 
 	/** The DKIM TXT record of a domain's key, or null if it can't be worked out. */
 	public String dkimRecord(DkimEntry e) {
-		File key = new File(e.keyFile);
-		File txt = dnsFile(key);
 		try {
+			FileSource key = keyFile(e.keyFile);
+			FileSource txt = dnsFile(key);
 			if (txt.isFile()) {
-				return new String(Files.readAllBytes(txt.toPath()), StandardCharsets.US_ASCII).trim();
+				return read(txt, StandardCharsets.US_ASCII).trim();
 			}
 			if (key.isFile()) {
-				PrivateKey pk = DkimKeys.privateKey(key);
+				// (DkimKeys.privateKey(File) reads the PEM as US-ASCII: its text, read here)
+				PrivateKey pk = DkimKeys.privateKey(read(key, StandardCharsets.US_ASCII));
 				if (pk instanceof RSAPrivateCrtKey) {
 					RSAPrivateCrtKey rsa = (RSAPrivateCrtKey) pk;
 					PublicKey pub = KeyFactory.getInstance("RSA").generatePublic(new RSAPublicKeySpec(rsa.getModulus(), rsa.getPublicExponent()));
@@ -377,7 +405,7 @@ public final class DomainService {
 			Map<String, Object> dk = new LinkedHashMap<>();
 			dk.put("selector", signing.selector);
 			dk.put("keyFile", signing.keyFile);
-			dk.put("keyFileExists", new File(signing.keyFile).isFile());
+			dk.put("keyFileExists", keyFileExists(signing.keyFile));
 			// own: the domain has a key of its own; shared: it's the key the others sign with
 			dk.put("own", k != null);
 			dk.put("shared", signing.domain.equals(shared));
