@@ -4,20 +4,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import us.bringardner.parley.files.FileSourceFactory;
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.imap.server.ImapServer;
+import us.bringardner.parley.mail.admin.TestFiles;
 import us.bringardner.parley.mail.store.MailLocks;
 import us.bringardner.parley.net.lock.Sharing;
 import us.bringardner.parley.net.server.KnownSettings;
@@ -31,16 +31,21 @@ import us.bringardner.parley.net.server.ServerMain;
 public class ImapKnownSettingsTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	@Test
 	public void everyNameTheServersReadIsListed() throws Exception {
 		KnownSettings k = KnownSettings.load();
 		assertTrue(k.prefixes().containsAll(List.of(ImapServer.IMAP_PREFIX, ImapServer.IMAPS_PREFIX)), k.prefixes().toString());
-		File mail = new File(dir, "mail");
-		MailLocks.writeStoreSettings(FileSourceFactory.getDefaultFactory().createFileSource(mail.getPath()), Sharing.OFF);
-		File users = new File(dir, "users.txt");
-		Files.write(users.toPath(), "tony , secret , READ|WRITE\n".getBytes(StandardCharsets.UTF_8));
+		FileSource mail = dir().getChild("mail");
+		MailLocks.writeStoreSettings(mail, Sharing.OFF);
+		FileSource users = dir().getChild("users.txt");
+		TestFiles.writeBytes(users, "tony , secret , READ|WRITE\n".getBytes(StandardCharsets.UTF_8));
 
 		for (String id : List.of("imap", "imaps")) {
 			KnownSettings.RecordingProperties c = new KnownSettings.RecordingProperties();
