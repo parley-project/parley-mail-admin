@@ -8,11 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -33,7 +32,12 @@ import us.bringardner.parley.mail.admin.settings.SettingsService;
 public class RemoteStoreTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	@AfterEach
 	public void close() {
@@ -41,7 +45,7 @@ public class RemoteStoreTest {
 	}
 
 	private void settings(String text) throws IOException {
-		Files.writeString(new File(dir, "parley-mail.properties").toPath(), text, StandardCharsets.UTF_8);
+		TestFiles.write(dir().getChild("parley-mail.properties"), text);
 	}
 
 	private static void write(FileSource f, String text) throws IOException {
@@ -55,7 +59,7 @@ public class RemoteStoreTest {
 	public void theFileSystemGetsTheServersConnectionSettings() throws Exception {
 		settings("parley.mail.root=/mail\nparley.mail.fileSource=Recording\n"
 				+ "parley.mail.fileSource.host=db1.example.test\nparley.mail.fileSource.password=@file:/etc/parley/db.secret\n");
-		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		SettingsService s = new SettingsService(dir(), new SettingsCatalog());
 		s.load();
 		assertNull(s.getAssetError());
 		assertFalse(s.isLocalMailRoot());
@@ -74,19 +78,19 @@ public class RemoteStoreTest {
 	@Test
 	public void aFilesourceUrlRoot() throws Exception {
 		settings("parley.mail.root=filesource:/mail?sourcetype=recording&host=db2.example.test\n");
-		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		SettingsService s = new SettingsService(dir(), new SettingsCatalog());
 		s.load();
 		assertNull(s.getAssetError());
 		assertFalse(s.isLocalMailRoot(), "a URL is never a local path");
 		assertTrue(RecordingFileSourceFactory.last.url.getQuery().contains("host=db2.example.test"));
-		assertNull(s.getStoreFile().getFile(), "a FileSource, not a local file");
+		assertEquals(RecordingFileSourceFactory.ID, s.getStoreFile().getFile().getFileSourceFactory().getTypeId(), "on the URL's file system");
 		assertEquals("/mail/.parley-store.properties", s.getStoreFile().getPath());
 	}
 
 	@Test
 	public void aStoreThatCantBeReachedIsSaidWithoutTheUrlsSettings() throws Exception {
 		settings("parley.mail.root=filesource:/mail?sourcetype=nosuch&password=hunter2\n");
-		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		SettingsService s = new SettingsService(dir(), new SettingsCatalog());
 		s.load();
 		assertNull(s.getStoreFile());
 		assertNotNull(s.getAssetError());
@@ -103,7 +107,7 @@ public class RemoteStoreTest {
 	@Test
 	public void aNewConnectionOnlyWhenItsSettingsChange() throws Exception {
 		settings("parley.mail.root=/mail\nparley.mail.fileSource=recording\nparley.mail.fileSource.host=a\n");
-		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		SettingsService s = new SettingsService(dir(), new SettingsCatalog());
 		s.load();
 		FileSource first = s.getMailRoot();
 		assertSame(first, s.getMailRoot());
@@ -116,7 +120,7 @@ public class RemoteStoreTest {
 	@Test
 	public void theHistoryOnTheStoresFileSystem() throws Exception {
 		settings("parley.mail.root=/mail\nparley.mail.fileSource=recording\n");
-		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		SettingsService s = new SettingsService(dir(), new SettingsCatalog());
 		s.load();
 		FileSource h = s.getMailRoot().getChild(".smtp-history");
 		java.time.LocalDate today = java.time.LocalDate.now();
@@ -129,9 +133,9 @@ public class RemoteStoreTest {
 
 	@Test
 	public void theHistoryOnLocalDiskBesideAStoreOnAnotherFileSystem() throws Exception {
-		File local = new File(dir, "local-history");
+		FileSource local = dir().getChild("local-history");
 		settings("parley.mail.root=/mail\nparley.mail.fileSource=recording\n");
-		SettingsService s = new SettingsService(dir, new SettingsCatalog());
+		SettingsService s = new SettingsService(dir(), new SettingsCatalog());
 		s.load();
 		s.set(SettingsCatalog.QUEUE_HISTORY_FILE_SOURCE, "FileProxy");
 		s.set(SettingsCatalog.QUEUE_HISTORY_DIRECTORY, local.getPath());

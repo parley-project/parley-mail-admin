@@ -1,7 +1,10 @@
 package us.bringardner.parley.mail.admin.server;
 
-import us.bringardner.parley.net.server.ServerMain;
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
+import us.bringardner.parley.mail.admin.TestFiles;
 import us.bringardner.parley.net.server.ParleyConnection;
+import us.bringardner.parley.net.server.ServerMain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -10,11 +13,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -133,7 +135,12 @@ public class ServerLauncherTest {
 	}
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	ServerLauncher launcher;
 
@@ -147,11 +154,11 @@ public class ServerLauncherTest {
 	}
 
 	private void write(String name, String text) throws IOException {
-		Files.write(new File(dir, name).toPath(), text.getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(dir().getChild(name), text.getBytes(StandardCharsets.UTF_8));
 	}
 
 	private ServerLauncher launcher(String... args) throws Exception {
-		launcher = LauncherMain.launcher("FakeProcess", args, dir, "fake");
+		launcher = LauncherMain.launcher("FakeProcess", args, dir(), "fake");
 		launcher.init();
 		return launcher;
 	}
@@ -159,20 +166,20 @@ public class ServerLauncherTest {
 	@Test
 	public void unknownServer() {
 		IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-				() -> new ServerLauncher("x", new LaunchSettings(new java.util.Properties()), Arrays.asList("nope"), dir, new ServerContext()));
+				() -> new ServerLauncher("x", new LaunchSettings(new java.util.Properties()), Arrays.asList("nope"), dir(), new ServerContext()));
 		assertTrue(e.getMessage().contains("nope") && e.getMessage().contains("fake"), e.getMessage());
 	}
 
 	@Test
 	public void noServersListed() {
-		IOException e = assertThrows(IOException.class, () -> LauncherMain.launcher("x", new String[0], dir));
+		IOException e = assertThrows(IOException.class, () -> LauncherMain.launcher("x", new String[0], dir()));
 		assertTrue(e.getMessage().contains("parley.servers"), e.getMessage());
 	}
 
 	@Test
 	public void serversFromLauncherFile() throws Exception {
 		write(LauncherMain.LAUNCHER_FILE, "parley.servers=fake\n");
-		launcher = LauncherMain.launcher("x", new String[0], dir);
+		launcher = LauncherMain.launcher("x", new String[0], dir());
 		assertEquals(Arrays.asList("fake"), Arrays.asList(launcher.getServers()));
 	}
 
@@ -294,7 +301,7 @@ public class ServerLauncherTest {
 	@Test
 	public void secondLauncherGetsInstanceName() throws Exception {
 		launcher();
-		ServerLauncher other = LauncherMain.launcher("FakeProcess", new String[0], dir, "fake");
+		ServerLauncher other = LauncherMain.launcher("FakeProcess", new String[0], dir(), "fake");
 		try {
 			other.init();
 			assertTrue(ManagementFactory.getPlatformMBeanServer()
@@ -307,11 +314,18 @@ public class ServerLauncherTest {
 	// ------------------------------------------------------------------ as a process (ServerMain.main)
 
 	private Process process(String... args) throws Exception {
-		List<String> cmd = new java.util.ArrayList<>(Arrays.asList(new File(System.getProperty("java.home"), "bin/java").getPath(),
-				"-cp", System.getProperty("java.class.path"), LauncherMain.class.getName()));
+		FileSource javaCommand = FileSourceFactory.fileProxyFactory.createFileSource(System.getProperty("java.home")).getChild("bin").getChild("java");
+		List<String> cmd = new java.util.ArrayList<>(Arrays.asList(javaCommand.getPath(), "-cp", System.getProperty("java.class.path")));
+		// the process uses this JVM's file system (To-Do 18.17), unless the command line names one
+		String factory = System.getProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
+		String option = "-D" + FileSourceFactory.PROP_DEFAULT_FACTORY + "=";
+		if (factory != null && Arrays.stream(args).noneMatch(a -> a.startsWith(option))) {
+			cmd.add(option + factory);
+		}
+		cmd.add(LauncherMain.class.getName());
 		cmd.addAll(Arrays.asList(args));
 		ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
-		pb.environment().put("PARLEY_CONF", new File(dir, "parley.properties").getPath());
+		pb.environment().put("PARLEY_CONF", dir().getChild("parley.properties").getPath());
 		return pb.start();
 	}
 
@@ -321,7 +335,7 @@ public class ServerLauncherTest {
 
 	@Test
 	public void processRunsUntilStopped() throws Exception {
-		org.junit.jupiter.api.Assumptions.assumeTrue(File.separatorChar == '/', "SIGTERM: not on Windows");
+		org.junit.jupiter.api.Assumptions.assumeTrue(!FileSourceFactory.isWindows(), "SIGTERM: not on Windows");
 		write(LauncherMain.LAUNCHER_FILE, "parley.servers=fake\n");
 		Process p = process();
 		try {
@@ -368,7 +382,7 @@ public class ServerLauncherTest {
 	/** One server that can't start doesn't stop the others, or the process */
 	@Test
 	public void processRunsTheOthersWhenOneCantStart() throws Exception {
-		org.junit.jupiter.api.Assumptions.assumeTrue(File.separatorChar == '/', "SIGTERM: not on Windows");
+		org.junit.jupiter.api.Assumptions.assumeTrue(!FileSourceFactory.isWindows(), "SIGTERM: not on Windows");
 		write("parley-cfga.properties", "parley.cfg.root=/a\n");
 		Process p = process("-Dparley.servers=fake,cfga", "-Dparley.fake.value=fail");
 		try {
@@ -413,7 +427,7 @@ public class ServerLauncherTest {
 	public void startedByAnAuthenticatedJmxClient() throws Exception {
 		write("parley-fake.properties", "parley.fake.value=one\n");
 		javax.management.MBeanServer mbs = javax.management.MBeanServerFactory.newMBeanServer();
-		launcher = new ServerLauncher("AuthProcess", new LaunchSettings(new java.util.Properties()), List.of("fake"), dir, new ServerContext(mbs));
+		launcher = new ServerLauncher("AuthProcess", new LaunchSettings(new java.util.Properties()), List.of("fake"), dir(), new ServerContext(mbs));
 		launcher.init();
 		int port;
 		try (java.net.ServerSocket ss = new java.net.ServerSocket(0)) {

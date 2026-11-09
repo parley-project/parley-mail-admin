@@ -1,6 +1,5 @@
 package us.bringardner.parley.mail.admin;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -19,6 +18,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.core.ILogger;
 import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.ParleyPermission;
@@ -79,11 +79,20 @@ public final class AdminApp implements AutoCloseable {
 	/** The last history folder the SMTP queue named (it's known only while SMTP runs). */
 	private volatile FileSource lastHistoryDirectory;
 
-	private AdminApp(File homeDir, File settingsDir) throws IOException {
-		// before any Parley object logs: the Parley loggers write to the Logs page too
+	/**
+	 * Make the Parley loggers write to the Logs page too ({@link AdminLogger}), unless another logger
+	 * is set. parley-core picks the logger once, when a Parley object first logs, so this must come
+	 * before any: before the first FileSource is made (parley-files' classes are Parley objects).
+	 */
+	public static void installLogger() {
 		if (System.getProperty(BaseObject.PROPERTY_LOGGER) == null) {
 			System.setProperty(BaseObject.PROPERTY_LOGGER, AdminLogger.class.getName());
 		}
+	}
+
+	private AdminApp(FileSource homeDir, FileSource settingsDir) throws IOException {
+		// (too late if the caller made Parley objects that logged already: see installLogger)
+		installLogger();
 		home = new AdminHome(homeDir, settingsDir);
 		home.createMissingFiles();
 		json = new ObjectMapper().disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
@@ -95,8 +104,8 @@ public final class AdminApp implements AutoCloseable {
 		settings = new SettingsService(home.getSettingsDirectory(), new SettingsCatalog());
 		settings.load();
 		logs.setCapacity((int) settings.getLong(SettingsCatalog.ADMIN_LOG_BUFFER, 5000));
-		logs.setFile(new File(home.logDirectory(), "parley-mail.log"), settings.getLong(SettingsCatalog.ADMIN_LOG_FILE_SIZE, 10L * 1024 * 1024));
-		LOG.log(System.Logger.Level.INFO, "Parley mail admin starting; home " + home.getDirectory() + ", settings in " + home.getSettingsDirectory());
+		logs.setFile(home.logDirectory().getChild("parley-mail.log"), settings.getLong(SettingsCatalog.ADMIN_LOG_FILE_SIZE, 10L * 1024 * 1024));
+		LOG.log(System.Logger.Level.INFO, "Parley mail admin starting; home " + home.getDirectory().getPath() + ", settings in " + home.getSettingsDirectory().getPath());
 
 		// the pages edit these files, so the servers must read the same ones
 		if (isBlank(settings.get(SettingsCatalog.USERS))) {
@@ -107,7 +116,7 @@ public final class AdminApp implements AutoCloseable {
 		applyLogLevels();
 
 		// the pages use the servers' registry of the users file when they run here, else one of their own
-		users = new UserService(new File(settings.get(SettingsCatalog.USERS)), this::serversRegistry);
+		users = new UserService(usersFile(), this::serversRegistry);
 		aliases = new AliasStore(aliasesFile());
 		aliases.load();
 		domains = new DomainService(settings, users, aliases, home.dkimDirectory());
@@ -148,7 +157,7 @@ public final class AdminApp implements AutoCloseable {
 	 * Start the application with its home directory, and the settings folder
 	 * {@link AdminHome#defaultSettingsDirectory} picks.
 	 */
-	public static AdminApp start(File homeDir) throws IOException {
+	public static AdminApp start(FileSource homeDir) throws IOException {
 		return start(homeDir, AdminHome.defaultSettingsDirectory(homeDir, null));
 	}
 
@@ -156,7 +165,7 @@ public final class AdminApp implements AutoCloseable {
 	 * Start the application with its home directory and settings folder; the servers start too when
 	 * they run in this application and the settings say so.
 	 */
-	public static AdminApp start(File homeDir, File settingsDir) throws IOException {
+	public static AdminApp start(FileSource homeDir, FileSource settingsDir) throws IOException {
 		AdminApp app = new AdminApp(homeDir, settingsDir);
 		app.suite.connect();
 		if (app.suite.isLocal() && app.settings.getBoolean(SettingsCatalog.ADMIN_AUTO_START, true)) {
@@ -169,10 +178,18 @@ public final class AdminApp implements AutoCloseable {
 		return app;
 	}
 
-	/** The aliases file the queue names, else the one in the admin home (a new queue's) */
-	private File aliasesFile() {
+	/**
+	 * The aliases file the queue names (where the SMTP servers read it: on the mail root's file
+	 * system), else the one in the admin home (a new queue's)
+	 */
+	private FileSource aliasesFile() throws IOException {
 		String a = settings.get(SettingsCatalog.QUEUE_ALIASES);
-		return isBlank(a) ? home.defaultAliasesFile() : new File(a.trim());
+		return isBlank(a) ? home.defaultAliasesFile() : settings.onQueueFileSystem(a);
+	}
+
+	/** The users file the settings name, as the servers resolve it (parley-mail's AbstractMailServer) */
+	private FileSource usersFile() throws IOException {
+		return FileSource.of(settings.get(SettingsCatalog.USERS).trim());
 	}
 
 	/**
@@ -189,7 +206,8 @@ public final class AdminApp implements AutoCloseable {
 		return s == null || s.trim().isEmpty();
 	}
 
-	private static String path(File f) {
+	/** What a setting holds to name F: its path (it is on the file system the setting is read on) */
+	private static String path(FileSource f) {
 		return f.getAbsolutePath().replace('\\', '/');
 	}
 
@@ -205,7 +223,7 @@ public final class AdminApp implements AutoCloseable {
 				((FileUserRegistry) registry).reloadNow(); // a no-op when the pages just wrote through it
 			}
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile() + "; they keep the users they had", e);
+			LOG.log(System.Logger.Level.WARNING, "The servers can't read the users file " + users.getFile().getPath() + "; they keep the users they had", e);
 		}
 		FileUserRegistry own = users.ownRegistry();
 		if (own != null) {
@@ -217,7 +235,7 @@ public final class AdminApp implements AutoCloseable {
 	 * The registry the servers of this application share for this users file (its canonical path),
 	 * or null when they run elsewhere or none of them has read it yet.
 	 */
-	private UserRegistry serversRegistry(File usersFile) {
+	private UserRegistry serversRegistry(FileSource usersFile) {
 		us.bringardner.parley.mail.admin.server.ServerContext context = suite != null && suite.isLocal() ? suite.localContext() : null;
 		if (context == null) {
 			return null;
@@ -225,7 +243,7 @@ public final class AdminApp implements AutoCloseable {
 		try {
 			return us.bringardner.parley.mail.admin.server.SharedUsers.find(context, usersFile);
 		} catch (IOException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't find the servers' registry of the users file " + usersFile + ": " + e.getMessage());
+			LOG.log(System.Logger.Level.WARNING, "Can't find the servers' registry of the users file " + usersFile.getPath() + ": " + e.getMessage());
 			return null;
 		}
 	}
@@ -252,7 +270,7 @@ public final class AdminApp implements AutoCloseable {
 		try {
 			registry = users.registry();
 		} catch (IOException e) {
-			return AuthenticationResult.unavailable("The users file " + users.getFile() + " can't be read: " + e.getMessage());
+			return AuthenticationResult.unavailable("The users file " + users.getFile().getPath() + " can't be read: " + e.getMessage());
 		}
 		PasswordCredential credential = new PasswordCredential(name, password == null ? new char[0] : password, requester);
 		AuthenticationResult result;
@@ -282,21 +300,21 @@ public final class AdminApp implements AutoCloseable {
 				LOG.log(System.Logger.Level.INFO, "Read the users file again: it was changed outside this application");
 			}
 		} catch (RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't read the users file " + users.getFile(), e);
+			LOG.log(System.Logger.Level.WARNING, "Can't read the users file " + users.getFile().getPath(), e);
 		}
 		try {
 			if (settings.reloadIfChanged()) {
 				LOG.log(System.Logger.Level.INFO, "Read the settings files again: one was changed outside this application");
 			}
 		} catch (IOException | RuntimeException e) {
-			LOG.log(System.Logger.Level.WARNING, "Can't read the settings files in " + settings.getDirectory(), e);
+			LOG.log(System.Logger.Level.WARNING, "Can't read the settings files in " + settings.getDirectory().getPath(), e);
 		}
 	}
 
 	private void settingsChanged(Set<String> changed) {
 		try {
 			if (changed.contains(SettingsCatalog.USERS) && !isBlank(settings.get(SettingsCatalog.USERS))) {
-				users.setFile(new File(settings.get(SettingsCatalog.USERS)));
+				users.setFile(usersFile());
 			}
 			if (changed.contains(SettingsCatalog.ADMIN_JMX_URL) || changed.contains(SettingsCatalog.ADMIN_JMX_USER)
 					|| changed.contains(SettingsCatalog.ADMIN_JMX_PASSWORD) || changed.contains(SettingsCatalog.ADMIN_JMX_PASSWORD_FILE)) {
@@ -304,7 +322,7 @@ public final class AdminApp implements AutoCloseable {
 			}
 			if (changed.contains(SettingsCatalog.QUEUE_ALIASES) || changed.contains(SettingsCatalog.ROOT) || changed.contains(SettingsCatalog.FILE_SOURCE)
 					|| changed.contains(SettingsCatalog.SMTP_QUEUE)) {
-				File f = aliasesFile();
+				FileSource f = aliasesFile();
 				if (!f.equals(aliases.getFile())) {
 					aliases.setFile(f);
 				}
@@ -436,26 +454,36 @@ public final class AdminApp implements AutoCloseable {
 	 * settings file, unless it's System.out or System.err) and those
 	 * {@value SettingsCatalog#ADMIN_LOG_FILES} names.
 	 */
-	private List<File> logFileSources() {
-		List<File> ret = new ArrayList<>();
+	private List<FileSource> logFileSources() {
+		List<FileSource> ret = new ArrayList<>();
 		if (logs.getFile() != null) {
 			ret.add(logs.getFile());
 		}
 		for (PropertiesFile f : settings.getFiles()) {
 			String v = f.get(SERVERS_LOG_FILE);
 			if (!isBlank(v) && !v.trim().equals("System.out") && !v.trim().equals("System.err")) {
-				ret.add(new File(v.trim()));
+				// parley-core's ParleyLogger writes it with java.io.File: on the local disk
+				addLog(ret, FileSourceFactory.fileProxyFactory, v);
 			}
 		}
 		String more = settings.get(SettingsCatalog.ADMIN_LOG_FILES, null);
 		if (more != null) {
 			for (String p : more.split("\\s*,\\s*")) {
 				if (!p.isEmpty()) {
-					ret.add(new File(p));
+					addLog(ret, FileSourceFactory.getDefaultFactory(), p);
 				}
 			}
 		}
 		return ret;
+	}
+
+	/** The log file a setting names (a path on FACTORY, or a filesource: URL), unless it can't be reached */
+	private static void addLog(List<FileSource> ret, FileSourceFactory factory, String value) {
+		try {
+			ret.add(factory.resolve(value.trim()));
+		} catch (IOException | RuntimeException e) {
+			LOG.log(System.Logger.Level.WARNING, "Can't reach the log file " + FileSourceFactory.safe(value.trim()) + ": " + e.getMessage());
+		}
 	}
 
 	/**

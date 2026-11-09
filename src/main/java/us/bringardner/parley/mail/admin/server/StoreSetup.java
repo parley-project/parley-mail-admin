@@ -5,10 +5,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +15,7 @@ import java.util.Map;
 import java.util.Properties;
 
 import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.mail.store.MailLocks;
 import us.bringardner.parley.mail.store.MaildropRoot;
 import us.bringardner.parley.smtp.queue.MailQueue;
@@ -41,6 +41,9 @@ import us.bringardner.parley.smtp.server.SmtpServer;
  *
  * It prints what it made and set, and {@code missing KEY} for each required setting still empty;
  * exits with 1, saying why, when the store can't be opened or written.
+ * <p>
+ * The settings files are on the default file system, as the servers read them (a value may also
+ * be a {@code filesource:} URL); the templates are the package's files, on the local disk.
  */
 public final class StoreSetup {
 
@@ -74,20 +77,20 @@ public final class StoreSetup {
 
 	/** Do it; see the class comment for ARGS */
 	public void run(String[] args) throws IOException {
-		List<Path> settingsFiles = new ArrayList<>();
-		Path storeTemplate = null;
-		Path queueTemplate = null;
+		List<FileSource> settingsFiles = new ArrayList<>();
+		FileSource storeTemplate = null;
+		FileSource queueTemplate = null;
 		String queue = DEFAULT_QUEUE;
 		Map<String, String> fill = new LinkedHashMap<>();
 		List<String> require = new ArrayList<>();
 		for (int i = 0; i < args.length; i++) {
 			String a = args[i];
 			if (a.equals("--settings")) {
-				settingsFiles.add(Path.of(value(args, ++i, a)));
+				settingsFiles.add(FileSource.of(value(args, ++i, a)));
 			} else if (a.equals("--store-template")) {
-				storeTemplate = Path.of(value(args, ++i, a));
+				storeTemplate = template(value(args, ++i, a));
 			} else if (a.equals("--queue-template")) {
-				queueTemplate = Path.of(value(args, ++i, a));
+				queueTemplate = template(value(args, ++i, a));
 			} else if (a.equals("--queue")) {
 				queue = value(args, ++i, a);
 			} else if (a.equals("--fill")) {
@@ -107,8 +110,8 @@ public final class StoreSetup {
 			throw new IllegalArgumentException("--settings is required");
 		}
 		Properties settings = new Properties();
-		for (Path p : settingsFiles) {
-			try (Reader r = Files.newBufferedReader(p, StandardCharsets.UTF_8)) {
+		for (FileSource p : settingsFiles) {
+			try (Reader r = new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8)) {
 				settings.load(r);
 			}
 		}
@@ -167,11 +170,16 @@ public final class StoreSetup {
 		return args[i];
 	}
 
-	private void makeOnce(FileSource f, Path template, String where) throws IOException {
+	/** A template the package installed: a file on the local disk */
+	private static FileSource template(String path) throws IOException {
+		return FileSourceFactory.fileProxyFactory.createFileSource(path);
+	}
+
+	private void makeOnce(FileSource f, FileSource template, String where) throws IOException {
 		if (f.exists()) {
 			return;
 		}
-		write(f, Files.readString(template, StandardCharsets.UTF_8));
+		write(f, read(template));
 		out.println("made " + where);
 	}
 

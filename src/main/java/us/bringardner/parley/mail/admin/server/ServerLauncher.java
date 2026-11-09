@@ -1,6 +1,5 @@
 package us.bringardner.parley.mail.admin.server;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -19,6 +18,7 @@ import java.util.function.Consumer;
 
 import javax.management.ObjectName;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.net.server.KnownSettings;
 import us.bringardner.parley.net.server.ParleyConnection;
 import us.bringardner.parley.net.server.ServerMain;
@@ -154,7 +154,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	private final ServerContext context;
 	/** the servers, in the order they start (copied on write: a reload can add servers) */
 	private volatile Map<String, Entry> entries = new LinkedHashMap<>();
-	private final File confDir;
+	private final FileSource confDir;
 	/** reads parley.servers again on a reload, or null when the ids were given */
 	private volatile Callable<List<String>> serverList;
 	private final long createdAt = System.currentTimeMillis();
@@ -180,10 +180,12 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	 * @param name     for the messages and the JMX name, e.g. "Pop3Server" or "ParleyMail"
 	 * @param settings the command line and the files to read (the providers' files are added)
 	 * @param ids      the servers' ids, in the order they start
-	 * @param confDir  the settings folder (null: no default files)
+	 * @param confDir  the settings folder (null: no default files), ServerMain.confDir() or another
+	 *                 on the default file system
 	 * @throws IllegalArgumentException if a server isn't known (no provider has that id)
+	 * @throws IOException if the settings folder's file system can't be reached
 	 */
-	public ServerLauncher(String name, LaunchSettings settings, List<String> ids, File confDir, ServerContext context) {
+	public ServerLauncher(String name, LaunchSettings settings, List<String> ids, FileSource confDir, ServerContext context) throws IOException {
 		this.name = name;
 		this.settings = settings;
 		this.context = context;
@@ -196,12 +198,17 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		});
 		control.prestartAllCoreThreads(); // now, in the context of the code making the launcher
 		Map<String, Entry> map = new LinkedHashMap<>();
-		for (ServerProvider p : known(ids)) {
-			if (!map.containsKey(p.id())) {
-				Entry e = new Entry(p);
-				map.put(p.id(), e);
-				addFiles(e);
+		try {
+			for (ServerProvider p : known(ids)) {
+				if (!map.containsKey(p.id())) {
+					Entry e = new Entry(p);
+					map.put(p.id(), e);
+					addFiles(e);
+				}
 			}
+		} catch (IOException | RuntimeException e) {
+			control.shutdown();
+			throw e;
 		}
 		entries = map;
 	}
@@ -226,18 +233,19 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	}
 
 	/** The server's settings files: the shared ones, then its own */
-	private void addFiles(Entry e) {
+	private void addFiles(Entry e) throws IOException {
 		String id = e.provider.id();
 		if (confDir != null) {
 			for (String f : e.provider.sharedSettingsFiles()) {
-				settings.addFile(id, new File(confDir, f), false);
+				settings.addFile(id, confDir.getChild(f), false);
 			}
 		}
 		String named = e.provider.configProperty() == null ? null : settings.early(e.provider.configProperty());
 		if (named != null) {
-			settings.addFile(id, new File(named), true);
+			// a path on the default file system, or a filesource: URL
+			settings.addFile(id, FileSource.of(named), true);
 		} else if (confDir != null && e.provider.settingsFile() != null) {
-			settings.addFile(id, new File(confDir, e.provider.settingsFile()), false);
+			settings.addFile(id, confDir.getChild(e.provider.settingsFile()), false);
 		}
 		if (!e.provider.usesConfiguration()) {
 			legacy = true;
@@ -675,7 +683,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	@Override
 	public String[] getSettingsFiles() {
 		List<String> ret = new ArrayList<>();
-		for (File f : settings.getFiles()) {
+		for (FileSource f : settings.getFiles()) {
 			ret.add(f.getPath());
 		}
 		return ret.toArray(new String[0]);
