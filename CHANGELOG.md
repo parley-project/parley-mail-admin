@@ -2,6 +2,14 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-08: logging through ILogger, To-Do 19.1 and 19.2)
+
+- **Logging goes through parley-core's ILogger**: `AdminApp`, `MailSuite` and `SettingsService` are
+  `BaseObject`s now, and `ApiServlet` and `FileRewrite` log through `BaseObject.findLogger`. With all of
+  Parley on ILogger, `JulCapture` had nothing left to collect and is removed: the Logs page gets every
+  entry through `AdminLogger`. With no `parley.log.level` set, `AdminLogger` logs at INFO (ParleyLogger's
+  default is WARN), so the Logs page keeps showing logins, changes and servers starting and stopping.
+
 ### Changed (2026-11-06: users, logins and permissions come from parley-iam)
 
 - **The Users page works through the user registry** (`UserService`, replacing `UserStore`): it reads users with
