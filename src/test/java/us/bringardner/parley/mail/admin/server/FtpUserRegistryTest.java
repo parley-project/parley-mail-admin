@@ -7,10 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.Function;
@@ -35,6 +34,7 @@ import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.iam.permission.StandardPermissions;
 import us.bringardner.parley.iam.registry.ForwardingUserRegistry;
+import us.bringardner.parley.mail.admin.TestFiles;
 import us.bringardner.parley.net.server.DomainListUnavailableException;
 import us.bringardner.parley.net.server.FileUserRegistry;
 import us.bringardner.parley.net.server.IDomainList;
@@ -50,7 +50,12 @@ public class FtpUserRegistryTest {
 	private static final ParleyPermission WRITE = new BasicParleyPermission(StandardPermissions.WRITE, null);
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	/** The @TempDir, on the local file system */
+	private FileSource dir() throws java.io.IOException {
+		return TestFiles.local(tempDir);
+	}
 
 	/** The suite's local domains, or a list that can't be read */
 	private static final class Domains implements IDomainList {
@@ -107,15 +112,15 @@ public class FtpUserRegistryTest {
 	}
 
 	private FileUserRegistry users() throws IOException {
-		File f = new File(dir, "users.txt");
-		Files.write(f.toPath(), ("tony@a.test , secret1 , read|write|ADMIN\n"
+		FileSource f = dir().getChild("users.txt");
+		TestFiles.writeBytes(f, ("tony@a.test , secret1 , read|write|ADMIN\n"
 				+ "jose@a.test , secret2 , READ|WRITE\n"
 				+ "boss@b.test , secret3 , admin\n"
 				+ "nodomain , secret4 , ADMIN\n"
 				+ "eve@c.test , secret5 , ADMIN\n"
 				+ "../x@a.test , secret6 , ADMIN\n").getBytes(StandardCharsets.UTF_8));
 		FileUserRegistry r = new FileUserRegistry();
-		r.initialize(FileSource.of(f));
+		r.initialize(f);
 		return r;
 	}
 
