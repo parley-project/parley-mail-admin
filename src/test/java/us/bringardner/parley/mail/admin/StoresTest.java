@@ -260,8 +260,9 @@ public class StoresTest {
 		assertEquals("/mail/.parley-store.properties", s.getStoreFile().getPath());
 	}
 
-	/** Whether this process can make a file in DIR (as root, it can even when the permissions say it can't) */
-	private static boolean canAddTo(FileSource dir) {
+	/** Whether this process can make a file in DIR (as root, it can even when the permissions say it can't) 
+	 * @throws IOException */
+	private static boolean canAddTo(FileSource dir) throws IOException {
 		FileSource probe = dir.getChild("probe");
 		try {
 			return probe.createNewFile() && probe.delete();
