@@ -34,7 +34,6 @@ public class SharedUsersTest {
 	static class Plain extends AbstractMailServer {
 		Plain(String prefix) {
 			super(0, "Plain", prefix, false);
-			finishInit();
 		}
 
 		@Override

@@ -39,7 +39,7 @@ It gives you pages to:
 | Aliases | Aliases per domain or for every domain. |
 | Queue | The messages waiting in the SMTP queue, each recipient's status and last result; read a message, retry it now, delete it, or retry them all. |
 | History | Every message the SMTP queue took and every delivery attempt, by date, address, id or result, and the whole story of one message (the history files the SMTP servers write). |
-| Logs | This application's log as it's written (with the servers' entries when they run in it), filtered by level, source (SMTP, IMAP, POP3, store, network, admin) and text; set each source's log level; and the log files: this application's, the servers' (`logFile` in a settings file) and any others named in the settings, read from their end or downloaded. |
+| Logs | This application's log as it's written (with the servers' entries when they run in it), filtered by level, source (SMTP, IMAP, POP3, store, network, admin) and text; set each source's log level; and the log files: this application's, the servers' (`parley.log.file` in a settings file) and any others named in the settings, read from their end or downloaded. |
 | Settings | Every setting, in the files the servers read: the ones every server shares (mail root, TLS key store, the users file) and each protocol's and each listener's own, with what they do and their defaults. Saving says which services need a restart and offers to do it. |
 
 The pages look like parley-files-viewer: swing-widgets' gradient look, with the same eight themes
@@ -276,8 +276,10 @@ re-adding it).
   login mechanism works.
 - `FileRewrite` writes a file through a temporary file and a rename, keeping the original's
   permissions and group.
-- `log.AdminLogger` (set as `parley.core.logger`) and `log.JulCapture` (java.util.logging and
-  System.Logger) give every entry to `log.LogBuffer` for the Logs page and the log file.
+- `log.LogPageHandler`, a java.util.logging handler on the `us.bringardner` loggers, gives every entry
+  to `log.LogBuffer` for the Logs page and the log file: Parley logs through the JDK's System.Logger,
+  which is java.util.logging in Tomcat (a System.LoggerFinder in the war's WEB-INF/lib is never found).
+  A source's level on the Logs page is its java.util.logging loggers' level (INFO when none is chosen).
 - `history.HistoryStore` reads the history files the SMTP servers write (parley-smtp's
   `QueueHistory`), in the folder the queue's bean names; `log.LogFiles` the log files.
 - `web.ApiServlet` is the JSON API under `/api` that the pages (`src/main/webapp`, plain
