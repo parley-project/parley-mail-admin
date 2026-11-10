@@ -16,7 +16,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
 import us.bringardner.parley.core.BaseObject;
-import us.bringardner.parley.core.ILogger;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.iam.AuthenticationResult;
@@ -29,7 +28,7 @@ import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.iam.permission.StandardPermissions;
 import us.bringardner.parley.mail.admin.domains.DomainService;
 import us.bringardner.parley.mail.admin.history.HistoryStore;
-import us.bringardner.parley.mail.admin.log.AdminLogger;
+import us.bringardner.parley.mail.admin.log.LogPageHandler;
 import us.bringardner.parley.mail.admin.log.LogBuffer;
 import us.bringardner.parley.mail.admin.log.LogFiles;
 import us.bringardner.parley.mail.admin.settings.PropertiesFile;
@@ -77,18 +76,15 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 	private volatile FileSource lastHistoryDirectory;
 
 	/**
-	 * Make the Parley loggers write to the Logs page too ({@link AdminLogger}), unless another logger
-	 * is set. parley-core picks the logger once, when a Parley object first logs, so this must come
-	 * before any: before the first FileSource is made (parley-files' classes are Parley objects).
+	 * Make the Parley loggers write to the Logs page too: {@link LogPageHandler} on the
+	 * java.util.logging loggers, which Parley's System.Loggers write to unless the JVM has another
+	 * System.LoggerFinder. Calling it again does nothing.
 	 */
 	public static void installLogger() {
-		if (System.getProperty(BaseObject.PROPERTY_LOGGER) == null) {
-			System.setProperty(BaseObject.PROPERTY_LOGGER, AdminLogger.class.getName());
-		}
+		LogPageHandler.install();
 	}
 
 	private AdminApp(FileSource homeDir, FileSource settingsDir) throws IOException {
-		// (too late if the caller made Parley objects that logged already: see installLogger)
 		installLogger();
 		home = new AdminHome(homeDir, settingsDir);
 		home.createMissingFiles();
@@ -361,21 +357,7 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 	private void applyLogLevels() {
 		for (Map.Entry<LogBuffer.Source, LogBuffer.Level> e : getLogLevels().entrySet()) {
 			LogBuffer.Level l = e.getValue();
-			AdminLogger.setSourceLevel(e.getKey(), l == null ? null : toParley(l));
-		}
-	}
-
-	private static ILogger.Level toParley(LogBuffer.Level l) {
-		switch (l) {
-		case TRACE:
-		case DEBUG:
-			return ILogger.Level.DEBUG;
-		case INFO:
-			return ILogger.Level.INFO;
-		case WARN:
-			return ILogger.Level.WARN;
-		default:
-			return ILogger.Level.ERROR;
+			LogPageHandler.setSourceLevel(e.getKey(), l);
 		}
 	}
 
@@ -457,7 +439,7 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 		for (PropertiesFile f : settings.getFiles()) {
 			String v = f.get(SERVERS_LOG_FILE);
 			if (!isBlank(v) && !v.trim().equals("System.out") && !v.trim().equals("System.err")) {
-				// parley-core's ParleyLogger writes it with java.io.File: on the local disk
+				// parley-logging's ParleyLogger writes it with java.io.File: on the local disk
 				addLog(ret, FileSourceFactory.fileProxyFactory, v);
 			}
 		}
