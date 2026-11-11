@@ -28,7 +28,7 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import us.bringardner.parley.core.BaseObject;
-import us.bringardner.parley.core.ILogger;
+import us.bringardner.parley.core.util.LogHelper;
 import us.bringardner.parley.files.ConnectionSetting;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.Requester;
@@ -57,11 +57,8 @@ import us.bringardner.parley.smtp.spam.SpamStatus;
  */
 public class ApiServlet extends HttpServlet {
 
-	/** The logger, looked up each time: parley-core picks the logger type at the first lookup,
-	 *  and clearLoggerCache() would leave a kept one behind */
-	private static ILogger log() {
-		return BaseObject.findLogger(ApiServlet.class.getName());
-	}
+	/** Logs for this class (it isn't a BaseObject) */
+	private static final LogHelper LOG = new LogHelper(ApiServlet.class);
 
 	private static final long serialVersionUID = 1L;
 
@@ -121,7 +118,7 @@ public class ApiServlet extends HttpServlet {
 			if (e.getCause() instanceof us.bringardner.parley.iam.UserRegistryUnavailableException) {
 				unavailable(res, path, e.getCause());
 			} else {
-				log().error(req.getMethod() + " " + path + " failed", e);
+				LOG.logError(req.getMethod() + " " + path + " failed", e);
 				error(res, 500, e.getMessage());
 			}
 		} catch (IllegalArgumentException e) {
@@ -129,14 +126,14 @@ public class ApiServlet extends HttpServlet {
 		} catch (IllegalStateException e) {
 			error(res, 409, e.getMessage());
 		} catch (Exception e) {
-			log().error(req.getMethod() + " " + path + " failed", e);
+			LOG.logError(req.getMethod() + " " + path + " failed", e);
 			error(res, 500, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
 		}
 	}
 
 	/** The user registry can't answer now: not the request's fault, and never "not allowed". */
 	private void unavailable(HttpServletResponse res, String path, Throwable e) throws IOException {
-		log().error(path + ": the user registry can't answer now: " + e.getMessage());
+		LOG.logError(path + ": the user registry can't answer now: " + e.getMessage());
 		error(res, 503, "The users can't be read or changed now: " + e.getMessage());
 	}
 
@@ -312,7 +309,7 @@ public class ApiServlet extends HttpServlet {
 		// any Parley server: what parley-net's launchers show over JMX, whatever the server's type
 		r.get("/servers", q -> app.getSuite().servers());
 		r.post("/servers/{id}/{action}", q -> {
-			log().info(q.user() + ": " + q.param(1) + " " + q.param(0));
+			LOG.logInfo(q.user() + ": " + q.param(1) + " " + q.param(0));
 			app.getSuite().serverAction(q.param(0), q.param(1));
 			return app.getSuite().servers();
 		});
@@ -323,7 +320,7 @@ public class ApiServlet extends HttpServlet {
 		// DNS: the Parley DNS server's zones; a domain with no zone file is served from the shared zone
 		r.get("/dns", q -> app.getDns().status());
 		r.post("/dns/reload", q -> {
-			log().info(q.user() + ": reload the DNS zones");
+			LOG.logInfo(q.user() + ": reload the DNS zones");
 			app.getDns().reload();
 			return app.getDns().status();
 		});
@@ -333,7 +330,7 @@ public class ApiServlet extends HttpServlet {
 			String name = q.text("name");
 			String type = q.requiredText("type");
 			List<String> values = q.list("values");
-			log().info(q.user() + ": DNS shared zone add " + name + " " + type + " " + values);
+			LOG.logInfo(q.user() + ": DNS shared zone add " + name + " " + type + " " + values);
 			app.getDns().addSharedRecords(name, type, ttl(q), values);
 			return app.getDns().sharedZone();
 		});
@@ -343,7 +340,7 @@ public class ApiServlet extends HttpServlet {
 			String data = q.requiredText("data");
 			String newType = q.requiredText("newType");
 			String newData = q.requiredText("newData");
-			log().info(q.user() + ": DNS shared zone change " + name + " " + type + " " + data + " to "
+			LOG.logInfo(q.user() + ": DNS shared zone change " + name + " " + type + " " + data + " to "
 					+ q.text("newName") + " " + newType + " " + newData);
 			app.getDns().changeSharedRecord(name, type, data, q.text("newName"), newType, ttl(q), newData);
 			return app.getDns().sharedZone();
@@ -352,14 +349,14 @@ public class ApiServlet extends HttpServlet {
 			String name = q.text("name");
 			String type = q.requiredText("type");
 			String data = q.requiredText("data");
-			log().info(q.user() + ": DNS shared zone delete " + name + " " + type + " " + data);
+			LOG.logInfo(q.user() + ": DNS shared zone delete " + name + " " + type + " " + data);
 			app.getDns().deleteSharedRecord(name, type, data);
 			return app.getDns().sharedZone();
 		});
 		r.get("/dns/zones/{domain}", q -> dnsZone(q));
 		r.post("/dns/zones/{domain}", q -> {
 			String d = dnsDomain(q);
-			log().info(q.user() + ": make the DNS zone of " + d);
+			LOG.logInfo(q.user() + ": make the DNS zone of " + d);
 			app.getDns().createZone(d, app.getPrimaryDomain());
 			return dnsZone(q);
 		});
@@ -368,7 +365,7 @@ public class ApiServlet extends HttpServlet {
 			String name = q.text("name");
 			String type = q.requiredText("type");
 			List<String> values = q.list("values");
-			log().info(q.user() + ": DNS " + d + " add " + name + " " + type + " " + values);
+			LOG.logInfo(q.user() + ": DNS " + d + " add " + name + " " + type + " " + values);
 			app.getDns().addRecords(d, name, type, ttl(q), values);
 			return dnsZone(q);
 		});
@@ -379,7 +376,7 @@ public class ApiServlet extends HttpServlet {
 			String data = q.requiredText("data");
 			String newType = q.requiredText("newType");
 			String newData = q.requiredText("newData");
-			log().info(q.user() + ": DNS " + d + " change " + name + " " + type + " " + data + " to "
+			LOG.logInfo(q.user() + ": DNS " + d + " change " + name + " " + type + " " + data + " to "
 					+ q.text("newName") + " " + newType + " " + newData);
 			app.getDns().changeRecord(d, name, type, data, q.text("newName"), newType, ttl(q), newData);
 			return dnsZone(q);
@@ -389,14 +386,14 @@ public class ApiServlet extends HttpServlet {
 			String name = q.text("name");
 			String type = q.requiredText("type");
 			String data = q.requiredText("data");
-			log().info(q.user() + ": DNS " + d + " delete " + name + " " + type + " " + data);
+			LOG.logInfo(q.user() + ": DNS " + d + " delete " + name + " " + type + " " + data);
 			app.getDns().deleteRecord(d, name, type, data);
 			return dnsZone(q);
 		});
 		r.post("/dns/zones/{domain}/publish", q -> {
 			String d = dnsDomain(q);
 			List<Map<String, String>> changed = app.getDns().publishMail(d, mailRecords(d));
-			log().info(q.user() + ": DNS " + d + " published the mail records " + changed);
+			LOG.logInfo(q.user() + ": DNS " + d + " published the mail records " + changed);
 			Map<String, Object> m = dnsZone(q);
 			m.put("published", changed);
 			return m;
@@ -447,7 +444,7 @@ public class ApiServlet extends HttpServlet {
 			Boolean active = q.bool("active");
 			app.getUsers().add(q.requiredText("name"), required(q.password("password"), "password"), permissions(q.list("permissions")),
 					q.text("maildrop"), q.list("groups"), active == null || active);
-			log().info(q.user() + " added the user " + q.text("name"));
+			LOG.logInfo(q.user() + " added the user " + q.text("name"));
 			return users(q);
 		});
 		r.put("/users/{name}", q -> {
@@ -460,7 +457,7 @@ public class ApiServlet extends HttpServlet {
 			}
 			app.getUsers().update(q.param(0), q.password("password"), perms == null ? null : permissions(perms), q.text("maildrop"),
 					q.list("groups"), active);
-			log().info(q.user() + " changed the user " + q.param(0));
+			LOG.logInfo(q.user() + " changed the user " + q.param(0));
 			return users(q);
 		});
 		r.delete("/users/{name}", q -> {
@@ -470,7 +467,7 @@ public class ApiServlet extends HttpServlet {
 			}
 			us.bringardner.parley.mail.admin.users.UserRecord gone = app.getUsers().get(q.param(0));
 			app.getUsers().delete(q.param(0));
-			log().info(q.user() + " deleted the user " + q.param(0));
+			LOG.logInfo(q.user() + " deleted the user " + q.param(0));
 			forgetInAcls(q, gone == null ? q.param(0) : gone.getName());
 			return users(q);
 		});
@@ -487,7 +484,7 @@ public class ApiServlet extends HttpServlet {
 			String id = q.requiredText("identifier");
 			try {
 				String now = app.getMailboxAcls().set(q.param(0), mailbox, id, q.flag("negative"), q.text("rights"));
-				log().info(q.user() + " set " + (q.flag("negative") ? "-" : "") + id + " " + now + " on " + q.param(0) + "'s " + mailbox);
+				LOG.logInfo(q.user() + " set " + (q.flag("negative") ? "-" : "") + id + " " + now + " on " + q.param(0) + "'s " + mailbox);
 			} catch (IOException e) {
 				throw ApiException.badRequest(e.getMessage());
 			}
@@ -499,7 +496,7 @@ public class ApiServlet extends HttpServlet {
 			String id = q.requiredText("identifier");
 			try {
 				if (app.getMailboxAcls().delete(q.param(0), mailbox, id, q.flag("negative"))) {
-					log().info(q.user() + " removed " + (q.flag("negative") ? "-" : "") + id + " from " + q.param(0) + "'s " + mailbox);
+					LOG.logInfo(q.user() + " removed " + (q.flag("negative") ? "-" : "") + id + " from " + q.param(0) + "'s " + mailbox);
 				}
 			} catch (IOException e) {
 				throw ApiException.badRequest(e.getMessage());
@@ -556,7 +553,7 @@ public class ApiServlet extends HttpServlet {
 		r.get("/queue", q -> queue(q));
 		r.post("/queue/flush", q -> {
 			requireQueue().flush();
-			log().info(q.user() + " flushed the SMTP queue");
+			LOG.logInfo(q.user() + " flushed the SMTP queue");
 			return queue(q);
 		});
 		r.post("/queue/{id}/retry", q -> {
@@ -572,7 +569,7 @@ public class ApiServlet extends HttpServlet {
 			if (!mq.delete(q.param(0))) {
 				throw new ApiException(409, "The message is being delivered right now; try again in a moment");
 			}
-			log().info(q.user() + " deleted " + q.param(0) + " from the SMTP queue");
+			LOG.logInfo(q.user() + " deleted " + q.param(0) + " from the SMTP queue");
 			return queue(q);
 		});
 		r.get("/queue/{id}/message", q -> {
@@ -670,13 +667,13 @@ public class ApiServlet extends HttpServlet {
 		if (result.getStatus() == AuthenticationResult.Status.UNAVAILABLE) {
 			// the registry couldn't answer: not a failed login, and never "denied"
 			failures.computeIfPresent(ip, (k, v) -> v[0] <= 1 ? null : new long[] { v[0] - 1, v[1] });
-			log().error("Can't check the admin login of '" + printable(name) + "' from " + ip + ": " + result.getReason());
+			LOG.logError("Can't check the admin login of '" + printable(name) + "' from " + ip + ": " + result.getReason());
 			throw new ApiException(503, "Logins can't be checked now; try again later");
 		}
 		UserRecord u = result.getStatus() == AuthenticationResult.Status.AUTHENTICATED
 				? app.getUsers().get(result.getPrincipal().getName()) : null;
 		if (u == null || AdminScope.of(u, app.getPrimaryDomain()) == null) {
-			log().warn("Failed admin login for '" + printable(name) + "' from " + ip
+			LOG.logWarn("Failed admin login for '" + printable(name) + "' from " + ip
 					+ (result.getReason() == null ? "" : ": " + printable(result.getReason())));
 			try {
 				Thread.sleep(500);
@@ -688,7 +685,7 @@ public class ApiServlet extends HttpServlet {
 		}
 		failures.remove(ip);
 		AdminFilter.login(q.http, u.getName());
-		log().info(u.getName() + " logged in to the admin pages from " + ip);
+		LOG.logInfo(u.getName() + " logged in to the admin pages from " + ip);
 		return session(q);
 	}
 
@@ -755,7 +752,7 @@ public class ApiServlet extends HttpServlet {
 			}
 		}
 		if (!errors.isEmpty()) {
-			log().error("A change was saved but the running servers couldn't use it: " + String.join("; ", errors));
+			LOG.logError("A change was saved but the running servers couldn't use it: " + String.join("; ", errors));
 			throw new ApiException(500, "Saved, but the running servers couldn't use it yet (a restart will): " + String.join("; ", errors));
 		}
 	}
@@ -788,12 +785,12 @@ public class ApiServlet extends HttpServlet {
 				throw e;
 			}
 			if (added) {
-				log().info("Added the local domain " + name.substring(at + 1) + " for the first administrator");
+				LOG.logInfo("Added the local domain " + name.substring(at + 1) + " for the first administrator");
 			}
 			UserRecord u = app.getUsers().get(name);
 			app.setPrimaryDomain(u.getDomain());
 			AdminFilter.login(q.http, u.getName());
-			log().info("Created the first administrator " + u.getName() + " from " + q.http.getRemoteAddr());
+			LOG.logInfo("Created the first administrator " + u.getName() + " from " + q.http.getRemoteAddr());
 		}
 		return session(q);
 	}
@@ -865,7 +862,7 @@ public class ApiServlet extends HttpServlet {
 		ServiceId id = service(q.param(0));
 		MailSuite suite = app.getSuite();
 		String action = q.param(1);
-		log().info(q.user() + ": " + action + " " + id.label);
+		LOG.logInfo(q.user() + ": " + action + " " + id.label);
 		switch (action) {
 		case "start":
 			suite.start(id);
@@ -891,7 +888,7 @@ public class ApiServlet extends HttpServlet {
 	private Object allServices(Router.Request q) throws IOException {
 		MailSuite suite = app.getSuite();
 		String action = q.param(0);
-		log().info(q.user() + ": " + action + " all services");
+		LOG.logInfo(q.user() + ": " + action + " all services");
 		switch (action) {
 		case "start":
 			suite.startAll();
@@ -1127,7 +1124,7 @@ public class ApiServlet extends HttpServlet {
 			map.put(SettingsCatalog.ADMIN_PRIMARY_DOMAIN, checkPrimaryDomain(map.get(SettingsCatalog.ADMIN_PRIMARY_DOMAIN)));
 		}
 		Set<String> changed = app.getSettings().update(map);
-		log().info(q.user() + " changed the settings " + changed);
+		LOG.logInfo(q.user() + " changed the settings " + changed);
 		Map<String, Object> m = new LinkedHashMap<>();
 		m.put("changed", changed);
 		List<String> restart = new ArrayList<>();
@@ -1247,13 +1244,13 @@ public class ApiServlet extends HttpServlet {
 			if (n < 0) {
 				warning = name + " is still named in mailbox ACLs: no mail server runs to remove it";
 			} else if (n > 0) {
-				log().info("Removed " + n + " mailbox ACL entries of " + name);
+				LOG.logInfo("Removed " + n + " mailbox ACL entries of " + name);
 			}
 		} catch (IOException | RuntimeException e) {
 			warning = "Couldn't remove " + name + " from the mailbox ACLs: " + e.getMessage();
 		}
 		if (warning != null) {
-			log().warn(warning);
+			LOG.logWarn(warning);
 			q.header("X-Parley-Warning", warning.replaceAll("[\\r\\n]", " "));
 		}
 	}

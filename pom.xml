@@ -171,9 +171,8 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
-					<!-- each test class in a JVM of its own: the admin picks Parley's logger class
-					     (AdminLogger) before any Parley object logs, which the server tests would
-					     otherwise have done first in a shared JVM -->
+					<!-- each test class in a JVM of its own: the Logs page's levels are
+					     java.util.logging's, which are the JVM's (LogPageHandler) -->
 					<reuseForks>false</reuseForks>
 					<!-- tests run the servers on free ports with a scratch home under target/ -->
 					<systemPropertyVariables>

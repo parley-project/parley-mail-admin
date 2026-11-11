@@ -20,10 +20,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.TestFiles;
-import us.bringardner.parley.mail.admin.log.AdminLogger;
 import us.bringardner.parley.smtp.queue.QueueHistory;
 
 /**
@@ -38,15 +36,10 @@ public class HistoryStoreTest {
 
 	private static final Instant T = Instant.parse("2026-11-02T22:27:55Z");
 
-	/**
-	 * As AdminApp does before any Parley object logs: the Parley logger class is chosen once per
-	 * JVM, and the web app tests sharing this JVM read the admin's log entries.
-	 */
+	/** As AdminApp does: the Parley loggers write to the Logs page too. */
 	@BeforeAll
 	public static void adminLogger() {
-		if (System.getProperty(BaseObject.PROPERTY_LOGGER) == null) {
-			System.setProperty(BaseObject.PROPERTY_LOGGER, AdminLogger.class.getName());
-		}
+		us.bringardner.parley.mail.admin.AdminApp.installLogger();
 	}
 
 	@BeforeEach

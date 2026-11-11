@@ -144,9 +144,7 @@ public class DnsAdminTest {
 				+ "parley.mail.admin.dnsKeyFile=" + dnsDir.getChild("admin.key").getAbsolutePath().replace('\\', '/') + "\n");
 		write(dir().getChild("users.txt"), "# users\n");
 
-		if (System.getProperty(us.bringardner.parley.core.BaseObject.PROPERTY_LOGGER) == null) {
-			System.setProperty(us.bringardner.parley.core.BaseObject.PROPERTY_LOGGER, us.bringardner.parley.mail.admin.log.AdminLogger.class.getName());
-		}
+		AdminApp.installLogger();
 		Set<String> before = new HashSet<>(System.getProperties().stringPropertyNames());
 		MBeanServer mbs = MBeanServerFactory.newMBeanServer();
 		Registry registry = LocateRegistry.createRegistry(registryPort);

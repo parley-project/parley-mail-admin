@@ -86,9 +86,7 @@ public class RemoteModeTest {
 		TestFiles.writeBytes(dir().getChild("aliases.txt"), "# aliases\n".getBytes(StandardCharsets.UTF_8));
 
 		// the Parley logger every test of this JVM uses (it's chosen once, when the first server logs): the application's
-		if (System.getProperty(us.bringardner.parley.core.BaseObject.PROPERTY_LOGGER) == null) {
-			System.setProperty(us.bringardner.parley.core.BaseObject.PROPERTY_LOGGER, us.bringardner.parley.mail.admin.log.AdminLogger.class.getName());
-		}
+		AdminApp.installLogger();
 		Set<String> before = new HashSet<>(System.getProperties().stringPropertyNames());
 		MBeanServer mbs = MBeanServerFactory.newMBeanServer();
 		Registry registry = LocateRegistry.createRegistry(registryPort);

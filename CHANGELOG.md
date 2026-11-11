@@ -2,6 +2,15 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-10: logging through System.Logger, To-Do 19.5)
+
+- **Logs page through java.util.logging** (To-Do 19.5): Parley now logs through the JDK's
+  `System.Logger`, which is java.util.logging in Tomcat (a `System.LoggerFinder` in the war's
+  WEB-INF/lib is never found). `log.LogPageHandler`, a java.util.logging handler on the
+  `us.bringardner` loggers, gives the entries to `LogBuffer`; a source's level on the Logs page is its
+  java.util.logging loggers' level (INFO when none is chosen). `AdminLogger` is removed.
+  `FileRewrite` and `ApiServlet` log through a `LogHelper`.
+
 ### Changed (2026-11-08: logging through ILogger, To-Do 19.1 and 19.2)
 
 - **Logging goes through parley-core's ILogger**: `AdminApp`, `MailSuite` and `SettingsService` are
