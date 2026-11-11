@@ -5,7 +5,7 @@ import java.io.OutputStream;
 import java.nio.file.attribute.GroupPrincipal;
 
 import us.bringardner.parley.core.BaseObject;
-import us.bringardner.parley.core.ILogger;
+import us.bringardner.parley.core.util.LogHelper;
 import us.bringardner.parley.files.FileSource;
 
 /**
@@ -21,11 +21,8 @@ import us.bringardner.parley.files.FileSource;
  */
 public final class FileRewrite {
 
-	/** The logger, looked up each time: parley-core picks the logger type at the first lookup,
-	 *  and clearLoggerCache() would leave a kept one behind */
-	private static ILogger log() {
-		return BaseObject.findLogger(FileRewrite.class.getName());
-	}
+	/** Logs for this class (it isn't a BaseObject) */
+	private static final LogHelper LOG = new LogHelper(FileRewrite.class);
 
 	private FileRewrite() {
 	}
@@ -91,18 +88,18 @@ public final class FileRewrite {
 					& copy.setOtherWritable(original.canOtherWrite())
 					& copy.setOtherExecutable(original.canOtherExecute());
 			if (!all) {
-				log().warn("Can't give " + original.getPath() + " all of its permissions again");
+				LOG.logWarn("Can't give " + original.getPath() + " all of its permissions again");
 			}
 		} catch (IOException | RuntimeException e) {
-			log().warn("Can't give " + original.getPath() + " its permissions again: " + e.getMessage());
+			LOG.logWarn("Can't give " + original.getPath() + " its permissions again: " + e.getMessage());
 		}
 		try {
 			GroupPrincipal group = original.getGroup();
 			if (group != null && !group.equals(copy.getGroup()) && !copy.setGroup(group)) {
-				log().warn("Can't give " + original.getPath() + " its group " + group.getName() + " again");
+				LOG.logWarn("Can't give " + original.getPath() + " its group " + group.getName() + " again");
 			}
 		} catch (IOException | RuntimeException e) {
-			log().warn("Can't give " + original.getPath() + " its group again: " + e.getMessage());
+			LOG.logWarn("Can't give " + original.getPath() + " its group again: " + e.getMessage());
 		}
 	}
 }
