@@ -797,13 +797,23 @@ public class ApiServlet extends HttpServlet {
 
 	// ------------------------------------------------------------------ status and services
 
+	/** The canonical path of a folder, as the status shows it (its own path if that can't be worked out). */
+	private static String canonical(us.bringardner.parley.files.FileSource dir) {
+		try {
+			return dir.getCanonicalPath();
+		} catch (IOException e) {
+			return dir.getPath();
+		}
+	}
+
 	private Object status() {
 		Map<String, Object> m = new LinkedHashMap<>();
 		m.put("version", AdminApp.version());
 		m.put("startedAt", app.getStartedAt());
 		m.put("now", System.currentTimeMillis());
-		m.put("home", app.getHome().getDirectory().getPath());
-		m.put("settingsDirectory", app.getSettings().getDirectory().getPath());
+		// (the canonical path has / on every platform, where getPath is the native one: \ on Windows)
+		m.put("home", canonical(app.getHome().getDirectory()));
+		m.put("settingsDirectory", canonical(app.getSettings().getDirectory()));
 		m.put("mailRoot", app.getSettings().getEffective(SettingsCatalog.ROOT));
 		m.put("hostname", app.getSettings().getEffective(SettingsCatalog.QUEUE_HOSTNAME));
 		m.put("assets", assets(app.getSettings()));
