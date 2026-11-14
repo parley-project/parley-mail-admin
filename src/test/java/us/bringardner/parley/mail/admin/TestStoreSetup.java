@@ -43,6 +43,7 @@ public class TestStoreSetup {
 		RecordingFileSourceFactory.last = null;
 	}
 
+	// (a path written into a settings file is a canonical one, with /: in a properties file a \ is an escape)
 	private FileSource file(String name, String text) throws IOException {
 		return TestFiles.write(dir.getChild(name), text);
 	}
@@ -89,7 +90,7 @@ public class TestStoreSetup {
 	public void itChangesNothingThatIsThere() throws Exception {
 		FileSource[] t = templates();
 		FileSource store = dir.getChild("mail");
-		FileSource settings = file("parley-mail.properties", "parley.mail.root=" + store.getPath() + "\nparley.mail.fileSource=fileproxy\n");
+		FileSource settings = file("parley-mail.properties", "parley.mail.root=" + store.getCanonicalPath() + "\nparley.mail.fileSource=fileproxy\n");
 		run("--settings", settings.getPath(), "--store-template", t[0].getPath(), "--queue-template", t[1].getPath(),
 				"--fill", "hostname=a.example.test", "--fill", "domains=example.test");
 		TestFiles.write(store.getChild(".parley-store.properties"), "sharing=host\n");
@@ -107,7 +108,7 @@ public class TestStoreSetup {
 	public void aQueueElsewhereUnderTheRoot() throws Exception {
 		FileSource[] t = templates();
 		FileSource store = dir.getChild("mail");
-		FileSource settings = file("parley-mail.properties", "parley.mail.root=" + store.getPath() + "\nparley.mail.fileSource=fileproxy\n");
+		FileSource settings = file("parley-mail.properties", "parley.mail.root=" + store.getCanonicalPath() + "\nparley.mail.fileSource=fileproxy\n");
 		run("--settings", settings.getPath(), "--queue", "queues/relay", "--queue-template", t[1].getPath());
 		assertTrue(store.getChild("queues").getChild("relay").getChild("queue.properties").isFile());
 		assertThrows(IOException.class, () -> run("--settings", settings.getPath(), "--queue", "../out", "--queue-template", t[1].getPath()));
