@@ -50,8 +50,9 @@ public class TestDnsProvider {
 		zones.mkdir();
 		TestFiles.write(zones.getChild("primary.test.txt"), TestZones.primary(10, ""));
 		TestFiles.write(zones.getChild("child.test.txt"), TestZones.child(5, ""));
-		TestFiles.write(dir.getChild("parley-dns.properties"), "parley.dns.dnsDir="+dir.getAbsolutePath()+"\n"
-				+"parley.dns.zoneDir="+zones.getAbsolutePath()+"\n"
+		// (canonical paths, with /: in a properties file a \ is an escape)
+		TestFiles.write(dir.getChild("parley-dns.properties"), "parley.dns.dnsDir="+dir.getCanonicalPath()+"\n"
+				+"parley.dns.zoneDir="+zones.getCanonicalPath()+"\n"
 				+"parley.dns.masterZone=primary.test\n"
 				+"parley.dns.bindAddress=127.0.0.1\n"
 				+"parley.dns.port="+freePort()+"\n"
