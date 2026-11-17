@@ -1,8 +1,10 @@
 package us.bringardner.parley.mail.admin.server;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import us.bringardner.parley.ftp.server.FtpRequestProcessor;
 import us.bringardner.parley.iam.AuthenticationResult;
@@ -214,4 +216,10 @@ class SuiteUserRegistry implements UserRegistry {
 		}
 		return true;
 	}
+	
+	  @Override
+	    public Set<ParleyPrincipal> findByAttribute(String name, Object value) throws UserRegistryUnavailableException {
+		  	Set<ParleyPrincipal> found = users.findByAttribute(name, value);
+	        return found;
+	    }
 }
