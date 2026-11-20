@@ -166,7 +166,7 @@ public final class LogBuffer {
 			dir.mkdirs();
 		}
 		out = file.getOutputStream(true);
-		fileSize = file.exists() ? file.length() : 0;
+		fileSize = file.exists() ? file.contentLength() : 0;
 	}
 
 	private synchronized void closeFile() {

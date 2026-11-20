@@ -76,7 +76,7 @@ public final class PropertiesFile {
 	/** The file's size (0 if it doesn't exist or can't be asked). */
 	public long length() {
 		try {
-			return source.exists() ? source.length() : 0;
+			return source.exists() ? source.contentLength() : 0;
 		} catch (IOException e) {
 			return 0;
 		}
