@@ -67,7 +67,7 @@ public final class PropertiesFile {
 	/** When the file last changed (0 if it doesn't exist or can't be asked). */
 	public long lastModified() {
 		try {
-			return source.exists() ? source.lastModified() : 0;
+			return source.exists() ? source.contentLastModified() : 0;
 		} catch (IOException e) {
 			return 0;
 		}

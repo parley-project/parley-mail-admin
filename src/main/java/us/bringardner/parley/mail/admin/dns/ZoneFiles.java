@@ -234,7 +234,7 @@ final class ZoneFiles {
 	}
 
 	private static String stamp(FileSource f) throws IOException {
-		return f.exists() ? f.lastModified() + "/" + f.length() : "-";
+		return f.exists() ? f.contentLastModified() + "/" + f.contentLength() : "-";
 	}
 
 	/**
