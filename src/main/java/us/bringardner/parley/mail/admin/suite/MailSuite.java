@@ -1260,7 +1260,7 @@ public final class MailSuite extends BaseObject implements AutoCloseable {
 		}
 		try {
 			FileSource aliases = aliasesFile(id);
-			return aliases == null || !aliases.exists() ? t : Math.max(t, aliases.lastModified());
+			return aliases == null || !aliases.exists() ? t : Math.max(t, aliases.contentLastModified());
 		} catch (IOException e) {
 			return t;
 		}
