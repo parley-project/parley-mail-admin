@@ -320,7 +320,8 @@ final class ZoneFiles {
 				FileSource previous = dir.getChild(f.getName() + ".previous");
 				FileRewrite.write(previous, bytes(f));
 				FileRewrite.copyAttributes(f, previous);
-				previous.setLastModified(f.lastModified());
+				// the file's time, the content's: the same time with the link or without it
+				previous.setLastModified(f.contentLastModified());
 			}
 			moved = tmp.renameTo(f, true);
 			if (!moved) {
@@ -328,7 +329,12 @@ final class ZoneFiles {
 			}
 			if (stamp(f).equals(stamp)) {
 				// the DNS server sees a change by the file's time and length: make it see this one
-				f.setLastModified(f.lastModified() + 1000);
+				// (the file's own time, not a link's: the server reads the time of what the path leads to)
+				FileSource content = f;
+				for (int hops = 0; hops < 40 && content.getLinkedTo() != null; hops++) {
+					content = content.getLinkedTo();
+				}
+				content.setLastModified(content.lastModified() + 1000);
 			}
 		} finally {
 			if (!moved && tmp.exists()) {
