@@ -23,6 +23,7 @@
 	<properties>
 		<parley.moduleName>us.bringardner.parley.mail.admin</parley.moduleName>
 		<jackson.version>2.18.2</jackson.version>
+		<mysql.version>8.4.0</mysql.version>
 		<junit.version>5.11.4</junit.version>
 		<!-- Tomcat 10.1: Jakarta Servlet 6.0, runs on Java 11 like the rest of Parley -->
 		<tomcat.version>10.1.34</tomcat.version>
@@ -182,4 +183,25 @@
 			</plugin>
 		</plugins>
 	</build>
+	<!-- A mail store in a database: mvn -Pmysql-store package puts the JDBC file source and the MySQL driver
+	     in the war. Tomcat has no JDBC drivers of its own, and the web application's class loader is
+	     where the file source looks for one (parley-files-jdbc JdbcDrivers). Without this profile the war
+	     can't open a store that parley.mail.fileSource=jdbc names ("There is no file system jdbc"). -->
+	<profiles>
+		<profile>
+			<id>mysql-store</id>
+			<dependencies>
+				<dependency>
+					<groupId>us.bringardner.parley</groupId>
+					<artifactId>parley-files-jdbc</artifactId>
+					<version>${project.version}</version>
+				</dependency>
+				<dependency>
+					<groupId>com.mysql</groupId>
+					<artifactId>mysql-connector-j</artifactId>
+					<version>${mysql.version}</version>
+				</dependency>
+			</dependencies>
+		</profile>
+	</profiles>
 </project>

@@ -98,6 +98,27 @@ user or group Tomcat (or a server run as a service) runs as: files the pages rew
 permissions and group, and new ones (DKIM keys too) get the process's usual permissions, so give
 the folders the group and permissions you want the servers to share.
 
+### A mail store in a database
+
+The war has no JDBC file source or driver by default. To run it on a store the servers keep in MySQL
+(`parley.mail.fileSource=jdbc`), build it with the `mysql-store` profile, which adds `parley-files-jdbc` and
+the MySQL driver to `WEB-INF/lib`:
+
+```
+mvn -Pmysql-store package
+```
+
+Tomcat's own settings are not in the war: the web application reads the database password from a file of
+its own, owned by the user Tomcat runs as with mode 600 (a secret file named by `@file:` must be readable by
+that user alone), named in `JAVA_OPTS` (for example in `/etc/default/tomcat10`):
+
+```
+-Dparley.mail.fileSource.password=@file:/etc/parley/mail-db-admin.password
+```
+
+Name the settings' paths without a `filesource:` URL (for example `/mailstore/.smtp-queue/aliases.txt`):
+`filesource:` URLs are not available inside the web application.
+
 ### The servers in this application (the default)
 
 With `parley.mail.admin.jmxUrl` empty, a `ServerLauncher` (the server side's) in the web application runs

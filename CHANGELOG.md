@@ -2,6 +2,11 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Added (2026-11-22: war for a mail store in MySQL)
+
+- **`mysql-store` build profile**: `mvn -Pmysql-store package` puts parley-files-jdbc and the MySQL driver in the
+  war, so the pages can open a store kept in MySQL. The README says how Tomcat is set up for it.
+
 ### Changed (2026-11-10: logging through System.Logger, To-Do 19.5)
 
 - **Logs page through java.util.logging** (To-Do 19.5): Parley now logs through the JDK's
