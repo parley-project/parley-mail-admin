@@ -151,6 +151,8 @@ public class ServerLauncherTest {
 		}
 		System.clearProperty("parley.fake.value");
 		System.clearProperty("parley.fake.family");
+		// (a launcher publishes the settings it reads as system properties)
+		System.clearProperty("parley.servers");
 	}
 
 	private void write(String name, String text) throws IOException {
