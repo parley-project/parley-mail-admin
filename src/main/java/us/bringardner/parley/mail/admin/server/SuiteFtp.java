@@ -68,6 +68,15 @@ final class SuiteFtp {
 		return ret;
 	}
 
+	/** Makes a folder in the mail store's file system when it is missing */
+	static FileSource makeFolder(FileSource mailRoot, String path) throws IOException {
+		FileSource ret = mailRoot.getFileSourceFactory().createFileSource(path);
+		if (!ret.exists() && !ret.mkdirs()) {
+			throw new IOException("Can't make the FTP folder " + ret.getAbsolutePath());
+		}
+		return ret;
+	}
+
 	static ServerMain.Service create(ServerContext context, Properties c, String prefix, boolean secure, int port) throws Exception {
 		String root = required(c, AbstractMailServer.MAIL_ROOT_PROP);
 		// like the mail servers: without a users file no one can log in
@@ -84,6 +93,11 @@ final class SuiteFtp {
 		FileSource folder;
 		if (registry.hasRoots()) {
 			folder = rootsFolder(mailRoot, registry.rootsBase());
+			// the primary domain's own folder, which its administrators and the other domains' administrators see
+			String primary = registry.primaryDomain() == null ? null : registry.domainFolder(registry.primaryDomain());
+			if (primary != null) {
+				makeFolder(mailRoot, primary);
+			}
 		} else {
 			String folderName = c.getProperty(prefix + "." + FtpProviders.ROOT, FtpProviders.DEFAULT_ROOT).trim();
 			folder = MaildropRoot.child(mailRoot, folderName.isEmpty() ? FtpProviders.DEFAULT_ROOT : folderName);

@@ -37,4 +37,16 @@ public class SuiteFtpSharedTest {
 		// a second start finds it
 		assertTrue(SuiteFtp.rootsFolder(mailRoot, "/ftp").isDirectory());
 	}
+
+	/** A folder that is missing is made, in the mail store's file system, with the folders above it */
+	@Test
+	public void makesAMissingFolder() throws Exception {
+		MemoryFileSourceFactory store = new MemoryFileSourceFactory();
+		FileSource mailRoot = store.createFileSource("/mail");
+		mailRoot.mkdirs();
+		FileSource made = SuiteFtp.makeFolder(mailRoot, "/ftp/a.test");
+		assertSame(store, made.getFileSourceFactory());
+		assertTrue(made.isDirectory());
+		assertTrue(SuiteFtp.makeFolder(mailRoot, "/ftp/a.test").isDirectory());
+	}
 }

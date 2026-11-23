@@ -104,6 +104,19 @@ final class FtpUserRegistry extends SuiteUserRegistry {
 		return primaryRoot != null;
 	}
 
+	/**
+	 * The folder of a domain's users: domainRoot with {domain} filled in, in the mail store's file system.
+	 *
+	 * @param domain a local domain
+	 * @return the folder, or null if the roots aren't set or domainRoot has a {name} (a folder for each user, not the domain)
+	 */
+	String domainFolder(String domain) {
+		if (domainRoot == null || domainRoot.contains("{name}")) {
+			return null;
+		}
+		return domainRoot.replace("{domain}", domain);
+	}
+
 	/** @return the primary domain, or null if none is set */
 	String primaryDomain() {
 		return primaryDomain;

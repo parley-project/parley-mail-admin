@@ -193,6 +193,7 @@ public class FtpUserRegistryTest {
 		assertTrue(r.hasRoots());
 		assertEquals("/data/home", r.rootsBase());
 		assertEquals("a.test", r.primaryDomain());
+		assertEquals("/data/home/a.test", r.domainFolder(r.primaryDomain()), "the primary domain's own folder");
 
 		AuthenticationResult tony = login(r, "tony@a.test", "secret1");
 		assertEquals(Status.AUTHENTICATED, tony.getStatus(), "ADMIN in the file is the admin permission (names ignore case)");

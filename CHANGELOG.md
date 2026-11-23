@@ -7,7 +7,7 @@
 - **The FTP roots are in the file system the mail store is on**: `primaryRoot` and `domainRoot` are paths in
   that file system (a database, say, as `parley.mail.fileSource` names it), not folders on the server's own
   disk, so FTP and email share one provider. The FTP server makes its own root (`/ftp`) when it starts, and a
-  user's root when they log in. `loginPermission`, `primaryRoot` and `domainRoot` are on the FTP page of Settings.
+  user's root when they log in. The primary domain's own folder (`/ftp/<primary domain>`) is made when the FTP server starts. `loginPermission`, `primaryRoot` and `domainRoot` are on the FTP page of Settings.
 
 ### Fixed (2026-11-22: a store that can't be reached is said, not shown empty)
 
