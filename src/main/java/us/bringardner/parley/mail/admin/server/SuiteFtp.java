@@ -24,13 +24,21 @@ final class SuiteFtp {
 	private SuiteFtp() {
 	}
 
+	/**
+	 * The prefixes a server also reads the settings the FTP servers share from (the external address and the
+	 * passive ports): the FTPS server takes the FTP server's when it has none of its own.
+	 */
+	static String[] sharedWith(String prefix) {
+		return FtpProviders.FTPS_PREFIX.equals(prefix) ? new String[] { FtpProviders.FTP_PREFIX } : new String[0];
+	}
+
 	/** An FTP server of the suite: the store's sharing is read when it starts, as the mail servers read it */
 	private static final class SuiteFtpServer extends FtpServer {
 
 		private final FileSource mailRoot;
 
 		SuiteFtpServer(int port, boolean secure, String prefix, FileSource folder, FileSource mailRoot) {
-			super(port, FTP_NAME, secure, prefix, folder);
+			super(port, FTP_NAME, secure, prefix, folder, sharedWith(prefix));
 			this.mailRoot = mailRoot;
 		}
 
