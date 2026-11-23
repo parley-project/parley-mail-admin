@@ -145,7 +145,7 @@ public class FtpUserRegistryTest {
 		FtpUserRegistry r = new FtpUserRegistry(users(), new Domains("a.test", "b.test"), settings(), PREFIX);
 		assertTrue(r.supports(PasswordCredential.class, null));
 		assertFalse(r.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256), "FTP sends passwords");
-		assertFalse(r.usesServerDisk());
+		assertFalse(r.hasRoots());
 
 		AuthenticationResult tony = login(r, "tony@a.test", "secret1");
 		assertEquals(Status.AUTHENTICATED, tony.getStatus());
@@ -190,8 +190,8 @@ public class FtpUserRegistryTest {
 				PREFIX + "." + FtpUserRegistry.DOMAIN_ROOT, "/data/home/{domain}",
 				FtpUserRegistry.PRIMARY_DOMAIN, "A.test");
 		FtpUserRegistry r = new FtpUserRegistry(users(), new Domains("a.test", "b.test"), c, PREFIX);
-		assertTrue(r.usesServerDisk());
-		assertEquals("/data/home", r.serverDiskBase());
+		assertTrue(r.hasRoots());
+		assertEquals("/data/home", r.rootsBase());
 		assertEquals("a.test", r.primaryDomain());
 
 		AuthenticationResult tony = login(r, "tony@a.test", "secret1");

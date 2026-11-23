@@ -5,7 +5,6 @@ import java.util.Properties;
 
 import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.files.FileSource;
-import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.ftp.server.FtpServer;
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.mail.store.MailLocks;
@@ -54,6 +53,21 @@ final class SuiteFtp {
 		}
 	}
 
+	/**
+	 * The FTP server's own root when the users' roots are set: the folder they are all in, in the file system the
+	 * mail store is on (a database, say), made when it is missing.
+	 *
+	 * @param mailRoot the mail store's root
+	 * @param base the folder every user's root is in ({@link FtpUserRegistry#rootsBase()})
+	 */
+	static FileSource rootsFolder(FileSource mailRoot, String base) throws IOException {
+		FileSource ret = mailRoot.getFileSourceFactory().createFileSource(base);
+		if (!ret.exists() && !ret.mkdirs()) {
+			throw new IOException("Can't make the FTP server's root " + ret.getAbsolutePath());
+		}
+		return ret;
+	}
+
 	static ServerMain.Service create(ServerContext context, Properties c, String prefix, boolean secure, int port) throws Exception {
 		String root = required(c, AbstractMailServer.MAIL_ROOT_PROP);
 		// like the mail servers: without a users file no one can log in
@@ -68,9 +82,8 @@ final class SuiteFtp {
 		FtpUserRegistry registry = new FtpUserRegistry(list, domains, c, prefix);
 
 		FileSource folder;
-		if (registry.usesServerDisk()) {
-			// the users' roots are folders on this machine's disk, all in the one FtpUserRegistry names
-			folder = FileSourceFactory.getDefaultFactory().createFileSource(registry.serverDiskBase());
+		if (registry.hasRoots()) {
+			folder = rootsFolder(mailRoot, registry.rootsBase());
 		} else {
 			String folderName = c.getProperty(prefix + "." + FtpProviders.ROOT, FtpProviders.DEFAULT_ROOT).trim();
 			folder = MaildropRoot.child(mailRoot, folderName.isEmpty() ? FtpProviders.DEFAULT_ROOT : folderName);
@@ -82,7 +95,7 @@ final class SuiteFtp {
 		FtpServer server = BaseObject.makeWith(c, () -> new SuiteFtpServer(port, secure, prefix, folder, mailRoot));
 		server.setUserRegistry(registry);
 		configure(server, c, secure);
-		if (registry.usesServerDisk() && registry.primaryDomain() == null) {
+		if (registry.hasRoots() && registry.primaryDomain() == null) {
 			server.logInfo("No primary domain (" + FtpUserRegistry.PRIMARY_DOMAIN + "): every user of " + server.getName()
 					+ " gets " + prefix + "." + FtpUserRegistry.DOMAIN_ROOT);
 		}

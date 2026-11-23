@@ -2,6 +2,13 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-23: FTP roots in the mail store's file system)
+
+- **The FTP roots are in the file system the mail store is on**: `primaryRoot` and `domainRoot` are paths in
+  that file system (a database, say, as `parley.mail.fileSource` names it), not folders on the server's own
+  disk, so FTP and email share one provider. The FTP server makes its own root (`/ftp`) when it starts, and a
+  user's root when they log in. `loginPermission`, `primaryRoot` and `domainRoot` are on the FTP page of Settings.
+
 ### Fixed (2026-11-22: a store that can't be reached is said, not shown empty)
 
 - **Domains, Aliases, Queue and History say why the mail store can't be used**: when `parley.mail.root` is set
