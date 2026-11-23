@@ -55,6 +55,8 @@ public final class SettingsService extends BaseObject {
 	private PropertiesFile storeFile;
 	private PropertiesFile queueFile;
 	private String assetsFrom;
+	private static final String ROOT_NOT_SET = "The mail root isn't set";
+
 	private String assetError;
 	/** Settings a new queue file gets besides those set (the aliases file the Aliases page edits) */
 	private volatile Map<String, String> newQueueDefaults = Collections.emptyMap();
@@ -187,7 +189,7 @@ public final class SettingsService extends BaseObject {
 			assetError = null;
 			reload = true;
 			if (root == null) {
-				assetError = "The mail root isn't set (" + SettingsCatalog.ROOT + ")";
+				assetError = ROOT_NOT_SET + " (" + SettingsCatalog.ROOT + ")";
 			} else {
 				try {
 					String[] segs = queueSegments(queue);
@@ -348,6 +350,25 @@ public final class SettingsService extends BaseObject {
 	/** Why the store's and queue's files can't be found or read, or null. */
 	public synchronized String getAssetError() {
 		return assetError;
+	}
+
+	/**
+	 * Why the pages that read the mail store (domains, aliases, queue, history) can't, or null: the mail
+	 * root is set but can't be opened or read (a database that is down, a driver that is missing). The
+	 * pages say so, instead of showing what their own folder holds as if it were the store's. A mail root
+	 * that isn't set is no problem: the pages serve their own folder then. Tries again to open a root
+	 * that couldn't be opened, as the servers do.
+	 *
+	 * @since 2.0.0
+	 */
+	public synchronized String getStoreProblem() {
+		try {
+			resolveAssets(false);
+		} catch (IOException | RuntimeException e) {
+			// what could not be opened is in assetError
+		}
+		String problem = assetError;
+		return problem == null || problem.startsWith(ROOT_NOT_SET) ? null : problem;
 	}
 
 	/** Settings a queue file made here gets besides those set, unless they are set (the aliases file). */

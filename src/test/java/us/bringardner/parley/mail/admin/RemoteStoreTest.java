@@ -105,6 +105,29 @@ public class RemoteStoreTest {
 	}
 
 	@Test
+	public void theStorePagesSayWhyAStoreCantBeUsed() throws Exception {
+		// a mail root that can't be opened is a problem the pages say, without the URL's settings
+		settings("parley.mail.root=filesource:/mail?sourcetype=nosuch&password=hunter2\n");
+		SettingsService s = new SettingsService(dir(), new SettingsCatalog());
+		s.load();
+		String problem = s.getStoreProblem();
+		assertNotNull(problem);
+		assertTrue(problem.startsWith("Can't reach the mail root filesource:/mail?..."), problem);
+		assertFalse(problem.contains("hunter2"), problem);
+
+		// one that is reachable is none
+		settings("parley.mail.root=" + tempDir.resolve("mail").toString().replace('\\', '/') + "\n");
+		s.load();
+		assertNull(s.getStoreProblem());
+
+		// and so is one that isn't set: the pages serve their own folder then
+		settings("# no mail root\n");
+		s.load();
+		assertNotNull(s.getAssetError());
+		assertNull(s.getStoreProblem());
+	}
+
+	@Test
 	public void aNewConnectionOnlyWhenItsSettingsChange() throws Exception {
 		settings("parley.mail.root=/mail\nparley.mail.fileSource=recording\nparley.mail.fileSource.host=a\n");
 		SettingsService s = new SettingsService(dir(), new SettingsCatalog());

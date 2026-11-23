@@ -2,6 +2,14 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Fixed (2026-11-22: a store that can't be reached is said, not shown empty)
+
+- **Domains, Aliases, Queue and History say why the mail store can't be used**: when `parley.mail.root` is set
+  but can't be opened or read (a database that is down, a JDBC driver that is missing), these pages answer
+  with the reason (HTTP 503) instead of the empty lists of the admin folder's own defaults.
+  `SettingsService.getStoreProblem()` gives the reason. A mail root that isn't set still serves the admin
+  folder, as before.
+
 ### Added (2026-11-22: war for a mail store in MySQL)
 
 - **`mysql-store` build profile**: `mvn -Pmysql-store package` puts parley-files-jdbc and the MySQL driver in the

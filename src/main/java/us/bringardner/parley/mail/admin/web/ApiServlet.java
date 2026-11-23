@@ -1169,7 +1169,19 @@ public class ApiServlet extends HttpServlet {
 
 	// ------------------------------------------------------------------ domains, users, aliases
 
+	/**
+	 * The pages that read the mail store say why they can't when it can't be reached, in place of
+	 * showing what the admin folder holds as if it were the store's (an empty list is a lie).
+	 */
+	private void requireStore() {
+		String problem = app.getSettings().getStoreProblem();
+		if (problem != null) {
+			throw new ApiException(503, "The mail store can't be used: " + problem);
+		}
+	}
+
 	private Object domains(Router.Request q) {
+		requireStore();
 		AdminScope scope = scope(q);
 		List<Object> list = new ArrayList<>();
 		DomainService d = app.getDomains();
@@ -1280,6 +1292,7 @@ public class ApiServlet extends HttpServlet {
 	}
 
 	private Object aliases(Router.Request q) {
+		requireStore();
 		AdminScope scope = scope(q);
 		List<Object> list = new ArrayList<>();
 		for (Map.Entry<String, List<String>> e : app.getAliases().list().entrySet()) {
@@ -1384,6 +1397,7 @@ public class ApiServlet extends HttpServlet {
 	}
 
 	private Object queue(Router.Request q) {
+		requireStore();
 		AdminScope scope = scope(q);
 		Map<String, Object> m = new LinkedHashMap<>();
 		MailQueueMXBean mq = app.getSuite().getQueue();
@@ -1443,6 +1457,7 @@ public class ApiServlet extends HttpServlet {
 	 * gives one row per message, its newest event.
 	 */
 	private Object history(Router.Request q) throws IOException {
+		requireStore();
 		java.time.ZoneId zone;
 		try {
 			String tz = q.query("tz", null);
