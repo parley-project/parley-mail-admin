@@ -815,7 +815,7 @@ public class ApiServlet extends HttpServlet {
 		m.put("home", canonical(app.getHome().getDirectory()));
 		m.put("settingsDirectory", canonical(app.getSettings().getDirectory()));
 		m.put("mailRoot", app.getSettings().getEffective(SettingsCatalog.ROOT));
-		m.put("hostname", app.getSettings().getEffective(SettingsCatalog.QUEUE_HOSTNAME));
+		m.put("hostname", app.getSettings().getEffective(SettingsCatalog.SMTP_HOSTNAME));
 		m.put("assets", assets(app.getSettings()));
 		MailSuite suite = app.getSuite();
 		m.put("local", suite.isLocal());

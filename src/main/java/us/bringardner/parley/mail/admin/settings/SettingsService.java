@@ -35,7 +35,7 @@ import us.bringardner.parley.mail.store.MaildropRoot;
  * {@code .parley-store.properties} in the mail root ({@code store.NAME} here), the queue's
  * {@code queue.properties} in the relay's queue folder ({@code queue.NAME}), on the mail root's file
  * system. Setting one makes its file when there's none (the administrator's job, done here). The
- * host name ({@link SettingsCatalog#QUEUE_HOSTNAME}) is one value for the queue and every SMTP server.
+ * host name ({@link SettingsCatalog#SMTP_HOSTNAME}) is the relay's, which the submission servers share.
  */
 public final class SettingsService extends BaseObject {
 
@@ -540,12 +540,6 @@ public final class SettingsService extends BaseObject {
 			}
 			if (!errors.isEmpty()) {
 				throw new IllegalArgumentException(String.join("; ", errors));
-			}
-			// the host name is one for the queue and every SMTP server
-			if (clean.containsKey(SettingsCatalog.QUEUE_HOSTNAME)) {
-				for (String k : SettingsCatalog.SMTP_HOSTNAMES) {
-					clean.put(k, clean.get(SettingsCatalog.QUEUE_HOSTNAME));
-				}
 			}
 			Set<PropertiesFile> dirty = new LinkedHashSet<>();
 			for (Map.Entry<String, String> e : clean.entrySet()) {

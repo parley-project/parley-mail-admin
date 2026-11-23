@@ -96,9 +96,9 @@ public final class DomainService {
 		return list().contains(normalize(domain));
 	}
 
-	/** The mail servers' host name (the queue's), or null: it isn't taken from the machine's name */
+	/** The mail servers' host name (the SMTP server's own), or null: it isn't taken from the machine's name */
 	private String hostname() {
-		String h = settings.getEffective(SettingsCatalog.QUEUE_HOSTNAME);
+		String h = settings.getEffective(SettingsCatalog.SMTP_HOSTNAME);
 		return h == null || h.trim().isEmpty() ? null : h.trim();
 	}
 

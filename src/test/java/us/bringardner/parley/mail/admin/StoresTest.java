@@ -214,18 +214,16 @@ public class StoresTest {
 		assertFalse(s.getStoreFile().exists(), "not made until something is set");
 		assertNull(s.get("store.sharing"));
 
-		// setting one makes its file; the host name is the queue's and every SMTP server's
-		s.update(Map.of("store.sharing", "host", "queue.hostname", "mx.a.test", "queue.domains", "a.test,b.test"));
+		// setting one makes its file; the queue has no host name: it is the SMTP server's own
+		s.update(Map.of("store.sharing", "host", "parley.mail.smtp.hostname", "mx.a.test", "queue.domains", "a.test,b.test"));
 		assertEquals("sharing=host\n", read(store));
 		java.util.Properties q = new java.util.Properties();
 		q.load(new java.io.StringReader(read(queue)));
-		assertEquals("mx.a.test", q.getProperty("hostname"));
+		assertNull(q.getProperty("hostname"), "the queue's file is shared by every machine");
 		assertEquals("a.test,b.test", q.getProperty("domains"));
 		assertEquals("/etc/parley/aliases.txt", q.getProperty("aliases"), "a new queue names the aliases file");
 		String smtp = read(file("parley-smtp.properties"));
-		for (String k : SettingsCatalog.SMTP_HOSTNAMES) {
-			assertTrue(smtp.contains(k + "=mx.a.test"), smtp);
-		}
+		assertTrue(smtp.contains(SettingsCatalog.SMTP_HOSTNAME + "=mx.a.test"), smtp);
 		assertFalse(read(file("parley-mail.properties")).contains("hostname"));
 		assertEquals("a.test,b.test", s.get("queue.domains"));
 		assertEquals("host", s.getAll().get("store.sharing"));

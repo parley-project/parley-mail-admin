@@ -634,13 +634,11 @@ public class WebAppTest {
 		assertTrue(q.contains("dkim.keys=b.test:sel1:"), q);
 		assertTrue(q.contains("aliases="), "named when the queue's settings changed");
 
-		// one host name: the queue's and every SMTP server's; the SMTP servers need a restart, IMAP doesn't
-		JsonNode r = ok("PUT", "/settings", Map.of("changes", Map.of("queue.hostname", "mx2.a.test")));
+		// the host name is the relay's, which the submission servers share; the SMTP servers need a restart, IMAP doesn't
+		JsonNode r = ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.smtp.hostname", "mx2.a.test")));
 		assertTrue(r.get("restartNeeded").toString().contains("submission"), r.toString());
 		assertFalse(r.get("restartNeeded").toString().contains("imap"), r.toString());
-		assertTrue(TestFiles.read(home.getChild("mail").getChild(".smtp-queue").getChild("queue.properties")).contains("hostname=mx2.a.test"));
-		String smtpFile = TestFiles.read(home.getChild("parley-smtp.properties"));
-		assertTrue(smtpFile.contains("parley.mail.submissions.hostname=mx2.a.test"), smtpFile);
+		assertFalse(TestFiles.read(home.getChild("mail").getChild(".smtp-queue").getChild("queue.properties")).contains("hostname=mx2.a.test"));
 		assertEquals("mx2.a.test", ok("GET", "/status", null).get("hostname").asText());
 		ok("POST", "/services/all/restart-changed", null);
 
