@@ -96,6 +96,9 @@ public enum ServiceId {
 		if (key.startsWith(prefix + ".")) {
 			return true;
 		}
+		if (protocol == Protocol.SMTP && key.equals(SMTP.prefix + ".hostname")) {
+			return true; // the submission servers share the relay's host name
+		}
 		for (ServiceId s : values()) {
 			if (key.startsWith(s.prefix + ".")) {
 				return false; // another service's

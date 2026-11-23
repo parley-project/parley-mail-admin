@@ -71,13 +71,11 @@ public final class SettingsCatalog {
 	public static final String DEFAULT_QUEUE = ".smtp-queue";
 	public static final String STORE_SHARING = STORE_PREFIX + "sharing";
 	/**
-	 * The mail servers' name: the queue's hostname, and set with it, each SMTP server's
-	 * ({@link #SMTP_HOSTNAMES}): one field on the SMTP tab.
+	 * The mail servers' name: the SMTP server's own {@code hostname}, which the submission servers share unless
+	 * they have one of their own. It is not the queue's (the queue's settings are shared by every machine that
+	 * uses the store; the name is each machine's own).
 	 */
-	public static final String QUEUE_HOSTNAME = QUEUE_PREFIX + "hostname";
-	/** Each SMTP server's hostname, which {@link #QUEUE_HOSTNAME} sets too */
-	public static final List<String> SMTP_HOSTNAMES = Collections.unmodifiableList(Arrays.asList(
-			ServiceId.SMTP.prefix + ".hostname", ServiceId.SUBMISSION.prefix + ".hostname", ServiceId.SUBMISSIONS.prefix + ".hostname"));
+	public static final String SMTP_HOSTNAME = ServiceId.SMTP.prefix + ".hostname";
 	public static final String QUEUE_DOMAINS = QUEUE_PREFIX + "domains";
 	public static final String QUEUE_ALIASES = QUEUE_PREFIX + "aliases";
 	public static final String QUEUE_DKIM_KEYS = QUEUE_PREFIX + "dkim.keys";
@@ -146,9 +144,8 @@ public final class SettingsCatalog {
 		add(g, "parley.core.forceTlsVersion", "Force TLS version", TEXT, null, "Allow only this TLS version (e.g. TLSv1.3). Empty: the JVM's defaults.");
 
 		g = group("smtp", "SMTP", "Each SMTP server's own settings: choose the server. The host name is one for all of them.", SMTP_SERVERS);
-		add(g, QUEUE_HOSTNAME, "Host name", TEXT, null,
-				"Required. The name in the greeting, EHLO, Received fields and notifications: every SMTP server's (" + String.join(", ", SMTP_HOSTNAMES)
-						+ ") and the queue's. It must match the PTR record of the server's public address and the MX records.");
+		add(g, SMTP_HOSTNAME, "Host name", TEXT, null,
+				"Required. The name in the greeting, EHLO, Received fields, bounces and reports: this machine's own, for the relay and (unless one is set for it) the submission servers. It must match the PTR record of the server's public address and the MX records.");
 		perServer(g, "relayNetworks", "Relay networks", LIST, null,
 				"Client networks that may send to other domains without logging in, e.g. 127.0.0.1/32,10.0.0.0/8.");
 		perServer(g, "requireTls", "Require TLS", BOOLEAN, "false", "Offer AUTH (and on the submission ports, accept MAIL) only after STARTTLS.");

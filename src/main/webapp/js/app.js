@@ -1640,12 +1640,11 @@
 					input.addEventListener('input', () => set(input.value.trim() === '' ? null : input.value));
 			}
 			const r = h('div.setting', { class: (has ? 'dirty' : '') + (s.showWhenKey || s.hideWhenKey ? ' sub' : '') },
-				h('div.name', h('b', s.label || s.key), h('code', s.key === 'queue.hostname' ? 'hostname' : s.name || s.key)),
+				h('div.name', h('b', s.label || s.key), h('code', s.name || s.key)),
 				h('div.edit', input,
 					s.description ? h('div.hint', s.description) : null,
 					s.effective !== undefined ? h('div.hint.warn-text', 'Set outside the files (-D) to: ' + s.effective) : null,
-					s.key === 'queue.hostname' ? h('div.hint', 'In ' + (s.file || 'the queue\'s queue.properties') + ', and parley-smtp.properties for each SMTP server') :
-						s.file && s.file !== 'parley-mail.properties' && !inAsset ? h('div.hint', 'In ' + s.file) : null,
+					s.file && s.file !== 'parley-mail.properties' && !inAsset ? h('div.hint', 'In ' + s.file) : null,
 					s.services && s.services.join(',') !== common ? h('div.hint', restartText(s.services.join(','))) : null,
 					!s.label ? h('div', h('button.small.danger', { onclick: () => { changes.set(s.key, null); r.classList.add('dirty'); set(null); } }, 'Remove')) : null));
 			return r;
