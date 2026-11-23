@@ -22,9 +22,12 @@ parley.mail.users=@HOME@/users.txt
 
 # ---------------------------------------------------------------- services and ports
 
-# The services that run (the Dashboard's Turn on and Turn off change this list). The implicit TLS
-# ones (submissions, imaps, pop3s, ftps) need a key store: until there is one they are skipped.
-parley.servers=smtp,submission,submissions,imap,imaps,pop3,pop3s,ftp,ftps
+# The services that run (the Dashboard's Turn on and Turn off change this list). A new system runs none:
+# none can work before the first administrator is made (their domain is the primary domain), and the
+# administrator turns each one on when its settings are right. The services are, in order: smtp, submission,
+# submissions, imap, imaps, pop3, pop3s, ftp, ftps. The implicit TLS ones (submissions, imaps, pop3s, ftps)
+# need a key store: until there is one they are skipped.
+parley.servers=
 
 parley.mail.smtp.port=2525
 parley.mail.submission.port=2587

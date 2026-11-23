@@ -2,6 +2,15 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-23: a new system runs no server)
+
+- **A new system turns no service on**: the settings template has `parley.servers=` empty, and the launcher
+  (`LauncherMain`) waits while the list in its settings file is empty (JMX up), reading the list again when the
+  administrator reloads it, instead of exiting with "No servers to run" (a service manager would restart it in a
+  loop). Nothing can work before the first administrator is made (their domain is the primary domain); they turn
+  each service on from the Dashboard. A settings file that exists is never replaced, so upgrades keep the services
+  that are on.
+
 ### Changed (2026-11-23: FTP roots in the mail store's file system)
 
 - **The FTP roots are in the file system the mail store is on**: `primaryRoot` and `domainRoot` are paths in

@@ -176,6 +176,20 @@ public class ServerLauncherTest {
 		assertTrue(e.getMessage().contains("parley.servers"), e.getMessage());
 	}
 
+	/** A new system: parley.servers is empty in the settings file; a server turned on later is listed by a reload */
+	@Test
+	public void emptyListInTheFileWaitsForAServerToBeTurnedOn() throws Exception {
+		write(LauncherMain.LAUNCHER_FILE, "parley.servers=\n");
+		launcher = LauncherMain.launcher("x", new String[0], dir());
+		launcher.init();
+		assertEquals(0, launcher.getServers().length);
+		assertTrue(!launcher.isAnyRunning());
+		write(LauncherMain.LAUNCHER_FILE, "parley.servers=fake\n");
+		launcher.reloadSettings();
+		assertEquals(Arrays.asList("fake"), Arrays.asList(launcher.getServers()));
+		assertTrue(!launcher.isAnyRunning(), "a reload lists it; it isn't started");
+	}
+
 	@Test
 	public void serversFromLauncherFile() throws Exception {
 		write(LauncherMain.LAUNCHER_FILE, "parley.servers=fake\n");
@@ -352,6 +366,21 @@ public class ServerLauncherTest {
 			assertTrue(p.isAlive(), "the process lives while the server runs");
 			p.destroy(); // SIGTERM
 			assertTrue(p.waitFor(20, TimeUnit.SECONDS), "SIGTERM stops the server and the process");
+		} finally {
+			p.destroyForcibly();
+		}
+	}
+
+	@Test
+	public void processWaitsWhenNoServerIsTurnedOn() throws Exception {
+		org.junit.jupiter.api.Assumptions.assumeTrue(!FileSourceFactory.isWindows(), "SIGTERM: not on Windows");
+		write(LauncherMain.LAUNCHER_FILE, "parley.servers=\n");
+		Process p = process();
+		try {
+			Thread.sleep(3000);
+			assertTrue(p.isAlive(), "a new system waits, so a service manager doesn't restart it in a loop");
+			p.destroy(); // SIGTERM
+			assertTrue(p.waitFor(20, TimeUnit.SECONDS), "SIGTERM ends it");
 		} finally {
 			p.destroyForcibly();
 		}
