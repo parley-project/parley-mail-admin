@@ -276,9 +276,12 @@ public final class SettingsCatalog {
 		perServer(g, "utf8Downgrade", "UTF-8 for old clients", CHOICE, "surrogate",
 				"What a client that didn't send UTF8 gets for a message with UTF-8 headers: the RFC 6858 surrogate, or reject.", "surrogate", "reject");
 
-		g = group("ftp", "FTP", "Each FTP server's own settings: choose the server. FTP uses the mail suite's users (log in as name@domain), local domains and store: each user's files are in the store, in the folder <root>/<domain>/<name>.", ServiceId.FTP, ServiceId.FTPS);
+		g = group("ftp", "FTP", "Each FTP server's own settings: choose the server. FTP uses the mail suite's users (log in as name@domain), local domains and store: each user's files are in the store, in the folder <root>/<domain>/<name>, or in the roots below.", ServiceId.FTP, ServiceId.FTPS);
 		perServer(g, "requireTls", "Require TLS", BOOLEAN, "true", "Refuse USER and PASS until AUTH TLS (or on implicit TLS): the mail passwords never cross the network in the clear. Needs a key store.");
 		perServer(g, "root", "Folder in the store", TEXT, ".ftp", "The folder under the mail root that holds the users' folders. Hidden by default, so it is no maildrop.");
+		perServer(g, "loginPermission", "Permission to log in", TEXT, "every mail user of a local domain", "Only users who have this permission may log in, for example admin.");
+		perServer(g, "primaryRoot", "Primary domain's root", TEXT, "the user's folder in the store", "The root of the primary domain's users, a path in the mail store's file system (the one email uses), for example /ftp. Set it with the other domains' root; a root that is missing is made when its user logs in.");
+		perServer(g, "domainRoot", "Other domains' root", TEXT, "the user's folder in the store", "The root of the other domains' users, {domain} and {name} filled in, for example /ftp/{domain}. Set it with the primary domain's root.");
 		perServer(g, "externalAddress", "External address", TEXT, "the address the client connected to", "The address passive replies name, for a server behind address translation (a cloud host's public address).");
 		perServer(g, "passiveMinPort", "Lowest passive port", PORT, "10333", "Data connections use ports from this one up. The same for every FTP server.");
 		perServer(g, "passiveMaxPort", "Highest passive port", PORT, "65333", "Data connections use ports up to this one. Open this range in the firewall.");

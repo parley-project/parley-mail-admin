@@ -22,15 +22,17 @@ import us.bringardner.parley.net.server.IDomainList;
  * domain. A registry that can't answer the check is a temporary failure (FTP's 421), never a
  * refusal.</li>
  * <li>{@code primaryRoot}: the root of the primary domain's users ({@code parley.mail.admin.primaryDomain}),
- * a folder on the server's own disk (/data/home, say).</li>
- * <li>{@code domainRoot}: the root of the other domains' users, a folder on the server's own disk in
- * which {@code {domain}} is the user's domain and {@code {name}} their name (/data/home/{domain}, say).</li>
+ * an absolute path in the mail store's file system (/ftp, say).</li>
+ * <li>{@code domainRoot}: the root of the other domains' users, an absolute path in the mail store's file
+ * system in which {@code {domain}} is the user's domain and {@code {name}} their name (/ftp/{domain}, say).</li>
  * </ul>
  * {@code primaryRoot} and {@code domainRoot} go together: with neither, each user's root is their
- * folder in the store ({@code <root>/<domain>/<name>}, as before); with both, the roots are on the
- * server's disk, and the FTP server's own root is the deepest folder they have in common (/data/home
- * for the examples), where it keeps its lock folder. A root that doesn't exist is made when its user
- * logs in, so the server's account needs to be able to write there. Users can't leave their root.
+ * folder in the store ({@code <root>/<domain>/<name>}, as before); with both, the roots are in the file
+ * system the mail store is on ({@code parley.mail.fileSource}: a database, say, so FTP and email share one),
+ * and the FTP server's own root is the deepest folder they have in common (/ftp for the examples),
+ * where it keeps its lock folder. A root that doesn't exist is made when its user logs in (and the
+ * server's own root when the server starts), so the server's account needs to be able to write there.
+ * Users can't leave their root.
  * <p>
  * Before 2.0.0 this was {@code FtpAcl}, a parley-net access control list; the settings are unchanged.
  *
@@ -40,9 +42,9 @@ final class FtpUserRegistry extends SuiteUserRegistry {
 
 	/** The setting (after the server's prefix): the permission a user needs to log in */
 	static final String LOGIN_PERMISSION = "loginPermission";
-	/** The setting (after the server's prefix): the primary domain's users' root on the server's disk */
+	/** The setting (after the server's prefix): the primary domain's users' root in the mail store's file system */
 	static final String PRIMARY_ROOT = "primaryRoot";
-	/** The setting (after the server's prefix): the other domains' users' root on the server's disk */
+	/** The setting (after the server's prefix): the other domains' users' root in the mail store's file system */
 	static final String DOMAIN_ROOT = "domainRoot";
 	/** The suite's primary domain (parley-mail-admin's setting, in parley-mail.properties) */
 	static final String PRIMARY_DOMAIN = "parley.mail.admin.primaryDomain";
@@ -92,14 +94,27 @@ final class FtpUserRegistry extends SuiteUserRegistry {
 		return ret.length() == 0 ? "/" : ret.toString();
 	}
 
-	/** @return the folder on the server's disk every user's root is in (the FTP server's root), or null in the store */
-	String serverDiskBase() {
+	/** @return the folder in the mail store's file system every user's root is in (the FTP server's root), or null in the store's FTP folder */
+	String rootsBase() {
 		return base;
 	}
 
-	/** @return true if the roots are on the server's disk (primaryRoot and domainRoot are set) */
-	boolean usesServerDisk() {
+	/** @return true if the roots are set (primaryRoot and domainRoot), in the mail store's file system */
+	boolean hasRoots() {
 		return primaryRoot != null;
+	}
+
+	/**
+	 * The folder of a domain's users: domainRoot with {domain} filled in, in the mail store's file system.
+	 *
+	 * @param domain a local domain
+	 * @return the folder, or null if the roots aren't set or domainRoot has a {name} (a folder for each user, not the domain)
+	 */
+	String domainFolder(String domain) {
+		if (domainRoot == null || domainRoot.contains("{name}")) {
+			return null;
+		}
+		return domainRoot.replace("{domain}", domain);
 	}
 
 	/** @return the primary domain, or null if none is set */
@@ -118,7 +133,7 @@ final class FtpUserRegistry extends SuiteUserRegistry {
 
 	@Override
 	String root(String domain, String name) {
-		if (!usesServerDisk()) {
+		if (!hasRoots()) {
 			return super.root(domain, name);
 		}
 		String template = domain.equals(primaryDomain) ? primaryRoot : domainRoot;

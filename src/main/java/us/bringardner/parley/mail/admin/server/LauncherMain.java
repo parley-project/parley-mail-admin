@@ -14,7 +14,9 @@ import us.bringardner.parley.net.server.ServerMain;
  * ({@link ServerLauncher}). The settings folder is parley-net's {@link ServerMain#confDir()}.
  * <p>
  * Each server stands alone: one that can't start, or stops by itself, is FAILED with its error and
- * the others keep running. The process exits only when no server is running.
+ * the others keep running. The process exits only when no server is running, except that a system
+ * where no server is turned on yet ({@code parley.servers} is empty in the settings file) waits for
+ * an administrator to turn servers on.
  *
  * @since 2.0.0 (parley-net's ServerMain.main and launch until they moved here)
  */
@@ -96,7 +98,11 @@ public final class LauncherMain {
 				System.out.println(s.getDescription() + " (" + id + ") " + state + (why == null ? "" : ": " + why));
 			}
 		}
-		if (!any) {
+		if (launcher.getServers().length == 0) {
+			// nothing is turned on yet (parley.servers is empty): JMX is up, and the admin turns servers on
+			System.out.println(processName + ": no server is turned on (" + ServerLauncher.SERVERS_PROPERTY
+					+ " is empty); waiting for an administrator to turn servers on");
+		} else if (!any) {
 			launcher.close();
 			failed(processName, new IOException("No server is running: nothing to run"));
 			return;
@@ -136,7 +142,9 @@ public final class LauncherMain {
 				}
 			}
 			list.addAll(ids(servers));
-			if (list.isEmpty()) {
+			// an empty list in a settings file is a system nobody has turned servers on in yet: the launcher waits,
+			// and reads the list again when the admin reloads it. With no file there is nothing to read again.
+			if (list.isEmpty() && listFile == null) {
 				throw new IOException("No servers to run: set " + ServerLauncher.SERVERS_PROPERTY + " (one or more of "
 						+ ServerLauncher.providers().keySet() + ")");
 			}

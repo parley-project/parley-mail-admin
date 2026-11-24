@@ -33,7 +33,7 @@ It gives you pages to:
 
 | Page | What it does |
 |---|---|
-| Dashboard | Where the servers run. Each service (SMTP, Submission, Submission over TLS, IMAP, IMAP over TLS, POP3, POP3 over TLS): state, port, TLS, uptime, open connections (with who is logged in); start, stop, restart; turn it on or off (it is added to or taken out of `parley.servers`, the list of services that run, and started or stopped); start or stop all. Recent warnings and errors. |
+| Dashboard | Where the servers run. Each service (SMTP, Submission, Submission over TLS, IMAP, IMAP over TLS, POP3, POP3 over TLS): state, port, TLS, uptime, open connections (with who is logged in); start, stop, restart; turn it on or off (it is added to or taken out of `parley.servers`, the list of services that run, and started or stopped); start or stop all. A new system runs no service (`parley.servers` is empty): none can work before the first administrator is made, whose domain becomes the primary domain, and the administrator turns each service on. The `parley-mail` launcher waits while the list is empty, so a service manager doesn't restart it in a loop. Existing settings files are never replaced, so an upgrade keeps what is turned on. Recent warnings and errors. |
 | Domains | The local domains (the suite serves several): add and remove them, see each one's users and aliases, make its DKIM key, and get the DNS records to publish (MX, SPF, DKIM, DMARC). |
 | Users | Add, edit and delete users, per domain or for every domain: password, permissions (READ, WRITE, ADMIN), maildrop, groups, and how much mail they keep. The servers read the users file again themselves: those in this application at once, services within `parley.net.acl.reloadInterval` (15s). A user's **Mailboxes** button shows who may use each of the user's mailboxes over IMAP and changes it (see [Mailbox ACLs](#mailbox-acls)). |
 | Aliases | Aliases per domain or for every domain. |
@@ -319,17 +319,17 @@ server's prefix (`parley.mail.ftp` or `parley.mail.ftps`):
 | Setting | What |
 |---|---|
 | `loginPermission` | Only users the registry gives this permission may log in (`admin`, say). Not set: every mail user of a local domain. |
-| `primaryRoot` | The root of the primary domain's users on the server's own disk (`/data/home`, say). |
-| `domainRoot` | The root of the other domains' users, `{domain}` and `{name}` filled in (`/data/home/{domain}`, say). |
+| `primaryRoot` | The root of the primary domain's users, a path in the mail store's file system (`/ftp`, say). With the store in a database, FTP uses that database too. |
+| `domainRoot` | The root of the other domains' users, `{domain}` and `{name}` filled in (`/ftp/{domain}`, say). |
 
 With neither root, each user's root is their folder in the store's FTP folder (`<root>/<domain>/<name>`);
 `primaryRoot` and `domainRoot` go together. For example, a server where only administrators log in, the
-primary domain's with `/data/home` and the others with `/data/home/<domain>` (made when they first log in):
+primary domain's with `/ftp` and the others with `/ftp/<domain>` (made when they first log in; the server makes `/ftp` when it starts):
 
 ```
 parley.mail.ftp.loginPermission=admin
-parley.mail.ftp.primaryRoot=/data/home
-parley.mail.ftp.domainRoot=/data/home/{domain}
+parley.mail.ftp.primaryRoot=/ftp
+parley.mail.ftp.domainRoot=/ftp/{domain}
 ```
 
 A registry that can't answer (the domains or the login permission can't be checked) gets FTP's `421`, try
