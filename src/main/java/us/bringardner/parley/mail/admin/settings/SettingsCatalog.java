@@ -143,6 +143,13 @@ public final class SettingsCatalog {
 		add(g, TLS_KEY_STORE_TYPE, "Key store type", CHOICE, "PKCS12", "The key store's format.", "PKCS12", "JKS");
 		add(g, "parley.core.forceTlsVersion", "Force TLS version", TEXT, null, "Allow only this TLS version (e.g. TLSv1.3). Empty: the JVM's defaults.");
 
+		g = group("logging", "Logging", "What every server logs and where. Each server reads these from the settings files, so a server's own file can set its own level and log file; the level is also set at run time with -Dparley.log.level.");
+		add(g, "parley.log.level", "Level", CHOICE, "ERROR", "How much is logged. A logger's own level is parley.log.level.NAME (its name without us.bringardner.parley.), the nearest name wins.", "NONE", "ERROR", "WARN", "INFO", "DEBUG");
+		add(g, "parley.log.file", "Log file", PATH, "System.out", "System.out, System.err or a file name. A file is written in append mode and shared by every server that names it.");
+		add(g, "parley.log.fileMaxSize", "Log file size", TEXT, "no rotation", "Rotate the log file at this size (e.g. 10M, 512K).");
+		add(g, "parley.log.fileCount", "Old log files kept", NUMBER, "5", "How many rotated files are kept.");
+		add(g, "parley.log.flushInterval", "Log flush interval", DURATION, "0 (every entry)", "How often the log file is flushed (e.g. 1s).");
+
 		g = group("smtp", "SMTP", "Each SMTP server's own settings: choose the server. The host name is one for all of them.", SMTP_SERVERS);
 		add(g, SMTP_HOSTNAME, "Host name", TEXT, null,
 				"Required. The name in the greeting, EHLO, Received fields, bounces and reports: this machine's own, for the relay and (unless one is set for it) the submission servers. It must match the PTR record of the server's public address and the MX records.");
