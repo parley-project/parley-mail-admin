@@ -76,12 +76,22 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 	private volatile FileSource lastHistoryDirectory;
 
 	/**
-	 * Make the Parley loggers write to the Logs page too: {@link LogPageHandler} on the
-	 * java.util.logging loggers, which Parley's System.Loggers write to unless the JVM has another
-	 * System.LoggerFinder. Calling it again does nothing.
+	 * Make the Parley loggers write to the Logs page too: this application's logger
+	 * ({@link us.bringardner.parley.mail.admin.log.AdminLogger}) is the JVM's Parley logger unless
+	 * {@code parley.logger} names another, and {@link LogPageHandler} takes the entries of anything
+	 * that logs through java.util.logging. It must run before any Parley object logs, because the
+	 * logger class is chosen once. Calling it again does nothing.
 	 */
 	public static void installLogger() {
+		if (System.getProperty(PROPERTY_LOGGER) == null) {
+			System.setProperty(PROPERTY_LOGGER, us.bringardner.parley.mail.admin.log.AdminLogger.class.getName());
+		}
 		LogPageHandler.install();
+		Class<?> chosen = getLoggerClass();
+		if (!us.bringardner.parley.mail.admin.log.AdminLogger.class.isAssignableFrom(chosen)) {
+			System.err.println("The Logs page gets no entries: this JVM's Parley logger is already " + chosen.getName()
+					+ " (parley.logger); set parley.logger=" + us.bringardner.parley.mail.admin.log.AdminLogger.class.getName() + " before any Parley code logs");
+		}
 	}
 
 	private AdminApp(FileSource homeDir, FileSource settingsDir) throws IOException {

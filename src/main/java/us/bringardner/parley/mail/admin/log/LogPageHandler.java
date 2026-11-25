@@ -9,16 +9,15 @@ import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
 /**
- * How the Logs page gets its entries: a java.util.logging Handler on the {@code us.bringardner}
+ * The Logs page's levels by source, and a java.util.logging Handler on the {@code us.bringardner}
  * logger that gives every entry it sees to the {@link LogBuffer}.
  * <p>
- * Parley code logs through BaseObject, which writes to the JDK's System.Logger. With no other
- * System.LoggerFinder installed (the admin's war in Tomcat, where a provider in WEB-INF/lib is never
- * found) the System.Logger is java.util.logging, so the entries reach this handler. The Logs page's
- * level for a source ({@link #setSourceLevel(LogBuffer.Source, LogBuffer.Level)}) is the level of
- * that source's java.util.logging loggers; with none chosen they inherit (INFO unless the logging
- * configuration says otherwise). An object's own level (BaseObject's setLogLevel or the
- * {@code parley.log.level} settings) can hold its messages back before they get here.
+ * Parley code logs through BaseObject, whose loggers are {@link AdminLogger}s in this application:
+ * they write to the buffer themselves and read the page's level for their source from here
+ * ({@link #getSourceLevel(LogBuffer.Source)}). The handler is for what logs through
+ * java.util.logging instead (parley.logger=JulLogger, or code that uses it directly). The page's
+ * level for a source ({@link #setSourceLevel(LogBuffer.Source, LogBuffer.Level)}) is also set as the
+ * level of that source's java.util.logging loggers.
  */
 public final class LogPageHandler extends Handler {
 
