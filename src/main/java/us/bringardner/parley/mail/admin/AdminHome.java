@@ -26,8 +26,8 @@ import us.bringardner.parley.net.server.ServerMain;
  * <p>
  * Every folder here is on the default file system ({@link FileSource#of(String)}: the local disk
  * unless {@code parley.files.defaultFactory} names another), as the servers' settings are; a value
- * may also be a {@code filesource:} URL. Only the DKIM keys' folder is always on the local disk
- * ({@link #dkimDirectory()}).
+ * may also be a {@code filesource:} URL. The DKIM keys' folder here is the one used while the mail
+ * root isn't set; keys made once it is go in the queue's own dkim folder, on the mail root's file system.
  */
 public final class AdminHome {
 
@@ -126,9 +126,9 @@ public final class AdminHome {
 	}
 
 	/**
-	 * The folder of the DKIM keys made from the web pages: the home's {@code dkim} folder, always on
-	 * the local disk (a FileProxy), since parley-smtp's DKIM signer reads its key files there
-	 * (java.io.File); it is the home's path on the local disk when the home is on another file system.
+	 * The home's {@code dkim} folder, on the local disk (a FileProxy; it is the home's path on the local
+	 * disk when the home is on another file system). DKIM keys made from the web pages go here only
+	 * while there is no mail root; with one they go in the queue's own dkim folder, where the servers read them.
 	 */
 	public FileSource dkimDirectory() throws IOException {
 		return mkdirs(FileSourceFactory.fileProxyFactory.createFileSource(dir.getChild("dkim").getAbsolutePath()));

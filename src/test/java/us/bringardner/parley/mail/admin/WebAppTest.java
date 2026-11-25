@@ -357,10 +357,11 @@ public class WebAppTest {
 		ok("POST", "/domains/b.test/spam", Map.of("filter", "default"));
 		ok("PUT", "/settings", Map.of("changes", Map.of("parley.mail.smtp.spam.provider", "none")));
 		// A4.1: the key file gets the permissions any new file of the process gets (the servers may be another user of its group)
-		FileSource key = home.getChild("dkim").getChild("b.test-sel1.pem");
+		FileSource keys = home.getChild("mail").getChild(".smtp-queue").getChild("dkim"); // the queue's own folder, where the servers read keys
+		FileSource key = keys.getChild("b.test-sel1.pem");
 		assertTrue(key.isFile());
 		if (!FileSourceFactory.isWindows()) {
-			FileSource fresh = home.getChild("dkim").getChild("fresh.txt");
+			FileSource fresh = keys.getChild("fresh.txt");
 			TestFiles.writeBytes(fresh, new byte[0]);
 			assertEquals(TestFiles.perms(fresh), TestFiles.perms(key));
 			fresh.delete();
