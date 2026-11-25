@@ -21,8 +21,8 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import us.bringardner.parley.files.FileSource;
-import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.mail.admin.FileRewrite;
+import us.bringardner.parley.mail.admin.settings.PropertiesFile;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.users.AliasStore;
@@ -67,8 +67,9 @@ public final class DomainService {
 	private final FileSource dkimDir;
 
 	/**
-	 * @param dkimDir where new DKIM keys go: a folder on the local disk, since parley-smtp's DKIM
-	 *            signer reads the key files with java.io.File
+	 * @param dkimDir where new DKIM keys go while the queue has no folder (no mail root): the admin
+	 *            home's dkim folder. Otherwise they go in the queue's own dkim folder, on the mail
+	 *            root's file system, where parley-smtp's servers read them (see {@link #keyDirectory()}).
 	 */
 	public DomainService(SettingsService settings, UserService users, AliasStore aliases, FileSource dkimDir) {
 		this.settings = settings;
@@ -258,7 +259,7 @@ public final class DomainService {
 	/**
 	 * Make a DKIM key of a domain's own and put it in the queue's dkim.keys (replacing the domain's
 	 * key there); mail from the domain is signed with it instead of the shared key. The key file goes
-	 * in the admin home's dkim directory, with the TXT record to publish next to it.
+	 * in the queue's dkim folder (see {@link #keyDirectory()}), with the TXT record to publish next to it.
 	 *
 	 * @param type "rsa" (2048 bits) or "ed25519"
 	 */
@@ -281,7 +282,7 @@ public final class DomainService {
 		} catch (GeneralSecurityException e) {
 			throw new IOException("Can't make a " + t + " key: " + e.getMessage(), e);
 		}
-		FileSource key = dkimDir.getChild(d + "-" + sel + ".pem");
+		FileSource key = keyDirectory().getChild(d + "-" + sel + ".pem");
 		// the folder's and the process's usual permissions (the SMTP servers, maybe another user in the
 		// same group, read the key); a key file made again keeps its permissions and group
 		FileRewrite.write(key, DkimKeys.toPem(pair.getPrivate()).getBytes(StandardCharsets.US_ASCII));
@@ -299,14 +300,31 @@ public final class DomainService {
 	}
 
 	/**
-	 * A key file dkim.keys names: on the local disk, where parley-smtp's DKIM signer reads it
-	 * (java.io.File)
+	 * A key file dkim.keys names: on the file system parley-smtp's servers read it from, the mail
+	 * root's (or the one a {@code filesource:} URL names)
 	 */
-	private static FileSource keyFile(String path) throws IOException {
-		return FileSourceFactory.fileProxyFactory.createFileSource(path);
+	private FileSource keyFile(String path) throws IOException {
+		return settings.onQueueFileSystem(path);
 	}
 
-	private static boolean keyFileExists(String path) {
+	/**
+	 * The folder new DKIM keys go in: the queue's {@code dkim} folder, on the mail root's file system,
+	 * so every server that shares the store (a cluster's) reads the same keys; the admin home's dkim
+	 * folder while there is no queue folder.
+	 */
+	private FileSource keyDirectory() throws IOException {
+		PropertiesFile q = settings.getQueueFile();
+		if (q == null) {
+			return dkimDir;
+		}
+		FileSource ret = q.getFile().getParentFile().getChild("dkim");
+		if (!ret.isDirectory() && !ret.mkdirs() && !ret.isDirectory()) {
+			throw new IOException("Can't make the DKIM key folder " + ret.getAbsolutePath());
+		}
+		return ret;
+	}
+
+	private boolean keyFileExists(String path) {
 		try {
 			return keyFile(path).isFile();
 		} catch (IOException e) {
