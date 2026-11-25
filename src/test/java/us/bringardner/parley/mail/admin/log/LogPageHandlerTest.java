@@ -16,12 +16,23 @@ import org.junit.jupiter.api.Test;
 import us.bringardner.parley.core.util.LogHelper;
 
 /**
- * The Logs page's entries come through java.util.logging (the JDK's System.Logger when no other
- * System.LoggerFinder is installed), and its levels are the java.util.logging loggers' levels.
+ * The Logs page's entries come from the AdminLogger, and its levels are the sources' levels
+ * (also set on the java.util.logging loggers).
  */
 public class LogPageHandlerTest {
 
 	private LogBuffer buffer;
+
+	/** The logger class is chosen once, by the first Parley object that logs: this one has to pick it */
+	@org.junit.jupiter.api.BeforeAll
+	public static void chooseLogger() {
+		System.setProperty("parley.logger", AdminLogger.class.getName());
+	}
+
+	@org.junit.jupiter.api.AfterAll
+	public static void forgetLogger() {
+		System.clearProperty("parley.logger");
+	}
 
 	@BeforeEach
 	public void setup() {
@@ -47,10 +58,10 @@ public class LogPageHandlerTest {
 		LogHelper pop3 = new LogHelper("us.bringardner.parley.pop3.server.TestHandler");
 		pop3.logInfo("an info");
 		pop3.logError("an error", new IOException("boom"));
-		pop3.logDebug("a debug, below java.util.logging's INFO");
+		pop3.logDebug("a debug, below the default INFO");
 
 		List<LogBuffer.Entry> got = entries(LogBuffer.Level.TRACE, LogBuffer.Source.POP3);
-		assertEquals(2, got.size(), "one entry each, though install was called twice");
+		assertEquals(2, got.size(), "one entry each");
 		assertEquals(LogBuffer.Level.INFO, got.get(0).level);
 		assertEquals("an info", got.get(0).message);
 		assertEquals("us.bringardner.parley.pop3.server.TestHandler", got.get(0).logger);
@@ -78,6 +89,24 @@ public class LogPageHandlerTest {
 		assertEquals(2, got.size(), got.toString());
 		assertEquals("shown at DEBUG", got.get(0).message);
 		assertEquals("a warning", got.get(1).message);
+	}
+
+	@Test
+	public void testAnObjectsOwnLevelBeatsTheDefault() throws Exception {
+		java.util.Properties c = new java.util.Properties();
+		c.setProperty("parley.log.level", "ERROR");
+		us.bringardner.parley.core.BaseObject quiet = us.bringardner.parley.core.BaseObject.makeWith(c, us.bringardner.parley.core.BaseObject::new);
+		quiet.logInfo("not shown: this object's configuration says ERROR");
+		quiet.logError("shown");
+
+		us.bringardner.parley.core.BaseObject loud = new us.bringardner.parley.core.BaseObject();
+		loud.setLogLevel(us.bringardner.parley.core.LogLevel.DEBUG);
+		loud.logDebug("shown: set on the object");
+
+		List<LogBuffer.Entry> got = entries(LogBuffer.Level.TRACE, LogBuffer.Source.NET);
+		assertEquals(2, got.size(), got.toString());
+		assertEquals("shown", got.get(0).message);
+		assertEquals("shown: set on the object", got.get(1).message);
 	}
 
 	@Test
