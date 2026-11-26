@@ -124,7 +124,9 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 		domains = new DomainService(settings, users, aliases, home.dkimDirectory());
 		users.setDomainCheck(domains::isLocal);
 		// the FTP server takes the registry as it is: the primary domain's users work in its root, the others in a folder of their domain
-		users.setUserRoots(d -> d.equalsIgnoreCase(getPrimaryDomain()) ? "/" : "/" + d);
+		users.setUserRoots(us.bringardner.parley.mail.admin.users.FtpRoots.rule(
+				() -> settings.get("parley.mail.ftp.primaryRoot"), () -> settings.get("parley.mail.ftp.domainRoot"),
+				this::getPrimaryDomain));
 
 		history = new HistoryStore(this::historyDirectory, json);
 		logFiles = new LogFiles(this::logFileSources);
