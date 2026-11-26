@@ -63,6 +63,7 @@ public final class UserService {
 	private volatile FileSource file;
 	private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
 	private volatile Predicate<String> domainCheck = d -> true;
+	private volatile java.util.function.Function<String, String> userRoots = d -> null;
 	/** This service's own registry of the users file (guarded by this), made when first needed */
 	private FileUserRegistry own;
 
@@ -81,6 +82,55 @@ public final class UserService {
 	/** Use another users file (the setting changed). */
 	public void setFile(FileSource file) {
 		this.file = file;
+	}
+
+	/**
+	 * The rule for a user's FTP folder: given the user's domain it returns the folder (a path below the FTP
+	 * server's root), or null for none. The application owns the rule; the FTP server only reads the
+	 * {@link UserRecord#USER_ROOT} attribute.
+	 */
+	public void setUserRoots(java.util.function.Function<String, String> rule) {
+		this.userRoots = rule == null ? d -> null : rule;
+	}
+
+	private String userRootOf(String name) {
+		int at = name.lastIndexOf('@');
+		return at < 0 ? null : userRoots.apply(name.substring(at + 1));
+	}
+
+	/**
+	 * Give every user that has no FTP folder the one the rule gives. A folder a user already has is never
+	 * changed.
+	 *
+	 * @return how many users got one
+	 */
+	public int fillUserRoots() throws IOException {
+		int count = 0;
+		java.util.Map<String, String> wanted = new java.util.LinkedHashMap<>();
+		for (UserRecord u : list()) {
+			String root = userRootOf(u.getName()); // (the application's rule, asked before this service is locked)
+			if (root != null) {
+				wanted.put(u.getName(), root);
+			}
+		}
+		synchronized (this) {
+			PrincipalManager m = manager();
+			PrincipalChanges changes = new PrincipalChanges();
+			for (java.util.Map.Entry<String, String> e : wanted.entrySet()) {
+				ParleyPrincipal p = find(m, e.getKey());
+				if (p != null && p.getAttribute(UserRecord.USER_ROOT) == null) {
+					changes.setAttribute(e.getKey(), UserRecord.USER_ROOT, e.getValue());
+					count++;
+				}
+			}
+			if (count > 0) {
+				apply(m, changes);
+			}
+		}
+		if (count > 0) {
+			fire();
+		}
+		return count;
 	}
 
 	/** Names with a domain must have one of these (the local domains). */
@@ -310,6 +360,7 @@ public final class UserService {
 		checkPassword(password);
 		Set<String> perms = checkPermissions(permissions);
 		String drop = checkMaildrop(maildrop);
+		String root = userRootOf(n); // (the application's rule, asked before this service is locked)
 		synchronized (this) {
 			PrincipalManager m = manager();
 			if (get(n) != null) {
@@ -321,6 +372,9 @@ public final class UserService {
 			String value = drop == null ? defaultMaildrop(n) : drop;
 			if (value != null) {
 				changes.setAttribute(n, UserRecord.MAILDROP, value);
+			}
+			if (root != null) {
+				changes.setAttribute(n, UserRecord.USER_ROOT, root);
 			}
 			for (String p : perms) {
 				changes.grant(n, permission(p));

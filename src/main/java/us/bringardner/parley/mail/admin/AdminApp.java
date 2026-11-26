@@ -123,6 +123,8 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 		aliases.load();
 		domains = new DomainService(settings, users, aliases, home.dkimDirectory());
 		users.setDomainCheck(domains::isLocal);
+		// the FTP server takes the registry as it is: the primary domain's users work in its root, the others in a folder of their domain
+		users.setUserRoots(d -> d.equalsIgnoreCase(getPrimaryDomain()) ? "/" : "/" + d);
 
 		history = new HistoryStore(this::historyDirectory, json);
 		logFiles = new LogFiles(this::logFileSources);
@@ -141,6 +143,15 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 		});
 		timer.scheduleWithFixedDelay(this::checkFiles, 15, 15, TimeUnit.SECONDS);
 		shareKeyOfPrimary();
+		fillUserRoots();
+	}
+
+	private void fillUserRoots() {
+		try {
+			users.fillUserRoots();
+		} catch (IOException | RuntimeException e) {
+			logError("Can't give the users their FTP folders: " + e.getMessage(), e);
+		}
 	}
 
 	/**

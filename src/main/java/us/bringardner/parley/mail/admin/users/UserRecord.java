@@ -20,6 +20,8 @@ public final class UserRecord {
 	public static final String ADMIN = "ADMIN";
 	/** The attribute naming the user's maildrop (the servers read it too) */
 	public static final String MAILDROP = "maildrop";
+	/** The attribute naming the user's folder on the FTP server (the FTP server reads it; a path below its root) */
+	public static final String USER_ROOT = us.bringardner.parley.ftp.server.FtpRequestProcessor.PARAMETER_ROOT;
 
 	private final String name;
 	private final Set<String> permissions;

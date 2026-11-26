@@ -88,6 +88,38 @@ public class UserServiceTest {
 		assertEquals(before, read(f), "the file wasn't written");
 	}
 
+	/** The application's rule gives each user an FTP folder; the FTP server only reads the attribute */
+	@Test
+	public void eachUserGetsTheFtpFolderTheApplicationsRuleGives() throws Exception {
+		FileSource f = file("# users\nold@a.test , oldpassword , READ\nother@b.test , otherpassword , READ , userRoot=/mine\n");
+		UserService users = new UserService(f);
+		users.setUserRoots(d -> d.equals("a.test") ? "/" : "/" + d);
+
+		users.add("ann@a.test", "annpassword".toCharArray(), List.of("READ"), null);
+		users.add("bob@b.test", "bobpassword".toCharArray(), List.of("READ"), null);
+		users.add("local", "localpassword".toCharArray(), List.of("READ"), null);
+		assertEquals(1, users.fillUserRoots(), "only old@a.test had none: the others were given theirs when added or already had one");
+
+		FileUserRegistry registry = new FileUserRegistry();
+		try {
+			registry.initialize(f);
+			assertEquals("/", registry.findPrincipal("ann@a.test").getAttribute(UserRecord.USER_ROOT), "the primary domain works in the root");
+			assertEquals("/b.test", registry.findPrincipal("bob@b.test").getAttribute(UserRecord.USER_ROOT), "another domain has a folder of its name");
+			assertEquals("/", registry.findPrincipal("old@a.test").getAttribute(UserRecord.USER_ROOT), "a user that was there gets one too");
+			assertNull(registry.findPrincipal("local").getAttribute(UserRecord.USER_ROOT), "a name without a domain has no rule");
+		} finally {
+			registry.close();
+		}
+		assertEquals(0, users.fillUserRoots(), "nothing is given twice");
+		FileUserRegistry again = new FileUserRegistry();
+		try {
+			again.initialize(f);
+			assertEquals("/mine", again.findPrincipal("other@b.test").getAttribute(UserRecord.USER_ROOT), "a folder a user has is never changed");
+		} finally {
+			again.close();
+		}
+	}
+
 	@Test
 	public void namesTypedInAnyCaseAreFound() throws Exception {
 		FileSource f = file("tony@a.test , tonypassword , READ\nOld , oldpassword , READ\n");
