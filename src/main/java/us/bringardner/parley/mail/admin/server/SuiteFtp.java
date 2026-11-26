@@ -152,6 +152,8 @@ final class SuiteFtp {
 					return;
 				}
 				setFtpRoot(folder);
+				// (how the servers that share the store are let in: the store's own settings, claimed when the server prepares to start)
+				setStoreSharing(MailLocks.sharing(mailRoot));
 			} catch (IOException | RuntimeException e) {
 				rootProblem = "can't open the mail store " + MaildropRoot.describe(root, null) + ": " + e.getMessage();
 			}
@@ -193,19 +195,6 @@ final class SuiteFtp {
 							+ " (for every mail server) or " + propertyName(Server.PROPERTY_KEY_STORE_NAME) + " (for this one)");
 				}
 			}
-		}
-
-		@Override
-		public synchronized void start() {
-			if (mailRoot != null) {
-				try {
-					setStoreSharing(MailLocks.sharing(mailRoot));
-				} catch (IOException e) {
-					logError("Can't start " + getName() + ": " + e.getMessage(), e);
-					throw new java.io.UncheckedIOException(e);
-				}
-			}
-			super.start();
 		}
 
 		private static String trimmed(String s) {
