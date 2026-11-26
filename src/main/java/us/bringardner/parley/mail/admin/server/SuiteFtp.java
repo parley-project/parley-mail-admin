@@ -46,6 +46,51 @@ final class SuiteFtp {
 		private final Properties read = new Properties();
 		private FileSource mailRoot;
 		private String rootProblem;
+		/** True when the application gave the users: the users file never replaces them */
+		private volatile boolean usersGiven;
+		/** The registry made from the users file ({@code parley.mail.users}) when the application gave none */
+		private us.bringardner.parley.net.server.FileUserRegistry ownUsers;
+
+		void useUsers(us.bringardner.parley.iam.UserRegistry users) {
+			usersGiven = true;
+			setUserRegistry(users);
+		}
+
+		/**
+		 * Without users from the application (a server run on its own) the users are the suite's users file,
+		 * as the mail servers have them.
+		 */
+		private void readUsers() throws IOException {
+			if (usersGiven || getProperty(propertyName(AbstractMailServer.AUTHENTICATION_PROVIDER_PROPERTY)) != null) {
+				return;
+			}
+			String file = trimmed(getProperty(AbstractMailServer.MAIL_USERS_PROP));
+			if (file == null) {
+				return;
+			}
+			closeOwnUsers();
+			us.bringardner.parley.net.server.FileUserRegistry registry = new us.bringardner.parley.net.server.FileUserRegistry();
+			registry.initialize(FileSource.of(file).getCanonicalFile());
+			ownUsers = registry;
+			setUserRegistry(registry);
+		}
+
+		private void closeOwnUsers() {
+			if (ownUsers != null) {
+				try {
+					ownUsers.close();
+				} catch (IOException | RuntimeException e) {
+					logError("Can't close the user registry of " + getName(), e);
+				}
+				ownUsers = null;
+			}
+		}
+
+		@Override
+		public synchronized void stop() {
+			super.stop();
+			closeOwnUsers();
+		}
 
 		SuiteFtpServer(int port, boolean secure, String prefix) {
 			// the folder it serves is the store's, known when its settings are read: until then a folder that is always there
@@ -85,6 +130,7 @@ final class SuiteFtp {
 		@Override
 		protected void settingsRead(boolean fromFile) throws IOException {
 			super.settingsRead(fromFile);
+			readUsers();
 			rootProblem = null;
 			String root = trimmed(getProperty(AbstractMailServer.MAIL_ROOT_PROP));
 			if (root == null) {
@@ -170,7 +216,7 @@ final class SuiteFtp {
 	static ServerMain.Service create(ServerContext context, String prefix, boolean secure, int port) {
 		SuiteFtpServer server = new SuiteFtpServer(port, secure, prefix);
 		if (context.users() != null) {
-			server.setUserRegistry(context.users());
+			server.useUsers(context.users());
 		}
 		return ServerMain.service(server, secure ? "FTP server (implicit TLS)" : "FTP server");
 	}
