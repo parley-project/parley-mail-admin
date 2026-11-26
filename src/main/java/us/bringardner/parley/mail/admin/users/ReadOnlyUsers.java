@@ -26,7 +26,7 @@ import us.bringardner.parley.iam.UserRegistryUnavailableException;
  *
  * @since 2.0.0
  */
-public final class ReadOnlyUsers implements UserRegistry {
+public class ReadOnlyUsers implements UserRegistry {
 
 	/** Gives the application's registry as it is now */
 	@FunctionalInterface

@@ -37,6 +37,9 @@ final class SuiteFtp {
 	 * An FTP server of the suite: it opens the mail store when it starts (the store is named in the
 	 * suite's settings, which it reads then), puts its own folder in it and claims the store's sharing.
 	 */
+	/** The setting (after the prefix) naming the permission a user needs to log in */
+	static final String LOGIN_PERMISSION = "loginPermission";
+
 	private static final class SuiteFtpServer extends FtpServer {
 
 		/** Every setting the files read so far (the connection settings of the mail store's file system are among them) */
@@ -122,6 +125,13 @@ final class SuiteFtp {
 				}
 				setKeyStoreType(getProperty(AbstractMailServer.MAIL_TLS_KEY_STORE_TYPE_PROP, "PKCS12"));
 			}
+		}
+
+		/** Only users with the {@code loginPermission} setting's permission log in, when it is set (the application's rule) */
+		@Override
+		public us.bringardner.parley.iam.AuthenticationResult authenticate(us.bringardner.parley.iam.Credential credential) {
+			us.bringardner.parley.iam.AuthenticationResult result = super.authenticate(credential);
+			return FtpLogin.admit(requireUserRegistry(), getProperty(propertyName(LOGIN_PERMISSION)), credential, result);
 		}
 
 		@Override
