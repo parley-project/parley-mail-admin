@@ -117,8 +117,8 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 		settings.setNewQueueDefaults(java.util.Collections.singletonMap("aliases", path(home.defaultAliasesFile())));
 		applyLogLevels();
 
-		// the pages use the servers' registry of the users file when they run here, else one of their own
-		users = new UserService(usersFile(), this::serversRegistry);
+		// the users: this application's registry of the users file, which its servers are given a read-only view of
+		users = new UserService(usersFile());
 		aliases = new AliasStore(aliasesFile());
 		aliases.load();
 		domains = new DomainService(settings, users, aliases, home.dkimDirectory());
@@ -127,6 +127,8 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 		history = new HistoryStore(this::historyDirectory, json);
 		logFiles = new LogFiles(this::logFileSources);
 		suite = new MailSuite(settings);
+		// the servers are given a read-only view of the registry the pages edit
+		suite.setUsers(new us.bringardner.parley.mail.admin.users.ReadOnlyUsers(users::registry));
 		dns = new us.bringardner.parley.mail.admin.dns.DnsAdmin(suite, settings);
 		suite.setServerCreated(this::applyLogLevels);
 		users.addListener(this::usersChanged);
@@ -214,39 +216,13 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 	}
 
 	/**
-	 * The users file changed (from the Users page or outside): servers of this application read it
-	 * now rather than at their next check (parley.net.acl.reloadInterval). Servers run as services
-	 * read it at their next check.
+	 * The users file changed (from the Users page or outside): this application's registry reads it now rather
+	 * than at its next check. The servers are given a read-only view of that registry, so they see it as it is.
 	 */
 	private void usersChanged() {
-		try {
-			UserRegistry registry = serversRegistry(users.getFile().getCanonicalFile());
-			if (registry instanceof FileUserRegistry) {
-				((FileUserRegistry) registry).reloadNow(); // a no-op when the pages just wrote through it
-			}
-		} catch (IOException | RuntimeException e) {
-			logWarn("The servers can't read the users file " + users.getFile().getPath() + "; they keep the users they had", e);
-		}
 		FileUserRegistry own = users.ownRegistry();
 		if (own != null) {
-			own.reloadNow(); // the pages' own registry, when the change went through the servers'
-		}
-	}
-
-	/**
-	 * The registry the servers of this application share for this users file (its canonical path),
-	 * or null when they run elsewhere or none of them has read it yet.
-	 */
-	private UserRegistry serversRegistry(FileSource usersFile) {
-		us.bringardner.parley.mail.admin.server.ServerContext context = suite != null && suite.isLocal() ? suite.localContext() : null;
-		if (context == null) {
-			return null;
-		}
-		try {
-			return us.bringardner.parley.mail.admin.server.SharedUsers.find(context, usersFile);
-		} catch (IOException e) {
-			logWarn("Can't find the servers' registry of the users file " + usersFile.getPath() + ": " + e.getMessage());
-			return null;
+			own.reloadNow();
 		}
 	}
 

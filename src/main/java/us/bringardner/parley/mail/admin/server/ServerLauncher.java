@@ -7,7 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -26,16 +25,16 @@ import us.bringardner.parley.plugin.Plugins;
 
 /**
  * Runs a set of servers in this JVM, any set: one server alone, or several (the mail suite, say)
- * together. The servers are {@link ServerProvider}s found at run time, chosen by id; each is made
- * from a configuration of its own ({@link LaunchSettings#configuration(String)}), read from the
- * settings folder ({@link ServerMain#confDir()}): the launcher's file, the provider's shared files
- * ({@code parley-mail.properties}), then its own ({@code parley-pop3.properties}).
+ * together. The servers are {@link ServerProvider}s found at run time, chosen by id. A server finds and
+ * reads its own settings when it starts (the settings folder is {@link ServerMain#confDir()}) and refuses to
+ * start, listing every problem, when they are missing or unusable: the launcher shows that as its state.
+ * The launcher reads only its own files ({@code parley.servers}).
  * <p>
  * Each server can be started, stopped and restarted on its own, from code or with JMX (a
  * {@link ParleyServerMBean} for each server and a {@link ParleyLauncherMBean} for the launcher, on
  * the platform MBean server; remote access is the JVM's usual
- * {@code -Dcom.sun.management.jmxremote.*} settings). A restart reads the settings files again and
- * makes a new server from them.
+ * {@code -Dcom.sun.management.jmxremote.*} settings). A restart makes a new server, which reads its settings
+ * again.
  * <p>
  * One server never stops another: a server that can't start, or stops by itself, is FAILED with
  * its error, and the others go on.
@@ -53,9 +52,8 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	public enum State {
 		STOPPED, RUNNING, FAILED,
 		/**
-		 * not run: not listed in {@code parley.servers} (any more), turned off by its settings
-		 * ({@link ServerProvider#enabled()}), or skipped because it can't run with them
-		 * ({@link ServerProvider#unavailable(Properties)}); its error says which
+		 * not run: not listed in {@code parley.servers} (any more); its error says so. A server whose
+		 * settings are missing or unusable is FAILED when it refuses to start, with every problem
 		 */
 		OFF
 	}
@@ -154,7 +152,6 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	private final ServerContext context;
 	/** the servers, in the order they start (copied on write: a reload can add servers) */
 	private volatile Map<String, Entry> entries = new LinkedHashMap<>();
-	private final FileSource confDir;
 	/** reads parley.servers again on a reload, or null when the ids were given */
 	private volatile Callable<List<String>> serverList;
 	private final long createdAt = System.currentTimeMillis();
@@ -163,8 +160,6 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	private volatile Runnable onShutdown = () -> {
 	};
 	private ObjectName launcherName;
-	/** true if a provider reads the system properties, not its configuration */
-	private boolean legacy;
 	/**
 	 * Where the beans' operations run: a thread of the launcher's own, made with it. A server
 	 * started in a JMX call would otherwise make its threads in the caller's security context (an
@@ -178,18 +173,15 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	 * A launcher for these servers.
 	 *
 	 * @param name     for the messages and the JMX name, e.g. "Pop3Server" or "ParleyMail"
-	 * @param settings the command line and the files to read (the providers' files are added)
+	 * @param settings the command line and the launcher's own files; the servers read their own
 	 * @param ids      the servers' ids, in the order they start
-	 * @param confDir  the settings folder (null: no default files), ServerMain.confDir() or another
-	 *                 on the default file system
 	 * @throws IllegalArgumentException if a server isn't known (no provider has that id)
 	 * @throws IOException if the settings folder's file system can't be reached
 	 */
-	public ServerLauncher(String name, LaunchSettings settings, List<String> ids, FileSource confDir, ServerContext context) throws IOException {
+	public ServerLauncher(String name, LaunchSettings settings, List<String> ids, ServerContext context) throws IOException {
 		this.name = name;
 		this.settings = settings;
 		this.context = context;
-		this.confDir = confDir;
 		this.control = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), r -> {
 			Thread t = new Thread(r, name + "-control");
 			t.setDaemon(true);
@@ -203,10 +195,9 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 				if (!map.containsKey(p.id())) {
 					Entry e = new Entry(p);
 					map.put(p.id(), e);
-					addFiles(e);
 				}
 			}
-		} catch (IOException | RuntimeException e) {
+		} catch (RuntimeException e) {
 			control.shutdown();
 			throw e;
 		}
@@ -230,26 +221,6 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			throw new IllegalArgumentException("Unknown server" + (unknown.size() > 1 ? "s " : " ") + unknown + "; known: " + known.keySet());
 		}
 		return ret;
-	}
-
-	/** The server's settings files: the shared ones, then its own */
-	private void addFiles(Entry e) throws IOException {
-		String id = e.provider.id();
-		if (confDir != null) {
-			for (String f : e.provider.sharedSettingsFiles()) {
-				settings.addFile(id, confDir.getChild(f), false);
-			}
-		}
-		String named = e.provider.configProperty() == null ? null : settings.early(e.provider.configProperty());
-		if (named != null) {
-			// a path on the default file system, or a filesource: URL
-			settings.addFile(id, FileSource.of(named), true);
-		} else if (confDir != null && e.provider.settingsFile() != null) {
-			settings.addFile(id, confDir.getChild(e.provider.settingsFile()), false);
-		}
-		if (!e.provider.usesConfiguration()) {
-			legacy = true;
-		}
 	}
 
 	/**
@@ -284,7 +255,6 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			ids.add(p.id());
 			if (!map.containsKey(p.id())) {
 				Entry e = new Entry(p);
-				addFiles(e);
 				if (launcherName != null) {
 					e.name = register(e);
 				}
@@ -311,14 +281,10 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		KnownSettings.warn(name, settings.sources());
 	}
 
-	/** Read the settings files again (and, for a provider that reads them, set the system properties) */
+	/** Read the launcher's own settings files again */
 	private void readSettings() throws Exception {
 		refreshList();
-		if (legacy) {
-			settings.applyToSystem();
-		} else {
-			settings.apply();
-		}
+		settings.apply();
 		warnUnreadSettings();
 		if (launcherName != null) {
 			// a server that isn't running is off, or can be started, as its settings are now
@@ -340,24 +306,12 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		}
 	}
 
-	/** The server's configuration, as the files were last read */
-	public Properties getConfiguration(String id) {
-		return settings.configuration(entry(id).provider.id());
-	}
-
 	/** Why the server can't be run now, or null: not listed, turned off, or can't run with its settings */
 	private String offReason(Entry e) {
 		if (!e.listed) {
 			return "Not listed in " + SERVERS_PROPERTY;
 		}
-		if (!e.provider.usesConfiguration()) {
-			return e.provider.enabled() ? null : "Turned off by its settings";
-		}
-		Properties c = settings.configuration(e.provider.id());
-		if (!e.provider.enabled(c)) {
-			return "Turned off by its settings";
-		}
-		return e.provider.unavailable(c);
+		return null;
 	}
 
 	/** Mark a server that isn't running off, with the reason */
@@ -371,8 +325,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	}
 
 	private ServerMain.Service create(Entry e) throws Exception {
-		return e.provider.usesConfiguration() ? e.provider.create(context, settings.configuration(e.provider.id()))
-				: e.provider.create(context);
+		return e.provider.create(context);
 	}
 
 	/** Run on the launcher's control thread (at once when already on it, or after close) */
@@ -468,11 +421,6 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 				e.error = reason;
 				throw new IOException(e.provider.description() + " (" + e.provider.id() + ") can't be started: " + reason);
 			}
-			if (e.provider.usesConfiguration()) {
-				for (String w : e.provider.warnings(settings.configuration(e.provider.id()))) {
-					System.err.println(e.provider.id() + ": " + w);
-				}
-			}
 			ServerMain.Service s;
 			try {
 				s = create(e);
@@ -537,7 +485,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		}
 	}
 
-	/** Read the settings files again, then stop the server and start a new one. */
+	/** Read the launcher's files again, then stop the server and start a new one (it reads its own settings when it starts). */
 	public void restart(String id) throws Exception {
 		Entry e = entry(id);
 		synchronized (e) {

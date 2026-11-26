@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
@@ -31,9 +30,7 @@ import us.bringardner.parley.net.server.FileUserRegistry;
  * parley-mail-admin's own rules for them. The Users page, the admin logins and the other pages
  * read and change users only through this.
  * <p>
- * Which registry: when the servers run in this application and one of them has read the users
- * file, the registry they share ({@code SharedUsers}); otherwise one of this service's own over
- * the same file. A change is written by the registry (parley-iam's {@link PrincipalManager} and
+ * The registry is this application's own over the users file; its servers are given a read-only view of it. A change is written by the registry (parley-iam's {@link PrincipalManager} and
  * {@link PermissionManager}); adding or changing a user is one {@link PrincipalChanges}, applied
  * once, so the file is written once and a user is never half made.
  * <p>
@@ -64,7 +61,6 @@ public final class UserService {
 	public static final String READ_ONLY = "The user registry in use can't add, change or delete users, so the Users page is read-only";
 
 	private volatile FileSource file;
-	private final Function<FileSource, UserRegistry> shared;
 	private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
 	private volatile Predicate<String> domainCheck = d -> true;
 	/** This service's own registry of the users file (guarded by this), made when first needed */
@@ -73,12 +69,9 @@ public final class UserService {
 	/**
 	 * @param file the users file, on the file system the servers read it on (a
 	 *            {@code parley.mail.users} value resolved with {@link FileSource#of(String)}, as they do)
-	 * @param shared gives the registry the running servers share for a users file (its canonical
-	 *            path), or null when none has read it; null for none ever
 	 */
-	public UserService(FileSource file, Function<FileSource, UserRegistry> shared) {
+	public UserService(FileSource file) {
 		this.file = file;
-		this.shared = shared;
 	}
 
 	public FileSource getFile() {
@@ -103,15 +96,14 @@ public final class UserService {
 	// ------------------------------------------------------------------ the registry
 
 	/**
-	 * The registry the pages use now: the servers' shared one when there is one, else this
-	 * service's own (the users file is made, with only its heading, if it doesn't exist).
+	 * The application's registry of the users file (made, with only its heading, if the file doesn't
+	 * exist). The application owns and changes it; its servers are given a read-only view
+	 * ({@link ReadOnlyUsers}).
 	 *
 	 * @throws IOException if the users file can't be made or read
 	 */
 	public UserRegistry registry() throws IOException {
-		FileSource f = file.getCanonicalFile();
-		UserRegistry s = shared == null ? null : shared.apply(f);
-		return s != null ? s : own(f);
+		return own(file.getCanonicalFile());
 	}
 
 	private synchronized FileUserRegistry own(FileSource source) throws IOException {

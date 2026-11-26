@@ -24,17 +24,13 @@ import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.TestFiles;
 
 
-/**
- * The IMAP providers: found by the launcher, settings from parley-mail.properties then
- * parley-imap.properties, the suite's user file (parley.mail.users), imaps skipped while it has no key
- * store, and the 1.x secure flag only a warning.
- */
+/** The providers run by the launcher: a server reads its own settings when it starts, and one with implicit TLS and no key store refuses to start. */
 public class TestImapProviders {
 
 	/** Settings other tests in this JVM set that would change what these see */
 	private static final String[] CLEARED = { "parley.mail.imap.authenticationProvider", "parley.mail.imap.userFile",
 			"parley.mail.imap.port", "parley.mail.imaps.port", "parley.mail.imap.secure", "parley.mail.users", "parley.mail.root",
-			"parley.mail.imap.keyStoreName", "parley.mail.imaps.keyStoreName", "parley.mail.tls.keyStore" };
+			"parley.mail.imap.configFile", "parley.mail.imap.keyStoreName", "parley.mail.imaps.keyStoreName", "parley.mail.tls.keyStore" };
 
 	@TempDir
 	Path tempDir;
@@ -49,6 +45,7 @@ public class TestImapProviders {
 
 	@BeforeEach
 	public void clear() {
+		us.bringardner.parley.core.BaseObject.clearSettings(); // the settings of a file read before stay for the process
 		for (String n : CLEARED) {
 			saved.put(n, System.getProperty(n));
 			System.clearProperty(n);
@@ -57,6 +54,7 @@ public class TestImapProviders {
 
 	@AfterEach
 	public void restore() {
+		us.bringardner.parley.core.BaseObject.clearSettings();
 		if (launcher != null) {
 			launcher.close();
 		}
@@ -91,14 +89,15 @@ public class TestImapProviders {
 		us.bringardner.parley.mail.store.MailLocks.writeStoreSettings(mail,
 				us.bringardner.parley.net.lock.Sharing.OFF); // made by an administrator
 		write("users.txt", "tony , secret , READ|WRITE");
-		write("parley-mail.properties", "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + dir().getChild("users.txt").getPath(),
-				"parley.mail.imap.port=1");
-		write("parley-imap.properties", "parley.mail.imap.port=" + port); // wins over the shared file
-		launcher = new ServerLauncher("ImapTest", new LaunchSettings(new Properties()), Arrays.asList("imap", "imaps"), dir(), new ServerContext());
+		// the server reads the file its configFile setting names, when it starts
+		write("imap.properties", "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + dir().getChild("users.txt").getPath(),
+				"parley.mail.imap.port=" + port);
+		System.setProperty("parley.mail.imap.configFile", dir().getChild("imap.properties").getPath());
+		launcher = new ServerLauncher("ImapTest", new LaunchSettings(new Properties()), Arrays.asList("imap", "imaps"), new ServerContext());
 		launcher.init();
-		assertEquals(ServerLauncher.State.OFF, launcher.getState("imaps"), "no key store: skipped");
-		assertTrue(launcher.getServer("imaps").getError().contains("key store"), launcher.getServer("imaps").getError());
 		launcher.startAll();
+		assertEquals(ServerLauncher.State.FAILED, launcher.getState("imaps"), "no key store: it refuses to start");
+		assertTrue(launcher.getServer("imaps").getError().contains("key store"), launcher.getServer("imaps").getError());
 		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("imap"));
 		assertEquals(port, launcher.getServer("imap").getPort());
 		// To-Do 3.6: the mail store's bean is named by the server's id, as its Server bean is
@@ -121,29 +120,4 @@ public class TestImapProviders {
 		}
 	}
 
-	@Test
-	public void portIsOnlyAPort() throws Exception {
-		MailServerProvider imap = (MailServerProvider) ServerLauncher.providers().get("imap");
-		MailServerProvider imaps = (MailServerProvider) ServerLauncher.providers().get("imaps");
-		java.util.Properties c = new java.util.Properties();
-		assertEquals(143, imap.port(c));
-		assertEquals(993, imaps.port(c), "the standard port, not 0 (off)");
-		assertTrue(imap.unavailable(c) == null);
-		assertTrue(imaps.unavailable(c).contains("parley.mail.tls.keyStore"), imaps.unavailable(c));
-		c.setProperty("parley.mail.tls.keyStore", "keystore.p12");
-		assertTrue(imaps.unavailable(c) == null, "the suite's key store");
-		c.setProperty("parley.mail.imaps.port", "0");
-		assertTrue(imaps.unavailable(c).contains("parley.servers"), "port 0 no longer turns it off: " + imaps.unavailable(c));
-	}
-
-	@Test
-	public void secureFlagIsOnlyAWarning() throws Exception {
-		java.util.Properties c = new java.util.Properties();
-		c.setProperty("parley.mail.imap.secure", "true");
-		MailServerProvider imap = (MailServerProvider) ServerLauncher.providers().get("imap");
-		assertTrue(imap.enabled(c) && imap.unavailable(c) == null, "imap still runs");
-		assertEquals(143, imap.port(c));
-		assertEquals(1, imap.warnings(c).size());
-		assertTrue(imap.warnings(c).get(0).startsWith("parley.mail.imap.secure is no longer read"), imap.warnings(c).get(0));
-	}
 }

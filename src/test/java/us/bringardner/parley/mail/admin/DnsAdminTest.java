@@ -146,6 +146,8 @@ public class DnsAdminTest {
 
 		AdminApp.installLogger();
 		Set<String> before = new HashSet<>(System.getProperties().stringPropertyNames());
+		// a test can't change the environment, so the server is told the file PARLEY_CONF would have given it
+		System.setProperty(DnsServer.PROP_DNS_PROPERTIES, conf.getChild("parley-dns.properties").getAbsolutePath());
 		MBeanServer mbs = MBeanServerFactory.newMBeanServer();
 		Registry registry = LocateRegistry.createRegistry(registryPort);
 		Map<String, Object> env = new java.util.HashMap<>();
@@ -161,7 +163,7 @@ public class DnsAdminTest {
 		AdminApp app = null;
 		try {
 			cs.start();
-			launcher = new ServerLauncher("DnsService", new LaunchSettings(new Properties()), List.of("dns"), conf, new ServerContext(mbs));
+			launcher = new ServerLauncher("DnsService", new LaunchSettings(new Properties()), List.of("dns"), new ServerContext(mbs));
 			launcher.init();
 			launcher.startAll();
 
@@ -315,6 +317,7 @@ public class DnsAdminTest {
 			DnsServer.setShutdown(false);
 			cs.stop();
 			UnicastRemoteObject.unexportObject(registry, true);
+			us.bringardner.parley.core.BaseObject.clearSettings();
 			for (String k : System.getProperties().stringPropertyNames()) {
 				if (!before.contains(k) && k.startsWith("parley.")) {
 					System.clearProperty(k);

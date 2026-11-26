@@ -8,7 +8,6 @@ import java.util.function.Function;
 import javax.management.JMException;
 import javax.management.ObjectName;
 
-import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.mail.store.MailStoreAdmin;
 import us.bringardner.parley.mail.store.MailStoreAdminMXBean;
@@ -29,11 +28,12 @@ final class MailServices {
 	private MailServices() {
 	}
 
-	/** Make a mail server from its configuration (parley-core's BaseObject.makeWith) and give it the shared users */
-	static <T extends AbstractMailServer> T make(ServerContext context, java.util.Properties configuration, Callable<T> make)
-			throws Exception {
-		T server = BaseObject.makeWith(configuration, make);
-		SharedUsers.share(context, server);
+	/** Make a mail server and give it the users the application gave the context (before it starts) */
+	static <T extends AbstractMailServer> T make(ServerContext context, Callable<T> make) throws Exception {
+		T server = make.call();
+		if (context.users() != null) {
+			server.setUserRegistry(context.users());
+		}
 		return server;
 	}
 

@@ -150,7 +150,7 @@ public class StoresTest {
 		assertEquals(List.of("users.txt"), Arrays.asList(dir.list()), "no temporary file is left");
 
 		// the user registry rewrites the users file keeping them too
-		UserService u = new UserService(f, null);
+		UserService u = new UserService(f);
 		u.add("someone", "password1".toCharArray(), null, null);
 		assertEquals(perms, TestFiles.perms(f));
 		PropertiesFile p = new PropertiesFile(file("p.properties"));
@@ -292,7 +292,7 @@ public class StoresTest {
 	public void usersFileIsReadByTheServersList(String type) throws Exception {
 		FileSource f = TestFiles.folder(type, tempDir).getChild("users.txt");
 		write(f, "# users\nold , secret , READ\n");
-		UserService u = new UserService(f, null);
+		UserService u = new UserService(f);
 		u.setDomainCheck(d -> d.equals("a.test"));
 		assertEquals(1, u.list().size());
 		assertFalse(u.get("old").isHashed(), "a plain text password");

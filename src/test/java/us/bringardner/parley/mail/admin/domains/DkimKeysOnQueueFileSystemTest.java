@@ -51,7 +51,7 @@ public class DkimKeysOnQueueFileSystemTest {
 		settings = s;
 		s.load();
 		s.set("queue.domains", "a.test");
-		DomainService d = new DomainService(s, new UserService(users, null), new AliasStore(aliases), homeDkim);
+		DomainService d = new DomainService(s, new UserService(users), new AliasStore(aliases), homeDkim);
 
 		DkimEntry e = d.generateDkim("a.test", "s1", "rsa");
 		assertEquals("/mail/.smtp-queue/dkim/a.test-s1.pem", e.keyFile, "in the queue's folder on the store");

@@ -92,24 +92,6 @@ public class LogPageHandlerTest {
 	}
 
 	@Test
-	public void testAnObjectsOwnLevelBeatsTheDefault() throws Exception {
-		java.util.Properties c = new java.util.Properties();
-		c.setProperty("parley.log.level", "ERROR");
-		us.bringardner.parley.core.BaseObject quiet = us.bringardner.parley.core.BaseObject.makeWith(c, us.bringardner.parley.core.BaseObject::new);
-		quiet.logInfo("not shown: this object's configuration says ERROR");
-		quiet.logError("shown");
-
-		us.bringardner.parley.core.BaseObject loud = new us.bringardner.parley.core.BaseObject();
-		loud.setLogLevel(us.bringardner.parley.core.LogLevel.DEBUG);
-		loud.logDebug("shown: set on the object");
-
-		List<LogBuffer.Entry> got = entries(LogBuffer.Level.TRACE, LogBuffer.Source.NET);
-		assertEquals(2, got.size(), got.toString());
-		assertEquals("shown", got.get(0).message);
-		assertEquals("shown: set on the object", got.get(1).message);
-	}
-
-	@Test
 	public void testLevelMapping() {
 		for (LogBuffer.Level l : LogBuffer.Level.values()) {
 			assertEquals(l, LogPageHandler.fromJul(LogPageHandler.toJul(l)), l.name());

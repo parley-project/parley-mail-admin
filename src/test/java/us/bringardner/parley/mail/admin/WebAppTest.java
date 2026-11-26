@@ -108,6 +108,10 @@ public class WebAppTest {
 		System.setProperty(AdminHome.HOME_PROPERTY, home.getAbsolutePath());
 		// the settings files in the home (not /etc/parley, which a test machine may have)
 		System.setProperty(AdminHome.SETTINGS_PROPERTY, home.getAbsolutePath());
+		// a test can't change the environment, so the servers are told the file PARLEY_CONF would have given them
+		for (String p : CONFIG_PROPS) {
+			System.setProperty(p, home.getChild("parley-mail.properties").getAbsolutePath());
+		}
 		// a JVM has one URL handler factory: parley-files installs its own when another test of this JVM
 		// ran mail servers first (in a real Tomcat, Tomcat's is installed first and parley-files uses
 		// java.protocol.handler.pkgs instead); this application doesn't need Tomcat's (war: URLs)
@@ -124,7 +128,14 @@ public class WebAppTest {
 		}
 		System.clearProperty(AdminHome.HOME_PROPERTY);
 		System.clearProperty(AdminHome.SETTINGS_PROPERTY);
+		for (String p : CONFIG_PROPS) {
+			System.clearProperty(p);
+		}
+		us.bringardner.parley.core.BaseObject.clearSettings();
 	}
+
+	private static final String[] CONFIG_PROPS = { "parley.mail.smtp.configFile", "parley.mail.submission.configFile", "parley.mail.imap.configFile",
+			"parley.mail.pop3.configFile", us.bringardner.parley.mail.admin.server.FtpProviders.CONFIG_PROP };
 
 	private static HttpResponse<String> call(String method, String path, Object body) throws Exception {
 		HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + "api" + path)).header("X-CSRF-Token", csrf);
@@ -241,7 +252,7 @@ public class WebAppTest {
 		assertTrue(call("POST", "/services/pop3s/on", null).statusCode() >= 400);
 		JsonNode pop3s = service(ok("GET", "/services", null), "pop3s");
 		assertTrue(pop3s.get("enabled").asBoolean());
-		assertEquals("OFF", pop3s.get("state").asText(), pop3s.toString());
+		assertEquals("FAILED", pop3s.get("state").asText(), pop3s.toString());
 		assertTrue(pop3s.get("error").asText().contains("key store"), pop3s.toString());
 		assertEquals(995, pop3s.get("port").asInt(), "its standard port");
 		pop3s = service(ok("POST", "/services/pop3s/off", null), "pop3s");

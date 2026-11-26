@@ -2,9 +2,6 @@ package us.bringardner.parley.mail.admin.server;
 
 import us.bringardner.parley.imap.server.ImapServer;
 
-import java.util.Collections;
-import java.util.Map;
-import java.util.Properties;
 
 import us.bringardner.parley.mail.server.AbstractMailServer;
 import us.bringardner.parley.imap.IMAP;
@@ -24,25 +21,16 @@ public final class ImapProviders {
 	private ImapProviders() {
 	}
 
-	/** Read by 1.x to run IMAP with implicit TLS only; 2.0.0 runs imaps when parley.servers lists it */
-	static final Map<String, String> OBSOLETE = Collections.singletonMap(ImapServer.IMAP_PREFIX + ".secure",
-			"for IMAP with implicit TLS list imaps in parley.servers (and leave imap out to run it alone)");
-
 	/** IMAP (port 143, STARTTLS): {@code imap} */
 	public static final class Imap extends MailServerProvider {
 		public Imap() {
-			super("imap", "IMAP", "parley-imap.properties", ImapServer.CONFIG_PROP, ImapServer.IMAP_PREFIX, IMAP.IMAP_PORT, false);
+			super("imap", "IMAP", IMAP.IMAP_PORT, false);
 		}
 
 		@Override
-		protected Map<String, String> obsoleteSettings() {
-			return OBSOLETE;
-		}
-
-		@Override
-		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
-			int port = port(configuration);
-			return MailServices.service(MailServices.make(context, configuration, () -> new ImapServer(port, ImapServer.IMAP_NAME, false)), id(),
+		public ServerMain.Service create(ServerContext context) throws Exception {
+			int port = standardPort();
+			return MailServices.service(MailServices.make(context, () -> new ImapServer(port, ImapServer.IMAP_NAME, false)), id(),
 					"IMAP server", context);
 		}
 	}
@@ -50,14 +38,13 @@ public final class ImapProviders {
 	/** IMAP with implicit TLS (port 993): {@code imaps}; it needs a TLS key store */
 	public static final class Imaps extends MailServerProvider {
 		public Imaps() {
-			super("imaps", "IMAP with implicit TLS", "parley-imap.properties", ImapServer.CONFIG_PROP, ImapServer.IMAPS_PREFIX, IMAP.IMAPS_PORT,
-					true);
+			super("imaps", "IMAP with implicit TLS", IMAP.IMAPS_PORT, true);
 		}
 
 		@Override
-		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
-			int port = port(configuration);
-			return MailServices.service(MailServices.make(context, configuration, () -> new ImapServer(port, ImapServer.IMAP_NAME, true)), id(),
+		public ServerMain.Service create(ServerContext context) throws Exception {
+			int port = standardPort();
+			return MailServices.service(MailServices.make(context, () -> new ImapServer(port, ImapServer.IMAP_NAME, true)), id(),
 					"IMAP server (implicit TLS)", context);
 		}
 	}

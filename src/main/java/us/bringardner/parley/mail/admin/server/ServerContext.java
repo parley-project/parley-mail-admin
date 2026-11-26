@@ -32,6 +32,7 @@ public final class ServerContext {
 	private final List<ObjectName> registered = new CopyOnWriteArrayList<>();
 	private final List<AutoCloseable> closers = new CopyOnWriteArrayList<>();
 	private final MBeanServer mbeans;
+	private volatile us.bringardner.parley.iam.UserRegistry users;
 
 	public ServerContext() {
 		this(ManagementFactory.getPlatformMBeanServer());
@@ -69,6 +70,20 @@ public final class ServerContext {
 	/** The keys of the objects shared now */
 	public java.util.Set<String> sharedKeys() {
 		return Collections.unmodifiableSet(new java.util.TreeSet<>(shared.keySet()));
+	}
+
+		/**
+	 * The users the application gives its servers: a read-only view of the application's own user registry
+	 * (no server can change a user; the application changes the registry at any time). Null when the
+	 * application gave none.
+	 */
+	public us.bringardner.parley.iam.UserRegistry users() {
+		return users;
+	}
+
+	/** Set by the application before its servers start */
+	public void setUsers(us.bringardner.parley.iam.UserRegistry users) {
+		this.users = users;
 	}
 
 	/** Closed when the launcher closes (after its servers stopped) */

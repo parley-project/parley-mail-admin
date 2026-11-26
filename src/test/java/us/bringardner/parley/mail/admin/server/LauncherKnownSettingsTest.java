@@ -53,18 +53,18 @@ public class LauncherKnownSettingsTest {
 
 	@Test
 	public void theLauncherWarnsAtStartAndOnAReload() throws Exception {
-		FileSource own = dir().getChild("parley-fake.properties");
-		TestFiles.writeBytes(own, "parley.fake.value=own\nparley.fake.valeu=typo\nJPop3.port=110\n".getBytes(StandardCharsets.UTF_8));
+		FileSource own = dir().getChild(LauncherMain.LAUNCHER_FILE);
+		TestFiles.writeBytes(own, "parley.servers=fake\nparley.fake.valeu=typo\nJPop3.port=110\n".getBytes(StandardCharsets.UTF_8));
 		String err = stderr(() -> {
-			launcher = LauncherMain.launcher("FakeProcess", new String[] { "-Dparley.fake.famly=x" }, dir(), "fake");
+			launcher = LauncherMain.launcher("FakeProcess", new String[] { "-Dparley.fake.famly=x" }, dir());
 			launcher.init();
 		});
 		assertTrue(err.contains("FakeProcess: warning: parley.fake.valeu (" + own.getPath() + ") is not a setting"), err);
 		assertTrue(err.contains("FakeProcess: warning: JPop3.port (" + own.getPath() + ") looks like a 1.x setting"), err);
 		assertTrue(err.contains("FakeProcess: warning: parley.fake.famly (the command line) is not a setting"), err);
-		assertFalse(err.contains("parley.fake.value "), "a known name isn't warned about: " + err);
+		assertFalse(err.contains("parley.servers "), "a known name isn't warned about: " + err);
 
-		TestFiles.writeBytes(own, "parley.fake.value=own\nparley.fake.other=x\n".getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(own, "parley.servers=fake\nparley.fake.other=x\n".getBytes(StandardCharsets.UTF_8));
 		err = stderr(() -> launcher.reloadSettings());
 		assertTrue(err.contains("parley.fake.other (" + own.getPath() + ") is not a setting"), err);
 		assertFalse(err.contains("valeu"), "fixed in the file: " + err);

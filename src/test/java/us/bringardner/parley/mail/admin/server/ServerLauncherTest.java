@@ -116,21 +116,29 @@ public class ServerLauncherTest {
 		}
 
 		@Override
-		public List<String> sharedSettingsFiles() {
-			return Collections.singletonList("parley-family.properties");
-		}
-
-		@Override
-		public boolean enabled() {
-			return !"off".equals(System.getProperty("parley.fake.value"));
-		}
-
-		@Override
 		public ServerMain.Service create(ServerContext context) throws Exception {
 			Object shared = context.shared("fake.shared", Object.class, Object::new);
 			FakeService s = new FakeService(System.getProperty("parley.fake.value"), shared);
 			last.set(s);
 			return s;
+		}
+	}
+
+	/** A second server, which always starts, to run beside one that can't */
+	public static class OtherProvider implements ServerProvider {
+		@Override
+		public String id() {
+			return "other";
+		}
+
+		@Override
+		public String description() {
+			return "Other server";
+		}
+
+		@Override
+		public ServerMain.Service create(ServerContext context) throws Exception {
+			return new FakeService("ok", new Object());
 		}
 	}
 
@@ -151,7 +159,6 @@ public class ServerLauncherTest {
 		}
 		System.clearProperty("parley.fake.value");
 		System.clearProperty("parley.fake.family");
-		// (a launcher publishes the settings it reads as system properties)
 		System.clearProperty("parley.servers");
 	}
 
@@ -168,7 +175,7 @@ public class ServerLauncherTest {
 	@Test
 	public void unknownServer() {
 		IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-				() -> new ServerLauncher("x", new LaunchSettings(new java.util.Properties()), Arrays.asList("nope"), dir(), new ServerContext()));
+				() -> new ServerLauncher("x", new LaunchSettings(new java.util.Properties()), Arrays.asList("nope"), new ServerContext()));
 		assertTrue(e.getMessage().contains("nope") && e.getMessage().contains("fake"), e.getMessage());
 	}
 
@@ -200,27 +207,8 @@ public class ServerLauncherTest {
 	}
 
 	@Test
-	public void settingsInOrder() throws Exception {
-		write("parley-family.properties", "parley.fake.value=family\nparley.fake.family=yes\n");
-		write("parley-fake.properties", "parley.fake.value=own\n");
-		launcher();
-		launcher.startAll();
-		assertEquals("own", last.get().value);
-		assertEquals("yes", System.getProperty("parley.fake.family"));
-		assertEquals(2, launcher.getSettingsFiles().length);
-	}
-
-	@Test
-	public void commandLineWins() throws Exception {
-		write("parley-fake.properties", "parley.fake.value=own\n");
-		launcher("-Dparley.fake.value=cmd");
-		launcher.startAll();
-		assertEquals("cmd", last.get().value);
-	}
-
-	@Test
 	public void startStopRestartWithJmx() throws Exception {
-		write("parley-fake.properties", "parley.fake.value=one\n");
+		System.setProperty("parley.fake.value", "one");
 		launcher();
 		MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
 		ObjectName server = new ObjectName("us.bringardner.parley:type=Server,name=fake");
@@ -248,7 +236,7 @@ public class ServerLauncherTest {
 		assertNull(conns[1].getUser());
 		FakeService first = last.get();
 
-		write("parley-fake.properties", "parley.fake.value=two\n");
+		System.setProperty("parley.fake.value", "two");
 		mbs.invoke(server, "restart", null, null);
 		FakeService second = last.get();
 		assertEquals("two", second.value);
@@ -282,36 +270,12 @@ public class ServerLauncherTest {
 
 	@Test
 	public void startFails() throws Exception {
-		launcher("-Dparley.fake.value=fail");
+		System.setProperty("parley.fake.value", "fail");
+		launcher();
 		launcher.startAll(); // a server that can't start is FAILED: nothing is thrown
 		assertEquals(ServerLauncher.State.FAILED, launcher.getState("fake"));
 		assertTrue(launcher.getServer("fake").getError().contains("can't listen"), launcher.getServer("fake").getError());
 		assertTrue(!launcher.isAnyRunning());
-	}
-
-	@Test
-	public void turnedOffBySettings() throws Exception {
-		write("parley-fake.properties", "parley.fake.value=off\n");
-		launcher();
-		assertEquals(ServerLauncher.State.OFF, launcher.getState("fake"));
-		launcher.startAll(); // skipped, not an error
-		assertEquals(ServerLauncher.State.OFF, launcher.getState("fake"));
-		assertThrows(IOException.class, () -> launcher.start("fake"));
-		write("parley-fake.properties", "parley.fake.value=on\n");
-		launcher.restart("fake"); // the settings are read again
-		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("fake"));
-	}
-
-	@Test
-	public void processExitsWithOneWhenEveryServerIsOff() throws Exception {
-		Process p = process("-Dparley.servers=fake", "-Dparley.fake.value=off");
-		try {
-			assertTrue(p.waitFor(60, TimeUnit.SECONDS), "the process ends");
-			assertEquals(1, p.exitValue());
-			assertTrue(read(p).contains("nothing to run"));
-		} finally {
-			p.destroyForcibly();
-		}
 	}
 
 	@Test
@@ -414,8 +378,7 @@ public class ServerLauncherTest {
 	@Test
 	public void processRunsTheOthersWhenOneCantStart() throws Exception {
 		org.junit.jupiter.api.Assumptions.assumeTrue(!FileSourceFactory.isWindows(), "SIGTERM: not on Windows");
-		write("parley-cfga.properties", "parley.cfg.root=/a\n");
-		Process p = process("-Dparley.servers=fake,cfga", "-Dparley.fake.value=fail");
+		Process p = process("-Dparley.servers=fake,other", "-Dparley.fake.value=fail");
 		try {
 			java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8));
 			StringBuilder out = new StringBuilder();
@@ -425,11 +388,11 @@ public class ServerLauncherTest {
 			while (!(failed && started) && (line = r.readLine()) != null) {
 				out.append(line).append('\n');
 				failed |= line.startsWith("Fake server (fake) failed: can't listen");
-				started |= line.startsWith("Configured cfga (cfga) started");
+				started |= line.startsWith("Other server (other) started");
 			}
 			assertTrue(failed && started, out.toString());
 			Thread.sleep(1000);
-			assertTrue(p.isAlive(), "the process lives while cfga runs: " + out);
+			assertTrue(p.isAlive(), "the process lives while other runs: " + out);
 			p.destroy(); // SIGTERM
 			assertTrue(p.waitFor(20, TimeUnit.SECONDS));
 		} finally {
@@ -456,9 +419,9 @@ public class ServerLauncherTest {
 	 */
 	@Test
 	public void startedByAnAuthenticatedJmxClient() throws Exception {
-		write("parley-fake.properties", "parley.fake.value=one\n");
+		System.setProperty("parley.fake.value", "one");
 		javax.management.MBeanServer mbs = javax.management.MBeanServerFactory.newMBeanServer();
-		launcher = new ServerLauncher("AuthProcess", new LaunchSettings(new java.util.Properties()), List.of("fake"), dir(), new ServerContext(mbs));
+		launcher = new ServerLauncher("AuthProcess", new LaunchSettings(new java.util.Properties()), List.of("fake"), new ServerContext(mbs));
 		launcher.init();
 		int port;
 		try (java.net.ServerSocket ss = new java.net.ServerSocket(0)) {

@@ -3,9 +3,6 @@ package us.bringardner.parley.mail.admin.server;
 import us.bringardner.parley.smtp.server.SmtpServer;
 
 import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Properties;
 
 import javax.management.JMException;
 
@@ -47,30 +44,16 @@ public final class SmtpProviders {
 		});
 	}
 
-	/** Read by 1.x for a relay with implicit TLS, which 2.0.0 doesn't have (RFC 8314's implicit TLS is submission's) */
-	static final Map<String, String> OBSOLETE;
-	static {
-		Map<String, String> m = new LinkedHashMap<>();
-		m.put(SmtpServer.SMTP_PREFIX + ".secure", "the relay is plain SMTP with STARTTLS; for implicit TLS list submissions in parley.servers");
-		m.put("parley.mail.smtps.port", "there is no relay with implicit TLS; for implicit TLS list submissions in parley.servers");
-		OBSOLETE = Collections.unmodifiableMap(m);
-	}
-
 	/** The relay (MX, port 25): {@code smtp} */
 	public static final class Smtp extends MailServerProvider {
 		public Smtp() {
-			super("smtp", "SMTP relay (MX)", "parley-smtp.properties", SmtpServer.CONFIG_PROP, SmtpServer.SMTP_PREFIX, SMTP.SMTP_PORT, false);
+			super("smtp", "SMTP relay (MX)", SMTP.SMTP_PORT, false);
 		}
 
 		@Override
-		protected Map<String, String> obsoleteSettings() {
-			return OBSOLETE;
-		}
-
-		@Override
-		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
-			int port = port(configuration);
-			SmtpServer s = MailServices.make(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, false, false));
+		public ServerMain.Service create(ServerContext context) throws Exception {
+			int port = standardPort();
+			SmtpServer s = MailServices.make(context, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, false, false));
 			return service(s, id(), "SMTP server", context);
 		}
 	}
@@ -78,14 +61,13 @@ public final class SmtpProviders {
 	/** Submission (RFC 6409, port 587, STARTTLS): {@code submission} */
 	public static final class Submission extends MailServerProvider {
 		public Submission() {
-			super("submission", "SMTP submission", "parley-smtp.properties", SmtpServer.CONFIG_PROP, SmtpServer.SUBMISSION_PREFIX,
-					SMTP.SUBMISSION_PORT, false);
+			super("submission", "SMTP submission", SMTP.SUBMISSION_PORT, false);
 		}
 
 		@Override
-		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
-			int port = port(configuration);
-			SmtpServer s = MailServices.make(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, false, true));
+		public ServerMain.Service create(ServerContext context) throws Exception {
+			int port = standardPort();
+			SmtpServer s = MailServices.make(context, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, false, true));
 			return service(s, id(), "Submission server", context);
 		}
 	}
@@ -93,14 +75,13 @@ public final class SmtpProviders {
 	/** Submission with implicit TLS (RFC 8314, port 465): {@code submissions}; it needs a TLS key store */
 	public static final class Submissions extends MailServerProvider {
 		public Submissions() {
-			super("submissions", "SMTP submission with implicit TLS", "parley-smtp.properties", SmtpServer.CONFIG_PROP,
-					SmtpServer.SUBMISSIONS_PREFIX, SMTP.SUBMISSIONS_PORT, true);
+			super("submissions", "SMTP submission with implicit TLS", SMTP.SUBMISSIONS_PORT, true);
 		}
 
 		@Override
-		public ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
-			int port = port(configuration);
-			SmtpServer s = MailServices.make(context, configuration, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, true, true));
+		public ServerMain.Service create(ServerContext context) throws Exception {
+			int port = standardPort();
+			SmtpServer s = MailServices.make(context, () -> new SmtpServer(port, SmtpServer.SMTP_NAME, true, true));
 			return service(s, id(), "Submission server (implicit TLS)", context);
 		}
 	}

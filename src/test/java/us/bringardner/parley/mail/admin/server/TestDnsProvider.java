@@ -57,12 +57,15 @@ public class TestDnsProvider {
 				+"parley.dns.bindAddress=127.0.0.1\n"
 				+"parley.dns.port="+freePort()+"\n"
 				+"parley.dns.recursionAvailable=false\n");
+		// the server reads the file its configFile setting names, when it starts
+		System.setProperty(DnsServer.PROP_DNS_PROPERTIES, dir.getChild("parley-dns.properties").getCanonicalPath());
 		mbs = MBeanServerFactory.newMBeanServer();
-		launcher = new ServerLauncher("DnsTest", new LaunchSettings(new Properties()), List.of("dns"), dir, new ServerContext(mbs));
+		launcher = new ServerLauncher("DnsTest", new LaunchSettings(new Properties()), List.of("dns"), new ServerContext(mbs));
 	}
 
 	@AfterEach
 	public void cleanup() throws IOException {
+		us.bringardner.parley.core.BaseObject.clearSettings();
 		launcher.close();
 		DnsServer.setShutdown(false);
 		System.setProperties(saved);
@@ -80,12 +83,11 @@ public class TestDnsProvider {
 	}
 
 	/**
-	 * Made from its own configuration (To-Do 11.13): it serves what parley-dns.properties says, and
+	 * It reads its own settings when it starts (To-Do 11.13): it serves what its settings file says, and
 	 * the file's settings don't become the JVM's system properties, which other servers in the JVM read.
 	 */
 	@Test
 	public void readsItsConfigurationAndLeavesTheSystemPropertiesAlone() throws Exception {
-		assertTrue(new DnsServerProvider().usesConfiguration());
 		launcher.init();
 		launcher.startAll();
 		ObjectName dnsName = new ObjectName("us.bringardner.parley:type=Dns,name=dns");

@@ -75,19 +75,28 @@ public class RemoteModeTest {
 				+ dir().getChild("aliases.txt").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
 		// the JMX password in a file, as the parley-servers package keeps it
 		TestFiles.writeBytes(dir().getChild("admin.password"), "s3cret-jmx\n".getBytes(StandardCharsets.UTF_8));
-		TestFiles.writeBytes(conf.getChild("parley-mail.properties"), ("parley.mail.root=" + root + "\n"
+		String sharedText = "parley.mail.root=" + root + "\n"
 				+ "parley.mail.users=" + dir().getChild("users.txt").getAbsolutePath().replace('\\', '/') + "\n"
 				+ "parley.mail.admin.jmxUrl=" + url + "\n"
 				+ "parley.mail.admin.jmxUser=parleyadmin\n"
-				+ "parley.mail.admin.jmxPasswordFile=" + dir().getChild("admin.password").getAbsolutePath().replace('\\', '/') + "\n").getBytes(StandardCharsets.UTF_8));
-		TestFiles.writeBytes(conf.getChild("parley-pop3.properties"), ("parley.mail.pop3.port=" + pop3Port + "\n").getBytes(StandardCharsets.UTF_8));
-		TestFiles.writeBytes(conf.getChild("parley-smtp.properties"), ("parley.mail.smtp.port=" + smtpPort + "\nparley.mail.smtp.hostname=mx.a.test\n").getBytes(StandardCharsets.UTF_8));
+				+ "parley.mail.admin.jmxPasswordFile=" + dir().getChild("admin.password").getAbsolutePath().replace('\\', '/') + "\n";
+		String pop3 = "parley.mail.pop3.port=" + pop3Port + "\n";
+		String smtp = "parley.mail.smtp.port=" + smtpPort + "\nparley.mail.smtp.hostname=mx.a.test\n";
+		TestFiles.writeBytes(conf.getChild("parley-mail.properties"), sharedText.getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(conf.getChild("parley-pop3.properties"), pop3.getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(conf.getChild("parley-smtp.properties"), smtp.getBytes(StandardCharsets.UTF_8));
+		// what the servers read in a deployment (PARLEY_CONF is this folder): the suite's file, then their own
+		TestFiles.writeBytes(conf.getChild("smtp-run.properties"), (sharedText + smtp).getBytes(StandardCharsets.UTF_8));
+		TestFiles.writeBytes(conf.getChild("pop3-run.properties"), (sharedText + pop3).getBytes(StandardCharsets.UTF_8));
 		TestFiles.writeBytes(dir().getChild("users.txt"), "# users\n".getBytes(StandardCharsets.UTF_8));
 		TestFiles.writeBytes(dir().getChild("aliases.txt"), "# aliases\n".getBytes(StandardCharsets.UTF_8));
 
 		// the Parley logger every test of this JVM uses (it's chosen once, when the first server logs): the application's
 		AdminApp.installLogger();
 		Set<String> before = new HashSet<>(System.getProperties().stringPropertyNames());
+		// a test can't change the environment, so the servers are told the files PARLEY_CONF would have given them
+		System.setProperty("parley.mail.smtp.configFile", conf.getChild("smtp-run.properties").getAbsolutePath());
+		System.setProperty("parley.mail.pop3.configFile", conf.getChild("pop3-run.properties").getAbsolutePath());
 		MBeanServer mbs = MBeanServerFactory.newMBeanServer();
 		Registry registry = LocateRegistry.createRegistry(registryPort);
 		// a password, as the parley-mail service's JMX has
@@ -105,7 +114,7 @@ public class RemoteModeTest {
 		try {
 			cs.start();
 			// the "service": SMTP and POP3, reading the same settings folder
-			launcher = new ServerLauncher("MailService", new LaunchSettings(new Properties()), List.of("smtp", "pop3"), conf, new ServerContext(mbs));
+			launcher = new ServerLauncher("MailService", new LaunchSettings(new Properties()), List.of("smtp", "pop3"), new ServerContext(mbs));
 			launcher.init();
 			launcher.startAll();
 
@@ -206,6 +215,7 @@ public class RemoteModeTest {
 			}
 			cs.stop();
 			UnicastRemoteObject.unexportObject(registry, true);
+			us.bringardner.parley.core.BaseObject.clearSettings();
 			// the launcher set the files' settings as system properties: the next test's launcher mustn't take them for -D
 			for (String k : System.getProperties().stringPropertyNames()) {
 				if (!before.contains(k) && k.startsWith("parley.")) {

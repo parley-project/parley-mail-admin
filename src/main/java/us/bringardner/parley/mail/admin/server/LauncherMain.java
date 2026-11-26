@@ -10,7 +10,7 @@ import us.bringardner.parley.net.server.ServerMain;
 /**
  * Runs the servers of the mail suite (parley-mail-admin's application) in one process, as a service
  * (systemd, launchd) or from a shell: the servers {@code parley.servers} lists, found as
- * {@link ServerProvider}s, each made from its own configuration, managed with JMX
+ * {@link ServerProvider}s, each reading its own settings when it starts, managed with JMX
  * ({@link ServerLauncher}). The settings folder is parley-net's {@link ServerMain#confDir()}.
  * <p>
  * Each server stands alone: one that can't start, or stops by itself, is FAILED with its error and
@@ -44,11 +44,10 @@ public final class LauncherMain {
 	 * <ol>
 	 * <li>The servers are the {@link ServerProvider}s with these ids (none: those
 	 * {@code parley.servers} lists); an unknown id is an error that lists the ids there are.</li>
-	 * <li>Settings, a later one winning: the launcher's file when ids aren't given
-	 * (CONF/parley-servers.properties, or the file {@code parley.servers.configFile} names), each
-	 * server's shared files and its own file in CONF (or the file its configFile property names),
-	 * the JVM's {@code -D} options, and the command line ({@code -Dname=value} or
-	 * {@code name value}).</li>
+	 * <li>The launcher's file when ids aren't given (CONF/parley-servers.properties, or the file
+	 * {@code parley.servers.configFile} names) lists the servers. Each server reads its own settings
+	 * when it starts: its files in CONF, then the JVM's {@code -D} options, then the command line
+	 * ({@code -Dname=value} or {@code name value}, set as system properties by {@link ServerMain#configure}).</li>
 	 * <li>Each server and the launcher can be managed with JMX ({@link ServerLauncher}). A server
 	 * stopped with JMX doesn't end the process; the launcher's shutdown does (exit 0), as does
 	 * stopping the process (SIGTERM, a service stop). When the last running server stops by itself
@@ -63,6 +62,8 @@ public final class LauncherMain {
 	public static void launch(String processName, String[] args, String... ids) throws InterruptedException {
 		ServerLauncher launcher;
 		try {
+			// the command line becomes system properties, which win over everything a server reads when it starts
+			ServerMain.configure(processName, args);
 			launcher = launcher(processName, args, ServerMain.confDir(), ids);
 			launcher.getSettings().print(processName);
 			launcher.init();
@@ -149,7 +150,7 @@ public final class LauncherMain {
 						+ ServerLauncher.providers().keySet() + ")");
 			}
 		}
-		ServerLauncher ret = new ServerLauncher(processName, settings, list, confDir, new ServerContext());
+		ServerLauncher ret = new ServerLauncher(processName, settings, list, new ServerContext());
 		if (listFile != null) {
 			FileSource f = listFile;
 			ret.setServerList(() -> {

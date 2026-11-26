@@ -1,27 +1,22 @@
 package us.bringardner.parley.mail.admin.server;
 
-import java.util.Properties;
-
 import us.bringardner.parley.net.server.ServerMain;
 
 /**
  * The FTP servers the mail suite can run beside its mail servers ({@code parley.servers=...,ftp,ftps}):
- * parley-ftp's FtpServer with the suite's domains, users and store. Each is made from its own
- * configuration, read from {@code parley-mail.properties}, then {@code parley-mail-ftp.properties}
+ * parley-ftp's FtpServer with the application's users and the suite's store. Each reads its own
+ * settings when it starts: {@code parley-mail.properties}, then {@code parley-mail-ftp.properties}
  * (or the file {@code parley.mail.ftp.configFile} names).
  * <ul>
- * <li>The users are the mail users ({@code parley.mail.users}, the list the mail servers share):
- * a login is {@code name@domain}, the domain must be one of the suite's local domains
- * ({@code domains} in the mail queue's {@code queue.properties}), and the user's READ, WRITE and
- * ADMIN permissions apply.</li>
+ * <li>The users are the application's registry ({@link ServerContext#users()}). Each user's root is
+ * the registry's {@code userRoot} attribute, which the application sets (see the admin's users).</li>
  * <li>The files are in the mail store ({@code parley.mail.root}, on whatever file system
- * {@code parley.mail.fileSource} names), in the folder {@code <prefix>.root} (default
- * {@code .ftp}) under the store's root: each user's own folder is {@code <domain>/<name>} there, and
- * is all they see. The store's sharing ({@code .parley-store.properties}) lets the FTP servers in.</li>
+ * {@code parley.mail.fileSource} names), under the folder {@code <prefix>.root} (default {@code .ftp}), the
+ * FTP server's own root. The store's sharing ({@code .parley-store.properties}) lets the FTP servers in.</li>
  * <li>{@code requireTls} (default true): no login before AUTH TLS (or on implicit TLS), so the mail
  * passwords never cross the network in the clear. Needs {@code parley.mail.tls.keyStore}.</li>
  * </ul>
- * Each runs when parley.servers lists it; ftps is skipped with a warning while it has no TLS key store.
+ * Each runs when parley.servers lists it; ftps refuses to start, saying so, while it has no TLS key store.
  * Settings (after {@code parley.mail.ftp} or {@code parley.mail.ftps}): port (21, 990),
  * root, requireTls, serverId, externalAddress (what passive replies name, behind address
  * translation), bufferSize, dataTimeout, connectTimeout, uploadMode, and passivePort,
@@ -72,14 +67,14 @@ public final class FtpProviders {
 		private final boolean secure;
 
 		FtpProvider(String id, String description, String prefix, boolean secure, int standardPort) {
-			super(id, description, SETTINGS_FILE, CONFIG_PROP, prefix, standardPort, secure);
+			super(id, description, standardPort, secure);
 			this.prefix = prefix;
 			this.secure = secure;
 		}
 
 		@Override
-		public ServerMain.Service create(ServerContext context, Properties c) throws Exception {
-			return SuiteFtp.create(context, c, prefix, secure, port(c));
+		public ServerMain.Service create(ServerContext context) throws Exception {
+			return SuiteFtp.create(context, prefix, secure, standardPort());
 		}
 	}
 }

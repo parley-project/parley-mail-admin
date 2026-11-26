@@ -49,7 +49,7 @@ public class UserServiceTest {
 		FileSource f = file("# users\n"
 				+ "tony@a.test , secret , READ\n"
 				+ "group: support@a.test\n");
-		UserService users = new UserService(f, null);
+		UserService users = new UserService(f);
 		users.update("tony@a.test", null, Arrays.asList("READ", "WRITE"), null);
 
 		String text = read(f);
@@ -67,7 +67,7 @@ public class UserServiceTest {
 	@Test
 	public void addingAUserIsOneChangeWithItsGroups() throws Exception {
 		FileSource f = file("# users\nboss@a.test , bosspassword , READ|WRITE|ADMIN\ngroup: sales@a.test\n");
-		UserService users = new UserService(f, null);
+		UserService users = new UserService(f);
 		int[] heard = { 0 };
 		users.addListener(() -> heard[0]++);
 
@@ -91,7 +91,7 @@ public class UserServiceTest {
 	@Test
 	public void namesTypedInAnyCaseAreFound() throws Exception {
 		FileSource f = file("tony@a.test , tonypassword , READ\nOld , oldpassword , READ\n");
-		UserService users = new UserService(f, null);
+		UserService users = new UserService(f);
 		assertEquals("tony@a.test", users.get("  Tony@A.Test ").getName(), "lower-cased before the lookup");
 		assertEquals("Old", users.get("Old").getName(), "a name kept in another case is found as written");
 		assertNull(users.get("nobody"));
@@ -102,7 +102,7 @@ public class UserServiceTest {
 	@Test
 	public void turningAUserOffAndOn() throws Exception {
 		FileSource f = file("boss@a.test , bosspassword , READ|WRITE|ADMIN\n");
-		UserService users = new UserService(f, null);
+		UserService users = new UserService(f);
 		users.add("ann@a.test", "annpassword".toCharArray(), List.of("READ", "WRITE"), null, List.of("sales@a.test"), true);
 
 		users.update("ann@a.test", null, null, null, null, false);
@@ -139,7 +139,7 @@ public class UserServiceTest {
 	@Test
 	public void theLastActiveAdministrator() throws Exception {
 		FileSource f = file("boss@a.test , bosspassword , READ|WRITE|ADMIN\n");
-		UserService users = new UserService(f, null);
+		UserService users = new UserService(f);
 		assertTrue(users.hasAdmin());
 		assertThrows(IllegalArgumentException.class, () -> users.update("boss@a.test", null, null, null, null, false), "can't be turned off");
 		assertThrows(IllegalArgumentException.class, () -> users.update("boss@a.test", null, List.of("READ"), null), "can't lose ADMIN");
@@ -159,7 +159,7 @@ public class UserServiceTest {
 	@Test
 	public void anEditThatChangesNothingWritesNothing() throws Exception {
 		FileSource f = file("tony@a.test , tonypassword , READ , maildrop=a.test/tony\n");
-		UserService users = new UserService(f, null);
+		UserService users = new UserService(f);
 		int[] heard = { 0 };
 		users.addListener(() -> heard[0]++);
 		String before = read(f);
@@ -169,35 +169,9 @@ public class UserServiceTest {
 	}
 
 	@Test
-	public void theServersRegistryIsUsedWhenThereIsOne() throws Exception {
-		FileSource f = file("tony@a.test , tonypassword , READ\n");
-		FileUserRegistry servers = new FileUserRegistry();
-		servers.initialize(f.getCanonicalFile());
-		UserService users = new UserService(f, file -> file.equals(servers.getSourceFile()) ? servers : null);
-		assertSame(servers, users.registry());
-		users.update("tony@a.test", null, List.of("READ", "WRITE"), null);
-		assertTrue(servers.findGrants(servers.findPrincipal("tony@a.test")).size() == 2, "the servers see it at once");
-		assertNull(users.ownRegistry(), "no registry of its own was made");
-	}
-
-	@Test
-	public void aRegistryThatCantChangeUsers() throws Exception {
-		FileSource f = file("tony@a.test , tonypassword , READ\n");
-		FileUserRegistry file = new FileUserRegistry();
-		file.initialize(f);
-		// only the reading part of a registry
-		UserRegistry readOnly = new ForwardingUserRegistry(file);
-		UserService users = new UserService(f, any -> readOnly);
-		assertFalse(users.isEditable());
-		assertEquals(List.of(), users.list(), "it can't list its users");
-		assertThrows(IllegalStateException.class, () -> users.add("ann@a.test", "annpassword".toCharArray(), null, null));
-		assertThrows(IllegalStateException.class, () -> users.delete("tony@a.test"));
-	}
-
-	@Test
 	public void theApplicationsChecks() throws Exception {
 		FileSource f = file("");
-		UserService users = new UserService(f, null);
+		UserService users = new UserService(f);
 		users.setDomainCheck(d -> d.equals("a.test"));
 		assertThrows(IllegalArgumentException.class, () -> users.add("x@b.test", "password1".toCharArray(), null, null), "not a local domain");
 		assertThrows(IllegalArgumentException.class, () -> users.add("short@a.test", "pw".toCharArray(), null, null));

@@ -41,7 +41,7 @@ import us.bringardner.parley.smtp.queue.MailQueueMXBean;
  */
 public class TestQueueReload {
 
-	private static final String[] CLEARED = { "parley.mail.smtp.port", "parley.mail.submission.port", "parley.mail.submissions.port",
+	private static final String[] CLEARED = { "parley.mail.smtp.configFile", "parley.mail.smtp.port", "parley.mail.submission.port", "parley.mail.submissions.port",
 			"parley.mail.users", "parley.mail.root", "parley.mail.smtp.hostname" };
 
 	@TempDir
@@ -57,6 +57,7 @@ public class TestQueueReload {
 
 	@BeforeEach
 	public void clear() {
+		us.bringardner.parley.core.BaseObject.clearSettings(); // the settings of a file read before stay for the process
 		for (String n : CLEARED) {
 			saved.put(n, System.getProperty(n));
 			System.clearProperty(n);
@@ -65,6 +66,7 @@ public class TestQueueReload {
 
 	@AfterEach
 	public void restore() {
+		us.bringardner.parley.core.BaseObject.clearSettings();
 		if (launcher != null) {
 			launcher.close();
 		}
@@ -131,11 +133,11 @@ public class TestQueueReload {
 		MailStoreSetup.setUp(mail, "mx.localhost", "localhost");
 		FileSource users = dir().getChild("users.txt");
 		write(users, "tony , secret , READ|WRITE");
-		write(dir().getChild("parley-mail.properties"), "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + users.getPath());
-		write(dir().getChild("parley-smtp.properties"), "parley.mail.smtp.port=" + port, "parley.mail.submission.port=0",
-				"parley.mail.smtp.hostname=mx.localhost");
+		write(dir().getChild("smtp.properties"), "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + users.getPath(),
+				"parley.mail.smtp.port=" + port, "parley.mail.smtp.hostname=mx.localhost");
+		System.setProperty("parley.mail.smtp.configFile", dir().getChild("smtp.properties").getPath()); // read when the server starts
 		MBeanServer mbs = MBeanServerFactory.newMBeanServer();
-		launcher = new ServerLauncher("SmtpReload", new LaunchSettings(new Properties()), Arrays.asList("smtp"), dir(), new ServerContext(mbs));
+		launcher = new ServerLauncher("SmtpReload", new LaunchSettings(new Properties()), Arrays.asList("smtp"), new ServerContext(mbs));
 		launcher.init();
 		launcher.startAll();
 		FileSource queueDir = mail.getChild(SmtpServer.QUEUE_DIRECTORY);

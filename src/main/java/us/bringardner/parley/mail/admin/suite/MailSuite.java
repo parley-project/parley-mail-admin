@@ -200,8 +200,18 @@ public final class MailSuite extends BaseObject implements AutoCloseable {
 		return t;
 	});
 
+	private volatile us.bringardner.parley.iam.UserRegistry users;
+
 	public MailSuite(SettingsService settings) {
 		this.settings = settings;
+	}
+
+	/**
+	 * The users the servers that run in this application are given: a read-only view of the application's
+	 * own registry (set before they start).
+	 */
+	public void setUsers(us.bringardner.parley.iam.UserRegistry users) {
+		this.users = users;
 	}
 
 	/** Called after servers are started (the Logs page's levels are applied again then). */
@@ -325,7 +335,9 @@ public final class MailSuite extends BaseObject implements AutoCloseable {
 			for (ServiceId id : ServiceId.values()) {
 				ids.add(id.id());
 			}
-			ServerLauncher l = new ServerLauncher(LOCAL_NAME, new LaunchSettings(new Properties()), ids, settings.getDirectory(), new ServerContext());
+			ServerContext context = new ServerContext();
+			context.setUsers(users);
+			ServerLauncher l = new ServerLauncher(LOCAL_NAME, new LaunchSettings(new Properties()), ids, context);
 			// parley.servers says which run, as for the parley-mail service (only the mail services, here)
 			l.setServerList(() -> {
 				List<String> on = new ArrayList<>();

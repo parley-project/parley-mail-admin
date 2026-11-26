@@ -38,12 +38,12 @@ import us.bringardner.parley.smtp.queue.MailQueueMXBean;
 import us.bringardner.parley.smtp.queue.QueueHistory;
 
 /**
- * The SMTP providers: the relay and submission servers, each from its own configuration, using the
+ * The SMTP providers: the relay and submission servers, each reading its own settings when it starts, using the
  * queue their settings name, each queue's JMX bean, its history, and what a server needs to start.
  */
 public class TestSmtpProviders {
 
-	private static final String[] CLEARED = { "parley.mail.smtp.port", "parley.mail.submission.port", "parley.mail.submissions.port",
+	private static final String[] CLEARED = { "parley.mail.smtp.configFile", "parley.mail.smtp.port", "parley.mail.submission.port", "parley.mail.submissions.port",
 			"parley.mail.smtp.secure", "parley.mail.users", "parley.mail.root", "parley.mail.smtp.domains", "parley.mail.smtp.hostname",
 			"parley.mail.smtp.authenticationProvider", "parley.mail.smtp.userFile", "parley.mail.submission.authenticationProvider",
 			"parley.mail.submission.userFile", "parley.mail.tls.keyStore", "parley.mail.submissions.keyStoreName", QueueHistory.HISTORY_PROP,
@@ -62,6 +62,7 @@ public class TestSmtpProviders {
 
 	@BeforeEach
 	public void clear() {
+		us.bringardner.parley.core.BaseObject.clearSettings(); // the settings of a file read before stay for the process
 		for (String n : CLEARED) {
 			saved.put(n, System.getProperty(n));
 			System.clearProperty(n);
@@ -70,6 +71,7 @@ public class TestSmtpProviders {
 
 	@AfterEach
 	public void restore() {
+		us.bringardner.parley.core.BaseObject.clearSettings();
 		if (launcher != null) {
 			launcher.close();
 		}
@@ -132,15 +134,17 @@ public class TestSmtpProviders {
 		FileSource mail = dir().getChild("mail");
 		MailStoreSetup.setUp(mail, "localhost", "localhost"); // the administrator
 		write("users.txt", "tony , secret , READ|WRITE");
-		write("parley-mail.properties", "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + dir().getChild("users.txt").getPath());
-		write("parley-smtp.properties", "parley.mail.smtp.port=" + smtp, "parley.mail.submission.port=" + submission,
+		// the servers read the file their configFile setting names, when they start
+		write("smtp.properties", "parley.mail.root=" + mail.getPath(), "parley.mail.users=" + dir().getChild("users.txt").getPath(), "parley.mail.smtp.port=" + smtp, "parley.mail.submission.port=" + submission,
 				"parley.mail.smtp.hostname=mx.localhost", "parley.mail.submission.hostname=submit.localhost");
+		System.setProperty("parley.mail.smtp.configFile", dir().getChild("smtp.properties").getPath());
 		ServerContext context = new ServerContext();
-		launcher = new ServerLauncher("SmtpTest", new LaunchSettings(new Properties()), Arrays.asList("smtp", "submission", "submissions"), dir(),
+		launcher = new ServerLauncher("SmtpTest", new LaunchSettings(new Properties()), Arrays.asList("smtp", "submission", "submissions"),
 				context);
 		launcher.init();
-		assertEquals(ServerLauncher.State.OFF, launcher.getState("submissions"), "no key store: skipped");
 		launcher.startAll();
+		assertEquals(ServerLauncher.State.FAILED, launcher.getState("submissions"), "no key store: it refuses to start");
+		assertTrue(launcher.getServer("submissions").getError().contains("key store"), launcher.getServer("submissions").getError());
 		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("smtp"));
 		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("submission"));
 
@@ -197,9 +201,10 @@ public class TestSmtpProviders {
 	public void aQueueWithoutSettingsIsRefused() throws Exception {
 		FileSource mail = dir().getChild("mail");
 		us.bringardner.parley.mail.store.MailLocks.writeStoreSettings(mail, us.bringardner.parley.net.lock.Sharing.HOST);
-		write("parley-mail.properties", "parley.mail.root=" + mail.getPath());
-		write("parley-smtp.properties", "parley.mail.smtp.port=" + freePort(), "parley.mail.smtp.hostname=mx.localhost");
-		launcher = new ServerLauncher("SmtpNoQueue", new LaunchSettings(new Properties()), Arrays.asList("smtp"), dir(),
+		// the servers read the file their configFile setting names, when they start
+		write("smtp.properties", "parley.mail.root=" + mail.getPath(), "parley.mail.smtp.port=" + freePort(), "parley.mail.smtp.hostname=mx.localhost");
+		System.setProperty("parley.mail.smtp.configFile", dir().getChild("smtp.properties").getPath());
+		launcher = new ServerLauncher("SmtpNoQueue", new LaunchSettings(new Properties()), Arrays.asList("smtp"),
 				new ServerContext(javax.management.MBeanServerFactory.newMBeanServer()));
 		launcher.init();
 		launcher.startAll(); // the server can't start: FAILED, with why
@@ -213,9 +218,10 @@ public class TestSmtpProviders {
 	public void aServerWithoutAHostnameIsRefused() throws Exception {
 		FileSource mail = dir().getChild("mail");
 		MailStoreSetup.setUp(mail, "localhost", "localhost");
-		write("parley-mail.properties", "parley.mail.root=" + mail.getPath());
-		write("parley-smtp.properties", "parley.mail.smtp.port=" + freePort());
-		launcher = new ServerLauncher("SmtpNoHost", new LaunchSettings(new Properties()), Arrays.asList("smtp"), dir(),
+		// the servers read the file their configFile setting names, when they start
+		write("smtp.properties", "parley.mail.root=" + mail.getPath(), "parley.mail.smtp.port=" + freePort());
+		System.setProperty("parley.mail.smtp.configFile", dir().getChild("smtp.properties").getPath());
+		launcher = new ServerLauncher("SmtpNoHost", new LaunchSettings(new Properties()), Arrays.asList("smtp"),
 				new ServerContext(javax.management.MBeanServerFactory.newMBeanServer()));
 		launcher.init();
 		launcher.startAll(); // the server can't start: FAILED, with why
@@ -247,32 +253,19 @@ public class TestSmtpProviders {
 		write("users.txt", "tony , secret , READ|WRITE");
 		write("own.txt", "jose , other , READ|WRITE");
 		MailStoreSetup.setUp(dir().getChild("mail"), "localhost", "localhost");
-		write("parley-mail.properties", "parley.mail.root=" + dir().getChild("mail").getPath(), "parley.mail.users=" + dir().getChild("users.txt").getPath());
-		write("parley-smtp.properties", "parley.mail.smtp.port=" + smtp, "parley.mail.submission.port=" + submission,
+		// the servers read the file their configFile setting names, when they start
+		write("smtp.properties", "parley.mail.root=" + dir().getChild("mail").getPath(), "parley.mail.users=" + dir().getChild("users.txt").getPath(), "parley.mail.smtp.port=" + smtp, "parley.mail.submission.port=" + submission,
 				"parley.mail.smtp.hostname=localhost", "parley.mail.submission.hostname=localhost",
 				"parley.mail.submission.authenticationProvider=us.bringardner.parley.net.server.FileUserRegistry",
 				"parley.mail.submission.userFile=" + dir().getChild("own.txt").getPath());
+		System.setProperty("parley.mail.smtp.configFile", dir().getChild("smtp.properties").getPath());
 		ServerContext context = new ServerContext(javax.management.MBeanServerFactory.newMBeanServer());
-		launcher = new ServerLauncher("SmtpUsersTest", new LaunchSettings(new Properties()), Arrays.asList("smtp", "submission"), dir(), context);
+		launcher = new ServerLauncher("SmtpUsersTest", new LaunchSettings(new Properties()), Arrays.asList("smtp", "submission"), context);
 		launcher.init();
 		launcher.startAll();
 		assertEquals("235", auth(submission, "jose", "other"), "its own users");
 		assertEquals("535", auth(submission, "tony", "secret"), "not the shared users");
 		assertEquals("235", auth(smtp, "tony", "secret"), "the relay has the shared users");
-		assertNotNull(SharedUsers.find(context, dir().getChild("users.txt")));
-	}
-
-	@Test
-	public void noRelayWithImplicitTls() {
-		Properties c = new Properties();
-		c.setProperty("parley.mail.smtp.secure", "true");
-		c.setProperty("parley.mail.smtps.port", "0");
-		MailServerProvider smtp = (MailServerProvider) ServerLauncher.providers()
-				.get("smtp");
-		assertTrue(smtp.enabled(c) && smtp.unavailable(c) == null, "the relay is plain SMTP whatever 1.x's settings say");
-		assertEquals(25, smtp.port(c));
-		assertEquals(2, smtp.warnings(c).size(), smtp.warnings(c).toString());
-		assertFalse(smtp.implicitTls());
 	}
 
 	@Test
@@ -289,16 +282,5 @@ public class TestSmtpProviders {
 		assertEquals(SmtpServer.SUBMISSION_PREFIX, relay.getPropertyPrefix());
 		relay.setSubmission(false);
 		assertEquals(SmtpServer.SMTP_PREFIX, relay.getPropertyPrefix());
-	}
-
-	@Test
-	public void submissionsOnItsStandardPortWithAKeyStore() {
-		MailServerProvider s = (MailServerProvider) ServerLauncher.providers()
-				.get("submissions");
-		Properties c = new Properties();
-		assertEquals(465, s.port(c), "the standard port, not 0 (off)");
-		assertTrue(s.unavailable(c).contains("key store"), s.unavailable(c));
-		c.setProperty("parley.mail.tls.keyStore", "keystore.p12");
-		assertTrue(s.unavailable(c) == null);
 	}
 }
