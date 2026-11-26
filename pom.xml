@@ -25,6 +25,7 @@
 		<jackson.version>2.18.2</jackson.version>
 		<mysql.version>8.4.0</mysql.version>
 		<junit.version>5.11.4</junit.version>
+		<log4j.version>2.24.3</log4j.version>
 		<!-- Tomcat 10.1: Jakarta Servlet 6.0, runs on Java 11 like the rest of Parley -->
 		<tomcat.version>10.1.34</tomcat.version>
 		<!-- the context path the war is deployed with by DevServer and Eclipse ("Run on Server") -->
@@ -44,6 +45,18 @@
 	</dependencyManagement>
 
 	<dependencies>
+		<!-- the admin is an application: it logs with Log4j (log4j2.xml). Parley code logs through BaseObject and
+		     parley-core's SystemLogger, whose System.Logger log4j-jpl hands to Log4j -->
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-core</artifactId>
+			<version>${log4j.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-jpl</artifactId>
+			<version>${log4j.version}</version>
+		</dependency>
 		<!-- The servers; each brings parley-mail, parley-net, parley-files and parley-core -->
 		<dependency>
 			<groupId>us.bringardner.parley</groupId>
@@ -173,7 +186,7 @@
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
 					<!-- each test class in a JVM of its own: the Logs page's levels are
-					     java.util.logging's, which are the JVM's (LogPageHandler) -->
+					     Log4j's and java.util.logging's, which are the JVM's (LogPageHandler) -->
 					<reuseForks>false</reuseForks>
 					<!-- tests run the servers on free ports with a scratch home under target/ -->
 					<systemPropertyVariables>

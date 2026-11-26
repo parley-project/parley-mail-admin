@@ -12,12 +12,11 @@ import java.util.logging.SimpleFormatter;
  * The Logs page's levels by source, and a java.util.logging Handler on the {@code us.bringardner}
  * logger that gives every entry it sees to the {@link LogBuffer}.
  * <p>
- * Parley code logs through BaseObject, whose loggers are {@link AdminLogger}s in this application:
- * they write to the buffer themselves and read the page's level for their source from here
- * ({@link #getSourceLevel(LogBuffer.Source)}). The handler is for what logs through
- * java.util.logging instead (parley.logger=JulLogger, or code that uses it directly). The page's
- * level for a source ({@link #setSourceLevel(LogBuffer.Source, LogBuffer.Level)}) is also set as the
- * level of that source's java.util.logging loggers.
+ * Parley code logs through BaseObject and SystemLogger, which Log4j receives (log4j-jpl): its entries come to
+ * the page through {@link LogPageAppender}. The handler is for what logs through java.util.logging
+ * instead (the JDK and libraries). The page's level for a source
+ * ({@link #setSourceLevel(LogBuffer.Source, LogBuffer.Level)}) is set as the Log4j level of that source's
+ * loggers, and also as the level of its java.util.logging loggers.
  */
 public final class LogPageHandler extends Handler {
 
@@ -78,14 +77,32 @@ public final class LogPageHandler extends Handler {
 			LEVELS.put(source, level);
 		}
 		Level jul = level == null ? null : toJul(level);
+		org.apache.logging.log4j.Level log4j = toLog4j(level == null ? LogBuffer.Level.INFO : level);
 		for (String p : source.packages()) {
 			logger(p).setLevel(jul);
+			// the application's logger is Log4j: the level of the source is its level
+			org.apache.logging.log4j.core.config.Configurator.setLevel(p, log4j);
 		}
 	}
 
 	/** The level chosen for a source on the Logs page, or null. */
 	public static LogBuffer.Level getSourceLevel(LogBuffer.Source source) {
 		return LEVELS.get(source);
+	}
+
+	static org.apache.logging.log4j.Level toLog4j(LogBuffer.Level level) {
+		switch (level) {
+		case TRACE:
+			return org.apache.logging.log4j.Level.TRACE;
+		case DEBUG:
+			return org.apache.logging.log4j.Level.DEBUG;
+		case INFO:
+			return org.apache.logging.log4j.Level.INFO;
+		case WARN:
+			return org.apache.logging.log4j.Level.WARN;
+		default:
+			return org.apache.logging.log4j.Level.ERROR;
+		}
 	}
 
 	static Level toJul(LogBuffer.Level level) {

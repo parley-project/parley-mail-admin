@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 import us.bringardner.parley.core.util.LogHelper;
 
 /**
- * The Logs page's entries come from the AdminLogger, and its levels are the sources' levels
+ * The Logs page's entries come from the Log4j appender, and its levels are the sources' levels
  * (also set on the java.util.logging loggers).
  */
 public class LogPageHandlerTest {
@@ -26,7 +26,7 @@ public class LogPageHandlerTest {
 	/** The logger class is chosen once, by the first Parley object that logs: this one has to pick it */
 	@org.junit.jupiter.api.BeforeAll
 	public static void chooseLogger() {
-		System.setProperty("parley.logger", AdminLogger.class.getName());
+		System.setProperty("parley.logger", us.bringardner.parley.core.SystemLogger.class.getName());
 	}
 
 	@org.junit.jupiter.api.AfterAll

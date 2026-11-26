@@ -76,21 +76,21 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 	private volatile FileSource lastHistoryDirectory;
 
 	/**
-	 * Make the Parley loggers write to the Logs page too: this application's logger
-	 * ({@link us.bringardner.parley.mail.admin.log.AdminLogger}) is the JVM's Parley logger unless
-	 * {@code parley.logger} names another, and {@link LogPageHandler} takes the entries of anything
-	 * that logs through java.util.logging. It must run before any Parley object logs, because the
-	 * logger class is chosen once. Calling it again does nothing.
+	 * Make the Parley loggers write to Log4j, which the Logs page reads: Parley code logs through BaseObject and
+	 * parley-core's {@code SystemLogger} (unless {@code parley.logger} names another), whose System.Logger
+	 * log4j-jpl hands to Log4j and this application's {@code log4j2.xml}. {@link LogPageHandler} takes the
+	 * entries of anything that logs through java.util.logging. It must run before any Parley object logs,
+	 * because the logger class is chosen once. Calling it again does nothing.
 	 */
 	public static void installLogger() {
 		if (System.getProperty(PROPERTY_LOGGER) == null) {
-			System.setProperty(PROPERTY_LOGGER, us.bringardner.parley.mail.admin.log.AdminLogger.class.getName());
+			System.setProperty(PROPERTY_LOGGER, us.bringardner.parley.core.SystemLogger.class.getName());
 		}
 		LogPageHandler.install();
 		Class<?> chosen = getLoggerClass();
-		if (!us.bringardner.parley.mail.admin.log.AdminLogger.class.isAssignableFrom(chosen)) {
+		if (!us.bringardner.parley.core.SystemLogger.class.isAssignableFrom(chosen)) {
 			System.err.println("The Logs page gets no entries: this JVM's Parley logger is already " + chosen.getName()
-					+ " (parley.logger); set parley.logger=" + us.bringardner.parley.mail.admin.log.AdminLogger.class.getName() + " before any Parley code logs");
+					+ " (parley.logger); set parley.logger=" + us.bringardner.parley.core.SystemLogger.class.getName() + " before any Parley code logs");
 		}
 	}
 
