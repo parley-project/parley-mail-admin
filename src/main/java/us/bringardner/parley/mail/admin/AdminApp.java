@@ -76,21 +76,17 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 	private volatile FileSource lastHistoryDirectory;
 
 	/**
-	 * Make the Parley loggers write to Log4j, which the Logs page reads: Parley code logs through BaseObject and
-	 * parley-core's {@code SystemLogger} (unless {@code parley.logger} names another), whose System.Logger
-	 * log4j-jpl hands to Log4j and this application's {@code log4j2.xml}. {@link LogPageHandler} takes the
-	 * entries of anything that logs through java.util.logging. It must run before any Parley object logs,
-	 * because the logger class is chosen once. Calling it again does nothing.
+	 * Get the Logs page its entries. Parley code logs through BaseObject to the JDK's System.Logger, and log4j-jpl
+	 * (a dependency of this application) hands that to Log4j and this application's {@code log4j2.xml}, so the
+	 * {@link LogPageAppender} there receives it. {@link LogPageHandler} takes the entries of anything that logs
+	 * through java.util.logging. Calling it again does nothing.
 	 */
 	public static void installLogger() {
-		if (System.getProperty(PROPERTY_LOGGER) == null) {
-			System.setProperty(PROPERTY_LOGGER, us.bringardner.parley.core.SystemLogger.class.getName());
-		}
 		LogPageHandler.install();
-		Class<?> chosen = getLoggerClass();
-		if (!us.bringardner.parley.core.SystemLogger.class.isAssignableFrom(chosen)) {
-			System.err.println("The Logs page gets no entries: this JVM's Parley logger is already " + chosen.getName()
-					+ " (parley.logger); set parley.logger=" + us.bringardner.parley.core.SystemLogger.class.getName() + " before any Parley code logs");
+		String backend = System.getLogger(AdminApp.class.getName()).getClass().getName();
+		if (!backend.contains("log4j")) {
+			System.err.println("The Logs page gets no entries from Parley code: this JVM's System.Logger is " + backend
+					+ ", not Log4j's; put log4j-jpl on the class path and no other System.LoggerFinder before it");
 		}
 	}
 

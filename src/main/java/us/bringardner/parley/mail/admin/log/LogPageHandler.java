@@ -12,7 +12,7 @@ import java.util.logging.SimpleFormatter;
  * The Logs page's levels by source, and a java.util.logging Handler on the {@code us.bringardner}
  * logger that gives every entry it sees to the {@link LogBuffer}.
  * <p>
- * Parley code logs through BaseObject and SystemLogger, which Log4j receives (log4j-jpl): its entries come to
+ * Parley code logs through BaseObject to System.Logger, which Log4j receives (log4j-jpl): its entries come to
  * the page through {@link LogPageAppender}. The handler is for what logs through java.util.logging
  * instead (the JDK and libraries). The page's level for a source
  * ({@link #setSourceLevel(LogBuffer.Source, LogBuffer.Level)}) is set as the Log4j level of that source's

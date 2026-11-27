@@ -36,6 +36,7 @@ import us.bringardner.parley.mail.admin.server.ServerLauncher;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
 import us.bringardner.parley.mail.admin.suite.ServiceId;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * The servers run by a launcher "process" (one in this JVM, with its own MBean server behind a JMX
@@ -57,6 +58,7 @@ public class RemoteModeTest {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void serversRunAsAServiceAreManagedOverJmx() throws Exception {
 		FileSource home = dir().getChild("home");

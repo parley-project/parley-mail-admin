@@ -14,25 +14,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import us.bringardner.parley.core.util.LogHelper;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * The Logs page's entries come from the Log4j appender, and its levels are the sources' levels
  * (also set on the java.util.logging loggers).
  */
+@ErrorsExpected
 public class LogPageHandlerTest {
 
 	private LogBuffer buffer;
-
-	/** The logger class is chosen once, by the first Parley object that logs: this one has to pick it */
-	@org.junit.jupiter.api.BeforeAll
-	public static void chooseLogger() {
-		System.setProperty("parley.logger", us.bringardner.parley.core.SystemLogger.class.getName());
-	}
-
-	@org.junit.jupiter.api.AfterAll
-	public static void forgetLogger() {
-		System.clearProperty("parley.logger");
-	}
 
 	@BeforeEach
 	public void setup() {

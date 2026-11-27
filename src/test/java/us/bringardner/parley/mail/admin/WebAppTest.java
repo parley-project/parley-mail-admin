@@ -35,6 +35,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.FileSourceFactory;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * The whole application in an embedded Tomcat, as a browser uses it: the first administrator,
@@ -42,6 +43,7 @@ import us.bringardner.parley.files.FileSourceFactory;
  * the settings. The mail servers run on free ports with a scratch home.
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ErrorsExpected
 public class WebAppTest {
 
 	private static DevServer server;

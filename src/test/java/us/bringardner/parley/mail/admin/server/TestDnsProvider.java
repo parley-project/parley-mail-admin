@@ -23,12 +23,14 @@ import javax.management.ObjectName;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 
 /**
  * DNS run by parley-net's launcher, as "dns" in parley.servers: it shows over JMX as a Server like
  * every Parley server, with its Dns bean while it runs, and can be stopped and started again.
  */
+@ErrorsExpected
 public class TestDnsProvider {
 
 	private FileSource dir;

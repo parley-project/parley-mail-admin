@@ -23,6 +23,7 @@ import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.history.HistoryStore;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * A mail store that isn't on this machine's disk (a database several servers share, say): the
@@ -55,6 +56,7 @@ public class RemoteStoreTest {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void theFileSystemGetsTheServersConnectionSettings() throws Exception {
 		settings("parley.mail.root=/mail\nparley.mail.fileSource=Recording\n"

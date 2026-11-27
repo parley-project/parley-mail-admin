@@ -23,6 +23,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.mail.admin.TestFiles;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 
 /** The providers run by the launcher: a server reads its own settings when it starts, and one with implicit TLS and no key store refuses to start. */
@@ -83,6 +84,7 @@ public class TestPop3Providers {
 		assertTrue(ServerLauncher.providers().keySet().containsAll(Arrays.asList("pop3", "pop3s")), ServerLauncher.providers().keySet().toString());
 	}
 
+	@ErrorsExpected
 	@Test
 	public void runsWithTheSuiteSettings() throws Exception {
 		int port = freePort();

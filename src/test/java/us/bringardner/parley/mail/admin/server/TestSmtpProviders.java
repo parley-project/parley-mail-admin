@@ -36,11 +36,13 @@ import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.smtp.queue.MailQueueMXBean;
 import us.bringardner.parley.smtp.queue.QueueHistory;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * The SMTP providers: the relay and submission servers, each reading its own settings when it starts, using the
  * queue their settings name, each queue's JMX bean, its history, and what a server needs to start.
  */
+@ErrorsExpected
 public class TestSmtpProviders {
 
 	private static final String[] CLEARED = { "parley.mail.smtp.configFile", "parley.mail.smtp.port", "parley.mail.submission.port", "parley.mail.submissions.port",

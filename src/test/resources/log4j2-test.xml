@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The tests' logging (Log4j, as the application's): the Logs page gets what the application's configuration gives
+     it, and the console only errors, on System.err as it is now (follow), so a test that expects errors can keep
+     them off the output (@ErrorsExpected). -->
+<Configuration status="error" name="parley-mail-admin-test">
+	<Appenders>
+		<Console name="Console" target="SYSTEM_ERR" follow="true">
+			<ThresholdFilter level="error"/>
+			<PatternLayout pattern="%d{ISO8601} [%t] %-5level %logger{1.} - %msg%n"/>
+		</Console>
+		<LogPage name="LogPage"/>
+	</Appenders>
+	<Loggers>
+		<Logger name="us.bringardner" level="info"/>
+		<Root level="warn">
+			<AppenderRef ref="Console"/>
+			<AppenderRef ref="LogPage"/>
+		</Root>
+	</Loggers>
+</Configuration>

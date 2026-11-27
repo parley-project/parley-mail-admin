@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- The admin's own logging configuration (Log4j). Parley code logs through BaseObject and SystemLogger, whose
-     System.Logger log4j-jpl hands to Log4j, so these loggers, appenders and levels are all there is to set.
+<!-- The admin's own logging configuration (Log4j). Parley code logs through BaseObject to System.Logger, which
+     log4j-jpl hands to Log4j, so these loggers, appenders and levels are all there is to set.
      The Logs page shows what the LogPage appender gets and sets the levels of the sources named here.
      Use another file with -Dlog4j2.configurationFile=... -->
 <Configuration status="warn" name="parley-mail-admin">
