@@ -179,7 +179,26 @@ final class SuiteFtp {
 		@Override
 		public us.bringardner.parley.iam.AuthenticationResult authenticate(us.bringardner.parley.iam.Credential credential) {
 			us.bringardner.parley.iam.AuthenticationResult result = super.authenticate(credential);
-			return FtpLogin.admit(requireUserRegistry(), getProperty(propertyName(LOGIN_PERMISSION)), credential, result);
+			us.bringardner.parley.iam.AuthenticationResult ret = FtpLogin.admit(requireUserRegistry(), getProperty(propertyName(LOGIN_PERMISSION)), credential, result);
+			if (ret.getStatus() == us.bringardner.parley.iam.AuthenticationResult.Status.AUTHENTICATED && ret.getPrincipal() != null) {
+				try {
+					makeDomainFolder(ret.getPrincipal().getName());
+				} catch (IOException | RuntimeException e) {
+					logError("Can't make the folder of the domain of " + ret.getPrincipal().getName(), e);
+				}
+			}
+			return ret;
+		}
+
+		/** The folder of a user's domain, made under the FTP server's root when it is missing (the primary domain's users work in the root, and its folder is in it) */
+		private void makeDomainFolder(String user) throws IOException {
+			int at = user == null ? -1 : user.lastIndexOf('@');
+			if (at < 0 || at == user.length() - 1) {
+				return;
+			}
+			String path = FtpFolders.domainFolder(
+					getProperty(propertyName("primaryRoot")), getProperty(propertyName("domainRoot")), user.substring(at + 1));
+			makeFolder(getFtpRoot(), path);
 		}
 
 		@Override
@@ -199,6 +218,20 @@ final class SuiteFtp {
 
 		private static String trimmed(String s) {
 			return s == null || s.trim().isEmpty() ? null : s.trim();
+		}
+	}
+
+	/** Makes a folder ("/b.test", "/a/b") below a root when it is missing, one segment at a time so it works on any file system */
+	static void makeFolder(FileSource root, String path) throws IOException {
+		FileSource dir = root;
+		for (String seg : path.split("/")) {
+			if (seg.isEmpty()) {
+				continue;
+			}
+			dir = dir.getChild(seg);
+		}
+		if (!dir.exists() && !dir.mkdirs()) {
+			throw new IOException("Can't make the FTP folder " + dir.getAbsolutePath());
 		}
 	}
 

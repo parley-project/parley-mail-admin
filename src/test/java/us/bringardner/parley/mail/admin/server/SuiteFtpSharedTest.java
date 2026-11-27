@@ -23,4 +23,15 @@ public class SuiteFtpSharedTest {
 	public void ftpHasNoFallback() {
 		assertArrayEquals(new String[0], SuiteFtp.sharedWith("parley.mail.ftp"));
 	}
+
+	@Test
+	public void makeFolderMakesTheMissingFoldersOnce() throws Exception {
+		FileSource root = new MemoryFileSourceFactory().createFileSource("/ftp");
+		root.mkdirs();
+		SuiteFtp.makeFolder(root, "/a.test");
+		SuiteFtp.makeFolder(root, "/a.test");
+		SuiteFtp.makeFolder(root, "/x/y");
+		assertTrue(root.getChild("a.test").isDirectory());
+		assertTrue(root.getChild("x").getChild("y").isDirectory());
+	}
 }

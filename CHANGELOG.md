@@ -2,6 +2,12 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Fixed (2026-11-27: FTP domain folders)
+
+- **A user's domain folder is made when the user logs in to FTP** (when it is missing): `domainRoot` with the domain
+  filled in, below the FTP server's root (for example `/bringardner.us` for admin@bringardner.us). The rework of
+  2026-11-26 had dropped the folder the FTP server made for the primary domain when it started.
+
 ### Changed (2026-11-23: a new system runs no server)
 
 - **A new system turns no service on**: the settings template has `parley.servers=` empty, and the launcher

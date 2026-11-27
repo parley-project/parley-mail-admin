@@ -1,6 +1,8 @@
 package us.bringardner.parley.mail.admin.users;
 
 import java.util.Locale;
+
+import us.bringardner.parley.mail.admin.server.FtpFolders;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -47,35 +49,11 @@ public class FtpRoots {
 
 	/** The folder every root is in: the deepest folder both have in common (up to the first {domain} or {name}) */
 	static String base(String primary, String domain) {
-		String[] a = primary.split("/");
-		String[] b = domain.split("/");
-		StringBuilder ret = new StringBuilder();
-		for (int i = 1; i < a.length && i < b.length; i++) {
-			if (b[i].contains("{") || !a[i].equals(b[i])) {
-				break;
-			}
-			ret.append('/').append(a[i]);
-		}
-		return ret.length() == 0 ? "/" : ret.toString();
+		return FtpFolders.base(primary, domain);
 	}
 
 	/** An absolute folder without a trailing separator, or null when it is empty or not usable */
 	private static String folder(String value) {
-		if (value == null || value.trim().isEmpty()) {
-			return null;
-		}
-		String v = value.trim().replace('\\', '/');
-		while (v.length() > 1 && v.endsWith("/")) {
-			v = v.substring(0, v.length() - 1);
-		}
-		if (!v.startsWith("/")) {
-			return null;
-		}
-		for (String seg : v.split("/")) {
-			if (seg.equals("..") || seg.equals(".")) {
-				return null;
-			}
-		}
-		return v;
+		return FtpFolders.folder(value);
 	}
 }

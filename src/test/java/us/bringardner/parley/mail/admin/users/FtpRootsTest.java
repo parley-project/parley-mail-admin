@@ -36,4 +36,12 @@ public class FtpRootsTest {
 		assertEquals("/ftp", FtpRoots.root("/ftp", "/other/{domain}", "a.test", "a.test"));
 		assertEquals("/other/b.test", FtpRoots.root("/ftp", "/other/{domain}", "a.test", "b.test"));
 	}
+
+	@Test
+	public void aDomainHasItsOwnFolderEvenWhenItsUsersWorkInTheRoot() {
+		assertEquals("/a.test", us.bringardner.parley.mail.admin.server.FtpFolders.domainFolder("/ftp", "/ftp/{domain}", "A.test"));
+		assertEquals("/b.test", us.bringardner.parley.mail.admin.server.FtpFolders.domainFolder("/ftp/main", "/ftp/{domain}", "b.test"));
+		assertEquals("/a.test", us.bringardner.parley.mail.admin.server.FtpFolders.domainFolder(null, null, "a.test"));
+		assertEquals("/a.test", us.bringardner.parley.mail.admin.server.FtpFolders.domainFolder("/ftp", "/ftp/{domain}/{name}", "a.test"));
+	}
 }
