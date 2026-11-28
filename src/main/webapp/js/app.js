@@ -1373,7 +1373,7 @@
 		root.appendChild(panel('Log', h('div.toolbar', level, source, q, pause,
 			h('button', { onclick: async () => { try { await api('POST', '/logs/clear'); reload(); } catch (e) { fail(e); } } }, 'Clear'),
 			h('a.btn', { href: 'api/logs/download' }, 'Download file')), view));
-		root.appendChild(panel('Log levels', null, h('p.muted', 'How much each part of the suite logs. Kept in the settings; "default" leaves the servers\' own level (INFO).'), levels));
+		root.appendChild(panel('Log levels', null, h('p.muted', 'How much each server logs, with what the suite's shared code logs while it works for that server. Admin is this application. Kept in the settings; "default" leaves the servers\' own level (INFO).'), levels));
 		const fileSel = h('select');
 		const fileView = h('pre.message.logfile');
 		const fileDl = h('a.btn', { href: '#' }, 'Download');

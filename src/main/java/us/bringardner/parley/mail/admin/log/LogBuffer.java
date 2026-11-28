@@ -17,6 +17,7 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
 import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.mail.admin.server.ServerNames;
 
 /**
  * The log entries of the mail suite: the last few thousand in memory for the Logs page, and all of
@@ -42,9 +43,14 @@ public final class LogBuffer {
 		}
 	}
 
-	/** Where an entry came from, by its logger's name. */
+	/**
+	 * Where an entry came from: the server that was doing the work, or the administration application. What a
+	 * server's code logs while it works on a request is the server's, whichever class logs it (the sockets, TLS,
+	 * the mail store): the work's ID and the thread's name say which server ({@link ServerNames}); the
+	 * application's own work is ADMIN.
+	 */
 	public enum Source {
-		SMTP, IMAP, POP3, FTP, MAIL, NET, ADMIN, OTHER;
+		SMTP, IMAP, POP3, FTP, DNS, ADMIN, OTHER;
 
 		/** The logger name prefixes of a source (for setting its level). */
 		public String[] packages() {
@@ -57,11 +63,8 @@ public final class LogBuffer {
 				return new String[] { "us.bringardner.parley.pop3" };
 			case FTP:
 				return new String[] { "us.bringardner.parley.ftp" };
-			case MAIL:
-				return new String[] { "us.bringardner.parley.mail.store", "us.bringardner.parley.mail.server" };
-			case NET:
-				return new String[] { "us.bringardner.parley.net", "us.bringardner.parley.core", "us.bringardner.parley.files",
-						"us.bringardner.parley.dns", "us.bringardner.parley.io" };
+			case DNS:
+				return new String[] { "us.bringardner.parley.dns" };
 			case ADMIN:
 				return new String[] { "us.bringardner.parley.mail.admin" };
 			default:
@@ -69,15 +72,16 @@ public final class LogBuffer {
 			}
 		}
 
-		public static Source of(String loggerName) {
-			if (loggerName == null) {
-				return OTHER;
-			}
-			if (loggerName.startsWith("us.bringardner.parley.mail.admin")) {
-				return ADMIN;
-			}
-			for (Source s : values()) {
-				if (s != ADMIN) {
+		/**
+		 * @param loggerName the logger's name
+		 * @param thread the logging thread's name
+		 * @param message the message, which starts with the work's ID in brackets when there is one ({@code [FtpServer-15] ...})
+		 * @return the source of the entry
+		 */
+		public static Source of(String loggerName, String thread, String message) {
+			String pkg = ServerNames.packageOf(sessionIdOf(message), thread);
+			if (pkg == null && loggerName != null) {
+				for (Source s : values()) {
 					for (String p : s.packages()) {
 						if (loggerName.startsWith(p)) {
 							return s;
@@ -85,7 +89,27 @@ public final class LogBuffer {
 					}
 				}
 			}
-			return loggerName.startsWith("us.bringardner.parley.mail") ? MAIL : OTHER;
+			if (pkg != null) {
+				for (Source s : values()) {
+					for (String p : s.packages()) {
+						if (p.equals(pkg)) {
+							return s;
+						}
+					}
+				}
+			}
+			return OTHER;
+		}
+
+		/** @return the ID in the brackets the message starts with, or null */
+		private static String sessionIdOf(String message) {
+			if (message != null && message.startsWith("[")) {
+				int end = message.indexOf(']');
+				if (end > 1) {
+					return message.substring(1, end);
+				}
+			}
+			return null;
 		}
 	}
 
@@ -105,7 +129,7 @@ public final class LogBuffer {
 			this.seq = seq;
 			this.time = time;
 			this.level = level;
-			this.source = Source.of(logger);
+			this.source = Source.of(logger, thread, message);
 			this.logger = logger;
 			this.thread = thread;
 			this.message = message;

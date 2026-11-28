@@ -32,9 +32,26 @@ public class LoggerLevels {
 				value = toLevel.invoke(null, level.trim().toUpperCase());
 			}
 			log.getClass().getMethod("setLevel", levelClass).invoke(log, value);
+			if (ServerNames.isServer(logger)) {
+				// a server's level covers what the framework logs for it too
+				ServerNames.setLevel(logger, value == null ? null : (Integer) levelClass.getMethod("toInt").invoke(value));
+				installFilter(factory);
+			}
 			return true;
 		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
 			return false;
 		}
+	}
+
+	/** Add the filter that applies a server's level to the framework's lines, once */
+	private static synchronized void installFilter(Object context) throws ReflectiveOperationException {
+		Class<?> filter = Class.forName("us.bringardner.parley.mail.admin.server.ServerLevelFilter", true, context.getClass().getClassLoader());
+		for (Object f : (java.util.List<?>) context.getClass().getMethod("getTurboFilterList").invoke(context)) {
+			if (filter.isInstance(f)) {
+				return;
+			}
+		}
+		Object f = filter.getDeclaredConstructor().newInstance();
+		context.getClass().getMethod("addTurboFilter", Class.forName("ch.qos.logback.classic.turbo.TurboFilter", true, context.getClass().getClassLoader())).invoke(context, f);
 	}
 }

@@ -4,6 +4,12 @@
 
 ### Changed (2026-11-27: logging through System.Logger only)
 
+- **The Logs page's sources are the servers**: SMTP, IMAP, POP3, FTP and DNS, plus Admin; the Mail and Net groups are
+  gone. A line written while a server works is that server's whichever class logs it: the work's ID in the message
+  (`[FtpServer-15]`) or the server's thread name says which (`ServerNames`). A server's level covers those lines too:
+  the launcher's Logback gets `ServerLevelFilter`, a turbo filter `LoggerLevels` installs when a server's level is
+  set, which lets a line of that server's work through at or above the level (it never hides one). A Mail or Net
+  level kept in the settings is ignored.
 - **A level chosen on the Logs page reaches the servers**: `ParleyLauncherMBean.setLogLevel(logger, level)` sets it in
   the launcher's own process when that logs with Logback (`LoggerLevels`), for each of the source's logger prefixes;
   the page pushes it when it is chosen and again when servers are started.
