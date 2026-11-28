@@ -558,6 +558,11 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	}
 
 	@Override
+	public void setLogLevel(String logger, String level) {
+		new LoggerLevels().set(logger, level);
+	}
+
+	@Override
 	public void reloadSettings() throws IOException {
 		// (a server added to parley.servers is known from here on, stopped: start it to run it)
 		try {

@@ -145,6 +145,13 @@
 			<version>${tomcat.version}</version>
 			<scope>test</scope>
 		</dependency>
+		<!-- LoggerLevels' test: the servers' backend, here only to see a level change -->
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<version>1.5.18</version>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>

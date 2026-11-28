@@ -351,6 +351,12 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 		for (Map.Entry<LogBuffer.Source, LogBuffer.Level> e : getLogLevels().entrySet()) {
 			LogBuffer.Level l = e.getValue();
 			LogPageHandler.setSourceLevel(e.getKey(), l);
+			// the servers' own processes (Logback): their level for the source too
+			if (suite != null) {
+				for (String p : e.getKey().packages()) {
+					suite.setLogLevel(p, l == null ? null : l.name());
+				}
+			}
 		}
 	}
 

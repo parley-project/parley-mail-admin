@@ -4,6 +4,10 @@
 
 ### Changed (2026-11-27: logging through System.Logger only)
 
+- **A level chosen on the Logs page reaches the servers**: `ParleyLauncherMBean.setLogLevel(logger, level)` sets it in
+  the launcher's own process when that logs with Logback (`LoggerLevels`), for each of the source's logger prefixes;
+  the page pushes it when it is chosen and again when servers are started.
+
 - **The web application logs with Log4j, the servers with Logback**: Parley code logs through BaseObject to the
   JDK's System.Logger and log4j-jpl hands it to Log4j (`installLogger()` no longer sets `parley.logger`).
 - **The Logging settings group is gone** (`parley.log.level`, `.file`, `.fileMaxSize`, `.fileCount`,

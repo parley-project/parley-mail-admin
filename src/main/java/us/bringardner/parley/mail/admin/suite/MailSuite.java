@@ -214,6 +214,29 @@ public final class MailSuite extends BaseObject implements AutoCloseable {
 		this.users = users;
 	}
 
+	/**
+	 * Set the level of the loggers named from a prefix in every launcher that can be reached (not this
+	 * application's own: its loggers are Log4j's, set by the Logs page itself). A launcher that is too old
+	 * to have the operation, or can't be reached, is left as it is.
+	 *
+	 * @param logger the start of logger names, e.g. us.bringardner.parley.smtp
+	 * @param level  TRACE .. ERROR, or null for the logging configuration's own
+	 */
+	public synchronized void setLogLevel(String logger, String level) {
+		for (Target t : new ArrayList<>(targets)) {
+			if (t.local != null) {
+				continue;
+			}
+			try {
+				for (ObjectName n : t.mbeans.queryNames(name("Launcher", "*"), null)) {
+					JMX.newMBeanProxy(t.mbeans, n, ParleyLauncherMBean.class).setLogLevel(logger, level);
+				}
+			} catch (IOException | RuntimeException e) {
+				logDebug("Can't set the level of " + logger + " in " + t.where() + ": " + e);
+			}
+		}
+	}
+
 	/** Called after servers are started (the Logs page's levels are applied again then). */
 	public void setServerCreated(Runnable r) {
 		this.serverCreated = r;

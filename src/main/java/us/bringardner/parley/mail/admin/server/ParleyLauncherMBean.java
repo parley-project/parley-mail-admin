@@ -19,6 +19,16 @@ public interface ParleyLauncherMBean {
 	/** Read the settings files again (the servers use the new settings when they are restarted) */
 	void reloadSettings() throws Exception;
 
+	/**
+	 * Set the level of the loggers whose names start with a prefix, in this process, now (parley-mail-admin's
+	 * Logs page chooses one for each kind of server). Only a backend that can change a level at run time
+	 * does it: Logback.
+	 *
+	 * @param logger a logger name or the start of some, e.g. us.bringardner.parley.smtp
+	 * @param level  TRACE, DEBUG, INFO, WARN or ERROR; null or empty goes back to the logging configuration's
+	 */
+	void setLogLevel(String logger, String level);
+
 	void startAll() throws Exception;
 
 	void stopAll() throws Exception;
