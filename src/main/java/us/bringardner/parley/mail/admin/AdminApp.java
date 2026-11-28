@@ -31,7 +31,6 @@ import us.bringardner.parley.mail.admin.history.HistoryStore;
 import us.bringardner.parley.mail.admin.log.LogPageHandler;
 import us.bringardner.parley.mail.admin.log.LogBuffer;
 import us.bringardner.parley.mail.admin.log.LogFiles;
-import us.bringardner.parley.mail.admin.settings.PropertiesFile;
 import us.bringardner.parley.mail.admin.settings.SettingsCatalog;
 import us.bringardner.parley.mail.admin.settings.SettingsService;
 import us.bringardner.parley.mail.admin.suite.MailSuite;
@@ -52,7 +51,6 @@ import us.bringardner.parley.smtp.queue.QueuedMessageInfo;
 public final class AdminApp extends BaseObject implements AutoCloseable {
 
 	/** The servers' log file in a settings file (parley-core's; 1.x's logFile) */
-	static final String SERVERS_LOG_FILE = "parley.log.file";
 
 	/** Settings that keep the Logs page's levels, e.g. parley.mail.admin.logLevel.SMTP=DEBUG. */
 	public static final String LOG_LEVEL_PREFIX = "parley.mail.admin.logLevel.";
@@ -422,21 +420,13 @@ public final class AdminApp extends BaseObject implements AutoCloseable {
 	}
 
 	/**
-	 * The log files the Logs page shows: this application's, the servers' ({@code parley.log.file} in a
-	 * settings file, unless it's System.out or System.err) and those
-	 * {@value SettingsCatalog#ADMIN_LOG_FILES} names.
+	 * The log files the Logs page shows: this application's and those {@value SettingsCatalog#ADMIN_LOG_FILES}
+	 * names (the servers', which log with Logback in a file of their own).
 	 */
 	private List<FileSource> logFileSources() {
 		List<FileSource> ret = new ArrayList<>();
 		if (logs.getFile() != null) {
 			ret.add(logs.getFile());
-		}
-		for (PropertiesFile f : settings.getFiles()) {
-			String v = f.get(SERVERS_LOG_FILE);
-			if (!isBlank(v) && !v.trim().equals("System.out") && !v.trim().equals("System.err")) {
-				// parley-logging's ParleyLogger writes it with java.io.File: on the local disk
-				addLog(ret, FileSourceFactory.fileProxyFactory, v);
-			}
 		}
 		String more = settings.get(SettingsCatalog.ADMIN_LOG_FILES, null);
 		if (more != null) {

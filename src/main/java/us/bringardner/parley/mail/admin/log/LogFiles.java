@@ -16,9 +16,9 @@ import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.IRandomAccessStream;
 
 /**
- * The log files the Logs page shows: this application's own, the servers' (the {@code parley.log.file}
- * setting of parley-core's logger in the settings files, with its rotated copies {@code .1},
- * {@code .2} ...) and any others the settings name. Only these files can be read through the page.
+ * The log files the Logs page shows: this application's own, the servers' (Logback's, named by the
+ * {@code parley.mail.admin.logFiles} setting, with their rotated copies {@code .1}, {@code .2} ...)
+ * and any others the settings name. Only these files can be read through the page.
  * Each is a FileSource on the file system its writer uses.
  */
 public final class LogFiles {

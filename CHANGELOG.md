@@ -2,6 +2,15 @@
 
 ## parley-mail-admin 2.0.0 (unreleased)
 
+### Changed (2026-11-27: logging through System.Logger only)
+
+- **The web application logs with Log4j, the servers with Logback**: Parley code logs through BaseObject to the
+  JDK's System.Logger and log4j-jpl hands it to Log4j (`installLogger()` no longer sets `parley.logger`).
+- **The Logging settings group is gone** (`parley.log.level`, `.file`, `.fileMaxSize`, `.fileCount`,
+  `.flushInterval` were ParleyLogger's): the servers' level, rotation and file are in `/etc/parley/logback.xml`.
+  The Logs page lists the servers' files through *More log files* (`parley.mail.admin.logFiles`), not
+  `parley.log.file`.
+
 ### Fixed (2026-11-27: FTP domain folders)
 
 - **A user's domain folder is made when the user logs in to FTP** (when it is missing): `domainRoot` with the domain
