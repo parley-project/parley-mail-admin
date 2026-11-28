@@ -223,8 +223,23 @@ public final class MailSuite extends BaseObject implements AutoCloseable {
 	 * @param level  TRACE .. ERROR, or null for the logging configuration's own
 	 */
 	public synchronized void setLogLevel(String logger, String level) {
+		if (!setLogLevelOnce(logger, level)) {
+			// a launcher was restarted since the connection was made: connect again now and try once more
+			lastAttempt = 0;
+			setLogLevelOnce(logger, level);
+		}
+	}
+
+	/** @return false if a connection turned out to be broken (nothing was set through it) */
+	private boolean setLogLevelOnce(String logger, String level) {
+		connect();
+		boolean ok = true;
 		for (Target t : new ArrayList<>(targets)) {
 			if (t.local != null) {
+				continue;
+			}
+			if (t.broken) {
+				ok = false;
 				continue;
 			}
 			try {
@@ -232,9 +247,12 @@ public final class MailSuite extends BaseObject implements AutoCloseable {
 					JMX.newMBeanProxy(t.mbeans, n, ParleyLauncherMBean.class).setLogLevel(logger, level);
 				}
 			} catch (IOException | RuntimeException e) {
-				logDebug("Can't set the level of " + logger + " in " + t.where() + ": " + e);
+				broken(t, e);
+				ok &= !t.broken;
+				logDebug("Can't set the level of " + logger + " in " + t.where() + ": " + message(e));
 			}
 		}
+		return ok;
 	}
 
 	/** Called after servers are started (the Logs page's levels are applied again then). */

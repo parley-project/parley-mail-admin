@@ -204,6 +204,21 @@ public class RemoteModeTest {
 			assertTrue(suite.types().contains("MailQueue"), "the first call after the restart");
 			assertEquals(MailSuite.State.RUNNING, suite.getState(ServiceId.POP3));
 
+			// the Logs page's level, pushed to a service that restarted after the connection was made:
+			// the first push finds the connection broken and connects again
+			ch.qos.logback.classic.Logger restarted = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("test.restart.levels");
+			try {
+				cs.stop();
+				cs = JMXConnectorServerFactory.newJMXConnectorServer(new JMXServiceURL(url), env, mbs);
+				cs.start();
+				suite.setLogLevel("test.restart.levels", "DEBUG");
+				assertEquals(ch.qos.logback.classic.Level.DEBUG, restarted.getLevel(), "the level reached the restarted service");
+				suite.setLogLevel("test.restart.levels", null);
+				assertNull(restarted.getLevel());
+			} finally {
+				restarted.setLevel(null);
+			}
+
 			// the application stops: the service keeps running
 			app.close();
 			app = null;
