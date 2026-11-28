@@ -1351,7 +1351,7 @@
 
 	// ------------------------------------------------------------------ logs
 
-	const SOURCES = ['SMTP', 'IMAP', 'POP3', 'FTP', 'MAIL', 'NET', 'ADMIN', 'OTHER'];
+	const SOURCES = ['SMTP', 'IMAP', 'POP3', 'FTP', 'DNS', 'ADMIN', 'OTHER'];
 	const LEVELS = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'];
 
 	function logsPage(root) {
